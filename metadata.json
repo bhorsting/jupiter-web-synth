@@ -1,0 +1,6 @@
+{
+  "name": "Jupiter-8 Web Synth",
+  "description": "A high-fidelity Roland Jupiter-8 emulator optimized for ultra-wide touchscreens with WebMIDI support.",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}

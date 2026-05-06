@@ -1,0 +1,1120 @@
+/**
+ * @license
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+import { useEffect, useRef, useState } from 'react';
+import { JupiterSlider, JupiterToggle, JupiterSelector } from './components/Controls';
+import { Oscilloscope } from './components/Oscilloscope';
+import { JupiterEngine } from './engine/JupiterEngine';
+import { MIDIService } from './services/MIDIService';
+import { 
+  LFOSection, 
+  VCOModSection, 
+  VCO1Section, 
+  VCO2Section, 
+  MixerSection, 
+  VCFSection, 
+  VCASection, 
+  EnvelopeSection, 
+  VolumeSection,
+  ArpSection,
+  FXSection
+} from './components/SynthPanel';
+import { DEFAULT_PARAMS, VoiceParams, Patch, MidiMapping } from './types';
+import { Power, Save, FolderOpen, Sliders, Waves, Activity, Trash2, X, Keyboard as PianoIcon, Cloud, UploadCloud, DownloadCloud, Link, Maximize, Minimize, Settings2 } from 'lucide-react';
+import React from 'react';
+import Keyboard from 'react-simple-keyboard';
+import { PianoKeyboard } from './components/PianoKeyboard';
+import { SettingsModal } from './components/SettingsModal';
+import { SettingsProvider, useSettings } from './contexts/SettingsContext';
+import { googleSheetsService } from './services/GoogleSheetsService';
+import { indexedDBService } from './services/IndexedDBService';
+import { PRESET_PATCHES } from './constants/presetPatches';
+import 'react-simple-keyboard/build/css/index.css';
+
+type Screen = 'SYNTH' | 'ARP' | 'FX' | 'PATCHES';
+
+export default function AppWrapper() {
+  return (
+    <SettingsProvider>
+      <App />
+    </SettingsProvider>
+  );
+}
+
+function App() {
+  const [params, setParams] = useState<VoiceParams>(DEFAULT_PARAMS);
+  const { settings, updateSettings } = useSettings();
+  const [engineReady, setEngineReady] = useState(false);
+  const [activeNotes, setActiveNotes] = useState<number[]>([]);
+  const [currentScreen, setCurrentScreen] = useState<Screen>('SYNTH');
+  const [activePatchId, setActivePatchId] = useState<string | null>(null);
+  const [midiLogs, setMidiLogs] = useState<{ id: number, text: string }[]>([]);
+  const [showKeyboard, setShowKeyboard] = useState(false);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  
+  // Patch naming state
+  const [isNaming, setIsNaming] = useState(false);
+  const [pendingName, setPendingName] = useState('');
+  const [namingMode, setNamingMode] = useState<'SAVE' | 'SAVE_AS'>('SAVE');
+  
+  const [sheetUrl, setSheetUrl] = useState('');
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [syncError, setSyncError] = useState<string | null>(null);
+  const [isMidiMappingMode, setIsMidiMappingMode] = useState(false);
+  const [selectedMapParam, setSelectedMapParam] = useState<keyof VoiceParams | null>(null);
+  const [midiMappings, setMidiMappings] = useState<MidiMapping[]>([]);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [isMidiLogVisible, setIsMidiLogVisible] = useState(false);
+
+  const [patches, setPatches] = useState<Patch[]>([]);
+
+  useEffect(() => {
+    const handleFsChange = () => setIsFullscreen(!!document.fullscreenElement);
+    document.addEventListener('fullscreenchange', handleFsChange);
+    return () => document.removeEventListener('fullscreenchange', handleFsChange);
+  }, []);
+
+  const toggleFullscreen = () => {
+    if (!document.fullscreenElement) {
+      document.documentElement.requestFullscreen().catch(err => {
+        console.error(`Error attempting to enable full-screen mode: ${err.message} (${err.name})`);
+      });
+    } else {
+      document.exitFullscreen();
+    }
+  };
+
+  // Initialize DB and load patches
+  useEffect(() => {
+    const initDB = async () => {
+      await indexedDBService.init();
+      let storedPatches = await indexedDBService.getAllPatches();
+      
+      if (storedPatches.length === 0) {
+        console.log('Seeding IndexedDB with preset patches...');
+        await indexedDBService.savePatches(PRESET_PATCHES);
+        storedPatches = PRESET_PATCHES;
+      }
+
+      // Migration: ensure all fields exist
+      const migrated = storedPatches.map((p: any) => ({
+        ...p,
+        params: { ...DEFAULT_PARAMS, ...p.params },
+        midiMappings: (p.midiMappings || []).map((m: any) => ({
+          parameter: m.parameter,
+          cc: m.cc,
+          channel: m.channel ?? 0
+        }))
+      }));
+      
+      setPatches(migrated);
+
+      // Restore last selected patch if exists
+      const lastPatchId = localStorage.getItem('jupiter_last_patch_id');
+      if (lastPatchId) {
+        const patch = migrated.find(p => p.id === lastPatchId);
+        if (patch) {
+          setParams({ ...DEFAULT_PARAMS, ...patch.params });
+          setActivePatchId(patch.id);
+          setMidiMappings(patch.midiMappings || []);
+        }
+      }
+    };
+    initDB();
+  }, []);
+
+  // Save active patch ID to localStorage
+  useEffect(() => {
+    if (activePatchId) {
+      localStorage.setItem('jupiter_last_patch_id', activePatchId);
+    } else {
+      localStorage.removeItem('jupiter_last_patch_id');
+    }
+  }, [activePatchId]);
+
+  // Load current patch mappings only when activePatchId changes
+  useEffect(() => {
+    if (activePatchId) {
+      const activePatch = patches.find(p => p.id === activePatchId);
+      if (activePatch) {
+        setMidiMappings(activePatch.midiMappings || []);
+      }
+    } else {
+      setMidiMappings([]);
+    }
+  }, [activePatchId]);
+  
+  const engineRef = useRef<JupiterEngine | null>(null);
+  const midiRef = useRef<MIDIService | null>(null);
+
+  const handleMidiCC = React.useCallback((cc: number, value: number, channel: number) => {
+    if (isMidiMappingMode) {
+      if (selectedMapParam) {
+        console.log(`MIDI Mapping: Assigning CH ${channel + 1} CC ${cc} to ${selectedMapParam}`);
+        // Assign CC to parameter
+        setMidiMappings(prev => {
+          const filtered = prev.filter(m => m.parameter !== selectedMapParam && !(m.cc === cc && m.channel === channel));
+          const newMappings = [...filtered, { parameter: selectedMapParam, cc, channel }];
+          
+          // Also update the patches array so it's persisted/ready for sync
+          if (activePatchId) {
+            setPatches(currentPatches => 
+              currentPatches.map(p => p.id === activePatchId ? { ...p, midiMappings: newMappings } : p)
+            );
+          }
+          
+          return newMappings;
+        });
+        setSelectedMapParam(null); // Finish assignment
+      }
+      return;
+    }
+
+    // Normal operation: find mapping for this CC and Channel
+    const mapping = midiMappings.find(m => m.cc === cc && m.channel === channel);
+    if (mapping) {
+      const paramKey = mapping.parameter;
+      updateParamFromCC(paramKey, value);
+    }
+
+    // Default Mod Wheel behavior
+    if (cc === 1) {
+      engineRef.current?.setModWheel(value);
+    }
+  }, [isMidiMappingMode, selectedMapParam, activePatchId, midiMappings]);
+
+  const handlePanic = React.useCallback(() => {
+    engineRef.current?.panic();
+    setActiveNotes([]);
+  }, []);
+
+  const handleNoteOn = React.useCallback((note: number, velocity: number = 0.8) => {
+    engineRef.current?.noteOn(note, velocity);
+    setActiveNotes(prev => [...prev.filter(n => n !== note), note]);
+  }, []);
+
+  const handleNoteOff = React.useCallback((note: number) => {
+    engineRef.current?.noteOff(note);
+    setActiveNotes(prev => prev.filter(n => n !== note));
+  }, []);
+
+  const handlePitchBend = React.useCallback((value: number) => {
+    engineRef.current?.setPitchBend(value);
+  }, []);
+
+  // Use refs for MIDI callbacks to avoid stale closures
+  const midiCCRef = useRef<(cc: number, value: number, channel: number) => void>(() => {});
+  const midiNoteOnRef = useRef<(note: number, velocity: number) => void>(() => {});
+  const midiNoteOffRef = useRef<(note: number) => void>(() => {});
+  const midiPitchBendRef = useRef<(value: number) => void>(() => {});
+
+  useEffect(() => {
+    midiCCRef.current = handleMidiCC;
+    midiNoteOnRef.current = handleNoteOn;
+    midiNoteOffRef.current = handleNoteOff;
+    midiPitchBendRef.current = handlePitchBend;
+  }, [handleMidiCC, handleNoteOn, handleNoteOff, handlePitchBend]);
+
+  useEffect(() => {
+    googleSheetsService.getSheetConfig().then(async config => {
+      if (config) {
+        setSheetUrl(config.url);
+        // Try to pull on load if config exists
+        try {
+          const remotePatches = await googleSheetsService.loadPatchesFromSheet();
+          if (remotePatches.length > 0) {
+            setPatches(remotePatches);
+            console.log('App: Auto-pulled patches from Google Sheets');
+          }
+        } catch (e) {
+          console.warn('App: Initial sync pull failed (likely auth required)', e);
+        }
+      }
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!engineRef.current) {
+      engineRef.current = new JupiterEngine(params, settings);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (engineRef.current) {
+      engineRef.current.setPerformanceSettings(settings);
+    }
+  }, [settings]);
+
+  useEffect(() => {
+    if (engineRef.current) {
+      engineRef.current.setParams(params);
+    }
+  }, [params]);
+
+  useEffect(() => {
+    if (midiRef.current) {
+      midiRef.current.setFilter(settings.midiInputId, settings.midiChannel);
+    }
+  }, [settings.midiInputId, settings.midiChannel]);
+
+  useEffect(() => {
+    if (patches.length > 0) {
+      indexedDBService.savePatches(patches);
+    }
+  }, [patches]);
+
+
+  function updateParamFromCC(key: keyof VoiceParams, ccValue: number) {
+    const ranges: Record<string, [number, number]> = {
+      lfoRate: [0.1, 50],
+      filterCutoff: [20, 15000],
+      vco2Freq: [-12, 12],
+      vco2Detune: [-100, 100],
+      vcaLevel: [0, 1],
+      vcoMix: [0, 1],
+      portamentoTime: [0, 2],
+      arpRate: [40, 300],
+      // Envelope params
+      env1Attack: [0.001, 10], env1Hold: [0, 10], env1Decay: [0.001, 10], env1Release: [0.001, 10],
+      env2Attack: [0.001, 10], env2Decay: [0.001, 10], env2Release: [0.001, 10],
+      // Filter params
+      filterResonance: [0, 1], filterEnvAmount: [0, 1], filterLfoAmount: [0, 1],
+      // VCO params
+      vco1Freq: [-12, 12], vco1PulseWidth: [0, 1],
+      vco2PulseWidth: [0, 1], crossMod: [0, 1],
+      mixerVco1: [0, 1], mixerVco2: [0, 1],
+      // FX
+      chorusMix: [0, 1], delayMix: [0, 1], delayTime: [0.01, 1], delayFeedback: [0, 0.9],
+      reverbMix: [0, 1], reverbTime: [0.1, 10], reverbDecay: [0.1, 10], reverbDamping: [0, 0.99],
+      compThreshold: [-60, 0], compRatio: [1, 20], compAttack: [0.001, 0.5], compRelease: [0.01, 1],
+      leslieMix: [0, 1], leslieRate: [0.1, 15], leslieDepth: [0, 1],
+      tremoloMix: [0, 1], tremoloRate: [0.5, 20], tremoloDepth: [0, 1],
+      distortionMix: [0, 1], distortionAmount: [0, 1],
+      masterVolume: [0, 1],
+    };
+
+    const [min, max] = ranges[key] || [0, 1];
+    const normalizedValue = ccValue / 127;
+
+    // Special handling for discrete ranges
+    if (key === 'vco1Range' || key === 'vco2Range' || key === 'arpRange') {
+      const options = key === 'arpRange' ? [1, 2, 3, 4] : [16, 8, 4, 2];
+      const index = Math.floor(normalizedValue * 0.99 * options.length);
+      updateParam(key, options[index]);
+      return;
+    }
+
+    const mappedValue = min + normalizedValue * (max - min);
+    updateParam(key, mappedValue);
+  }
+
+  const addMidiLog = (data: Uint8Array) => {
+    if (data[0] === 0xF8) return; // Filter out MIDI Timing Clock
+    const bytes = Array.from(data).map(b => b.toString(16).toUpperCase().padStart(2, '0')).join(' ');
+    const id = Date.now() + Math.random();
+    setMidiLogs(prev => [{ id, text: bytes }, ...prev].slice(0, 10));
+  };
+
+  const handleConnectGoogle = async () => {
+    setIsSyncing(true);
+    setSyncError(null);
+    try {
+      await googleSheetsService.signIn();
+      alert('Connected to Google Account successfully!');
+    } catch (error: any) {
+      console.error(error);
+      setSyncError(error.message || 'Failed to connect');
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  const handlePushToSheet = async () => {
+    setIsSyncing(true);
+    setSyncError(null);
+    try {
+      await googleSheetsService.savePatchesToSheet(patches);
+      alert('Patches synced to Google Sheets successfully!');
+    } catch (error: any) {
+      console.error(error);
+      setSyncError(error.message || 'Failed to sync');
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  const handlePullFromSheet = async () => {
+    if (!confirm('This will overwrite local library with patches from Google Sheets. Continue?')) return;
+    setIsSyncing(true);
+    setSyncError(null);
+    try {
+      const remotePatches = await googleSheetsService.loadPatchesFromSheet();
+      if (remotePatches.length > 0) {
+        setPatches(remotePatches);
+        alert('Library updated from Google Sheets!');
+      } else {
+        alert('No patches found in Google Sheets.');
+      }
+    } catch (error: any) {
+      console.error(error);
+      setSyncError(error.message || 'Failed to load');
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  const handleSaveSheetUrl = async () => {
+    try {
+      await googleSheetsService.saveSheetConfig(sheetUrl);
+      alert('Google Sheets URL saved!');
+    } catch (error: any) {
+      alert(error.message);
+    }
+  };
+
+
+  const startEngine = () => {
+    if (engineRef.current) {
+      engineRef.current.init();
+      setEngineReady(true);
+      
+      if (!midiRef.current) {
+        midiRef.current = new MIDIService(
+          (note, velocity) => midiNoteOnRef.current(note, velocity / 127),
+          (note) => midiNoteOffRef.current(note),
+          (cc, value, channel) => midiCCRef.current(cc, value, channel),
+          (data) => addMidiLog(data),
+          (value) => midiPitchBendRef.current(value)
+        );
+        midiRef.current.init().then(() => {
+          midiRef.current?.setFilter(settings.midiInputId, settings.midiChannel);
+        });
+      }
+    }
+  };
+
+  const updateParam = React.useCallback((key: keyof VoiceParams, val: any) => {
+    setParams(prev => ({ ...prev, [key]: val }));
+  }, []);
+
+  const handleMapClick = React.useCallback((param: keyof VoiceParams) => {
+    if (isMidiMappingMode) {
+      setSelectedMapParam(prev => prev === param ? null : param);
+    }
+  }, [isMidiMappingMode]);
+
+  const getMappedCC = React.useCallback((param: keyof VoiceParams) => {
+    const m = midiMappings.find(m => m.parameter === param);
+    if (!m) return undefined;
+    return `${m.channel + 1}:${m.cc}`;
+  }, [midiMappings]);
+
+  const savePatch = () => {
+    if (activePatchId) {
+      setNamingMode('SAVE');
+      setPendingName(patches.find(p => p.id === activePatchId)?.name || '');
+    } else {
+      setNamingMode('SAVE_AS');
+      setPendingName('NEW PATCH');
+    }
+    setIsNaming(true);
+  };
+
+  const saveAsNewPatch = () => {
+    setNamingMode('SAVE_AS');
+    setPendingName('NEW PATCH');
+    setIsNaming(true);
+  };
+
+  const handleNameSubmit = async () => {
+    if (!pendingName.trim()) return;
+
+    let updatedPatches: Patch[];
+    if (namingMode === 'SAVE' && activePatchId) {
+      updatedPatches = patches.map(p => p.id === activePatchId ? { ...p, name: pendingName.trim(), params, midiMappings } : p);
+    } else {
+      const newPatch: Patch = { id: Date.now().toString(), name: pendingName.trim(), params, midiMappings };
+      updatedPatches = [...patches, newPatch];
+      setActivePatchId(newPatch.id);
+    }
+    
+    setPatches(updatedPatches);
+    setIsNaming(false);
+
+    // Auto-sync to sheets if URL exists
+    if (sheetUrl && import.meta.env.VITE_GOOGLE_CLIENT_ID) {
+      try {
+        await googleSheetsService.savePatchesToSheet(updatedPatches);
+        console.log('App: Auto-synced to Google Sheets after save');
+      } catch (error) {
+        console.error('App: Auto-sync failed:', error);
+      }
+    }
+  };
+
+  const loadPatch = (patch: Patch) => {
+    // Ensure all params exist by merging with defaults
+    setParams({ ...DEFAULT_PARAMS, ...patch.params });
+    setActivePatchId(patch.id);
+    setCurrentScreen('SYNTH');
+  };
+
+  const deletePatch = async (id: string) => {
+    if (confirm('Delete patch?')) {
+      const updatedPatches = patches.filter(p => p.id !== id);
+      setPatches(updatedPatches);
+      if (activePatchId === id) setActivePatchId(null);
+
+      // Auto-sync to sheets if URL exists
+      if (sheetUrl && import.meta.env.VITE_GOOGLE_CLIENT_ID) {
+        try {
+          await googleSheetsService.savePatchesToSheet(updatedPatches);
+          console.log('App: Auto-synced to Google Sheets after delete');
+        } catch (error) {
+          console.error('App: Auto-sync failed:', error);
+        }
+      }
+    }
+  };
+
+  const synthSections = (
+    <>
+      <LFOSection 
+        lfoWaveform={params.lfoWaveform}
+        lfoRate={params.lfoRate}
+        updateParam={updateParam}
+        isMidiMappingMode={isMidiMappingMode}
+        handleMapClick={handleMapClick}
+        getMappedCC={getMappedCC}
+        selectedMapParam={selectedMapParam}
+      />
+
+      <VCOModSection 
+        portamentoTime={params.portamentoTime}
+        portamentoMode={params.portamentoMode}
+        vcoLfoAmount={params.vcoLfoAmount}
+        updateParam={updateParam}
+        isMidiMappingMode={isMidiMappingMode}
+        handleMapClick={handleMapClick}
+        getMappedCC={getMappedCC}
+        selectedMapParam={selectedMapParam}
+      />
+
+      <VCO1Section 
+        vco1Range={params.vco1Range}
+        crossMod={params.crossMod}
+        vco1PulseWidth={params.vco1PulseWidth}
+        vco1Waveform={params.vco1Waveform}
+        updateParam={updateParam}
+        isMidiMappingMode={isMidiMappingMode}
+        handleMapClick={handleMapClick}
+        getMappedCC={getMappedCC}
+        selectedMapParam={selectedMapParam}
+      />
+
+      <VCO2Section 
+        vco2Range={params.vco2Range}
+        vco2Freq={params.vco2Freq}
+        vco2Detune={params.vco2Detune}
+        vco2Waveform={params.vco2Waveform}
+        vco2Sync={params.vco2Sync}
+        updateParam={updateParam}
+        isMidiMappingMode={isMidiMappingMode}
+        handleMapClick={handleMapClick}
+        getMappedCC={getMappedCC}
+        selectedMapParam={selectedMapParam}
+      />
+
+      <MixerSection 
+        vcoMix={params.vcoMix}
+        updateParam={updateParam}
+        isMidiMappingMode={isMidiMappingMode}
+        handleMapClick={handleMapClick}
+        getMappedCC={getMappedCC}
+        selectedMapParam={selectedMapParam}
+      />
+
+      <VCFSection 
+        filterCutoff={params.filterCutoff}
+        filterResonance={params.filterResonance}
+        filterEnvAmount={params.filterEnvAmount}
+        filterEnvSource={params.filterEnvSource}
+        filterSlope={params.filterSlope}
+        filterLfoAmount={params.filterLfoAmount}
+        updateParam={updateParam}
+        isMidiMappingMode={isMidiMappingMode}
+        handleMapClick={handleMapClick}
+        getMappedCC={getMappedCC}
+        selectedMapParam={selectedMapParam}
+      />
+
+      <VCASection 
+        vcaLevel={params.vcaLevel}
+        vcaLfoAmount={params.vcaLfoAmount}
+        updateParam={updateParam}
+        isMidiMappingMode={isMidiMappingMode}
+        handleMapClick={handleMapClick}
+        getMappedCC={getMappedCC}
+        selectedMapParam={selectedMapParam}
+      />
+
+      <EnvelopeSection 
+        title="ENV-1"
+        prefix="env1"
+        attack={params.env1Attack}
+        decay={params.env1Decay}
+        sustain={params.env1Sustain}
+        release={params.env1Release}
+        updateParam={updateParam}
+        isMidiMappingMode={isMidiMappingMode}
+        handleMapClick={handleMapClick}
+        getMappedCC={getMappedCC}
+        selectedMapParam={selectedMapParam}
+      />
+
+      <EnvelopeSection 
+        title="ENV-2"
+        prefix="env2"
+        attack={params.env2Attack}
+        decay={params.env2Decay}
+        sustain={params.env2Sustain}
+        release={params.env2Release}
+        updateParam={updateParam}
+        isMidiMappingMode={isMidiMappingMode}
+        handleMapClick={handleMapClick}
+        getMappedCC={getMappedCC}
+        selectedMapParam={selectedMapParam}
+      />
+
+      <VolumeSection 
+        masterVolume={params.masterVolume}
+        updateParam={updateParam}
+        isMidiMappingMode={isMidiMappingMode}
+        handleMapClick={handleMapClick}
+        getMappedCC={getMappedCC}
+        selectedMapParam={selectedMapParam}
+      />
+    </>
+  );
+
+  const arpSections = (
+    <>
+      <ArpSection 
+        enabled={params.arpEnabled}
+        rate={params.arpRate}
+        mode={params.arpMode}
+        range={params.arpRange}
+        updateParam={updateParam}
+        isMidiMappingMode={isMidiMappingMode}
+        handleMapClick={handleMapClick}
+        getMappedCC={getMappedCC}
+        selectedMapParam={selectedMapParam}
+      />
+      <div className="flex-1 min-h-[150px] flex items-center justify-center opacity-30">
+        <div className="text-center font-mono pointer-events-none">
+          <div className="text-xl sm:text-4xl font-bold tracking-[0.5em] mb-4 uppercase">Arpeggiator</div>
+          <div className="hidden sm:block text-[10px] tracking-[1em]">READY FOR PERFORMANCE</div>
+        </div>
+      </div>
+    </>
+  );
+
+  const fxSections = (
+    <>
+      <FXSection 
+        label="Chorus"
+        mix={params.chorusMix}
+        selectors={[
+          { label: 'Type', key: 'chorusMode', options: ['1', '2', '3'], value: params.chorusMode }
+        ]}
+        params={[]}
+        updateParam={updateParam}
+        isMidiMappingMode={isMidiMappingMode}
+        handleMapClick={handleMapClick}
+        getMappedCC={getMappedCC}
+        selectedMapParam={selectedMapParam}
+      />
+      
+      <FXSection 
+        label="Overdrive"
+        mix={params.distortionMix}
+        params={[
+          { label: 'Drive', key: 'distortionAmount', value: params.distortionAmount, min: 0, max: 1 },
+        ]}
+        updateParam={updateParam}
+        isMidiMappingMode={isMidiMappingMode}
+        handleMapClick={handleMapClick}
+        getMappedCC={getMappedCC}
+        selectedMapParam={selectedMapParam}
+      />
+
+      <FXSection 
+        label="Delay"
+        mix={params.delayMix}
+        params={[
+          { label: 'Time', key: 'delayTime', value: params.delayTime, min: 0.01, max: 1 },
+          { label: 'Feedbk', key: 'delayFeedback', value: params.delayFeedback, min: 0, max: 0.9 },
+        ]}
+        updateParam={updateParam}
+        isMidiMappingMode={isMidiMappingMode}
+        handleMapClick={handleMapClick}
+        getMappedCC={getMappedCC}
+        selectedMapParam={selectedMapParam}
+      />
+
+      <FXSection 
+        label="Reverb"
+        mix={params.reverbMix}
+        selectors={[
+          { label: 'Type', key: 'reverbMode', options: ['1', '2', '3'], value: params.reverbMode }
+        ]}
+        params={[
+          { label: 'Time', key: 'reverbTime', value: params.reverbTime, min: 0.1, max: 10 },
+          { label: 'Decay', key: 'reverbDecay', value: params.reverbDecay, min: 0.1, max: 10 },
+          { label: 'Damping', key: 'reverbDamping', value: params.reverbDamping, min: 0, max: 0.99 },
+        ]}
+        updateParam={updateParam}
+        isMidiMappingMode={isMidiMappingMode}
+        handleMapClick={handleMapClick}
+        getMappedCC={getMappedCC}
+        selectedMapParam={selectedMapParam}
+      />
+
+      <FXSection 
+        label="Leslie"
+        mix={params.leslieMix}
+        params={[
+          { label: 'Rate', key: 'leslieRate', value: params.leslieRate, min: 0.1, max: 15 },
+          { label: 'Depth', key: 'leslieDepth', value: params.leslieDepth, min: 0, max: 1 },
+        ]}
+        updateParam={updateParam}
+        isMidiMappingMode={isMidiMappingMode}
+        handleMapClick={handleMapClick}
+        getMappedCC={getMappedCC}
+        selectedMapParam={selectedMapParam}
+      />
+
+      <FXSection 
+        label="Tremolo"
+        mix={params.tremoloMix}
+        params={[
+          { label: 'Rate', key: 'tremoloRate', value: params.tremoloRate, min: 0.5, max: 20 },
+          { label: 'Depth', key: 'tremoloDepth', value: params.tremoloDepth, min: 0, max: 1 },
+        ]}
+        updateParam={updateParam}
+        isMidiMappingMode={isMidiMappingMode}
+        handleMapClick={handleMapClick}
+        getMappedCC={getMappedCC}
+        selectedMapParam={selectedMapParam}
+      />
+
+      <FXSection 
+        label="Comp"
+        mix={0}
+        params={[
+          { label: 'Thresh', key: 'compThreshold', value: params.compThreshold, min: -60, max: 0 },
+          { label: 'Ratio', key: 'compRatio', value: params.compRatio, min: 1, max: 20 },
+          { label: 'Attack', key: 'compAttack', value: params.compAttack, min: 0.001, max: 0.5 },
+          { label: 'Releas', key: 'compRelease', value: params.compRelease, min: 0.01, max: 1.0 },
+        ]}
+        updateParam={updateParam}
+        isMidiMappingMode={isMidiMappingMode}
+        handleMapClick={handleMapClick}
+        getMappedCC={getMappedCC}
+        selectedMapParam={selectedMapParam}
+      />
+
+      <div className="flex-1 min-h-[150px] flex items-center justify-center opacity-30">
+        <div className="text-center font-mono pointer-events-none">
+          <div className="text-xl sm:text-4xl font-bold tracking-[0.5em] mb-4">FX BUS</div>
+          <div className="hidden sm:block text-[10px] tracking-[1em]">MASTER CHAIN READY</div>
+        </div>
+      </div>
+    </>
+  );
+
+  const APP_VERSION = '1.4.1';
+
+  const NavButton = ({ target, label, icon: Icon }: { target: Screen, label: string, icon: any }) => (
+    <button 
+      onClick={() => setCurrentScreen(target)}
+      className={`flex items-center gap-1.5 px-2 sm:px-3 h-full border-b-2 transition-all uppercase text-[9px] font-bold tracking-widest shrink-0 ${
+        currentScreen === target ? 'border-orange-500 text-white bg-white/5' : 'border-transparent text-zinc-500 hover:text-zinc-300'
+      }`}
+    >
+      <Icon size={12} className="shrink-0" />
+      <span className="hidden lg:inline">{label === 'Synthesizer' ? 'SYNTH' : label === 'Arpeggio' ? 'ARP' : label === 'Master FX' ? 'FX' : 'LIB'}</span>
+    </button>
+  );
+
+  return (
+    <div className={`w-screen h-[100dvh] overflow-hidden bg-synth-bg text-white font-sans select-none flex flex-col theme-${settings.theme}`}>
+      {/* Dynamic Header */}
+      <div className="h-[50px] bg-synth-panel border-b border-synth-border flex items-center justify-between px-2 sm:px-3 shrink-0 z-20">
+        <div className="flex items-center h-full flex-1 min-w-0">
+          <div className="mr-2 sm:mr-4 flex items-center gap-1.5 sm:gap-2 shrink-0">
+             <div className={`w-1.5 h-1.5 sm:w-2 sm:h-2 ${engineReady ? 'bg-red-600 shadow-[0_0_8px_red]' : 'bg-zinc-800'}`} />
+             <div className="flex flex-col gap-4">
+               <h1 className="text-[10px] sm:text-xs font-bold tracking-tighter text-white uppercase truncate max-w-[80px] sm:max-w-[150px] leading-none">
+                 {activePatchId ? patches.find(p => p.id === activePatchId)?.name : 'UNSAVED'}
+               </h1>
+               <span className="text-[7px] text-zinc-600 font-mono tracking-widest leading-tight">v{APP_VERSION}</span>
+             </div>
+          </div>
+          
+          <nav className="flex h-full min-w-0">
+            <NavButton target="SYNTH" label="Synthesizer" icon={Sliders} />
+            <NavButton target="ARP" label="Arpeggio" icon={Activity} />
+            <NavButton target="FX" label="Master FX" icon={Waves} />
+            <NavButton target="PATCHES" label="Library" icon={FolderOpen} />
+          </nav>
+ 
+          <div 
+            className="hidden lg:flex ml-4 h-full items-center border-l border-white/5 pl-4 overflow-hidden cursor-pointer group relative hover:bg-white/5 transition-colors min-w-[120px]"
+            onClick={() => setIsMidiLogVisible(!isMidiLogVisible)}
+            title={isMidiLogVisible ? "Click to hide MIDI logs" : "Click to show MIDI logs"}
+          >
+            {!isMidiLogVisible && (
+              <div className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity z-10">
+                <span className="text-[6px] font-bold text-white uppercase tracking-widest">SHOW MIDI</span>
+              </div>
+            )}
+            <div className={`flex gap-2 font-mono text-[8px] uppercase tracking-widest whitespace-nowrap transition-opacity ${isMidiLogVisible ? 'text-zinc-600 opacity-100' : 'text-zinc-800 opacity-30 select-none'}`}>
+              {midiLogs.length === 0 ? (
+                <span>MIDI IDLE...</span>
+              ) : isMidiLogVisible ? (
+                midiLogs.slice(0, 3).map(log => (
+                  <span key={log.id} className="animate-in fade-in slide-in-from-left-2 duration-300 first:text-orange-500">
+                    [{log.text.substring(0, 15)}]
+                  </span>
+                ))
+              ) : (
+                <span>MIDI MONITOR OFF</span>
+              )}
+            </div>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-1 sm:gap-2 ml-2 h-full">
+          {!engineReady ? (
+            <button
+              onClick={startEngine}
+              className="px-2 sm:px-3 py-1.5 bg-orange-600 text-white font-bold uppercase tracking-widest text-[9px] flex items-center gap-1 border border-orange-400 active:scale-95"
+            >
+              <Power size={10} /> <span>START</span>
+            </button>
+          ) : (
+            <div className="flex items-center gap-1.5 h-full">
+              <div 
+                className="hidden sm:flex h-full items-center px-2 cursor-pointer hover:bg-white/5 transition-colors group relative"
+                onClick={() => updateSettings({ enableOscilloscope: !settings.enableOscilloscope })}
+                title={settings.enableOscilloscope ? "Click to disable visualizer (CPU Intensive)" : "Click to enable visualizer"}
+              >
+                {!settings.enableOscilloscope && (
+                  <div className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity z-10 rounded">
+                    <span className="text-[6px] font-bold text-white uppercase tracking-widest">CPU SAVER ON</span>
+                  </div>
+                )}
+                <Oscilloscope 
+                  analyser={settings.enableOscilloscope ? (engineRef.current?.getAnalyser() || null) : null} 
+                  isActive={engineReady && settings.enableOscilloscope} 
+                />
+              </div>
+              <button 
+                onClick={savePatch}
+                className="p-1.5 sm:p-2 h-full hover:bg-white/5 text-zinc-400 hover:text-white transition-colors border-l border-white/5"
+              >
+                <Save size={14} />
+              </button>
+            </div>
+          )}
+          
+          <div className="flex items-center gap-1 font-mono text-[9px] text-zinc-500 border-l border-synth-border pl-2 sm:pl-3">
+            <Activity size={10} className={activeNotes.length > 0 ? 'text-green-500' : ''} />
+            <span>{activeNotes.length}</span>
+          </div>
+
+          {engineReady && (
+            <button 
+              onClick={() => {
+                setIsMidiMappingMode(!isMidiMappingMode);
+                setSelectedMapParam(null);
+              }}
+              className={`flex items-center gap-1.5 px-2 sm:px-3 h-full border-l border-synth-border transition-all uppercase text-[9px] font-bold tracking-widest ${
+                isMidiMappingMode ? 'bg-blue-600 text-white' : 'text-zinc-500 hover:bg-white/5'
+              }`}
+            >
+              <Link size={10} />
+              <span className="hidden lg:inline">MAP</span>
+            </button>
+          )}
+
+          <button 
+            onClick={() => setShowKeyboard(!showKeyboard)}
+            className={`flex items-center gap-1.5 px-2 sm:px-3 h-full border-l border-synth-border transition-all uppercase text-[9px] font-bold tracking-widest ${
+              showKeyboard ? 'bg-orange-500 text-white' : 'text-zinc-500 hover:bg-white/5'
+            }`}
+          >
+            <PianoIcon size={10} />
+            <span className="hidden lg:inline">KEYS</span>
+          </button>
+
+          <button 
+            onClick={handlePanic}
+            className="flex items-center gap-1.5 px-2 sm:px-3 h-full border-l border-synth-border transition-all uppercase text-[9px] font-bold tracking-widest text-red-500 hover:bg-red-500/10"
+          >
+            <X size={10} />
+            <span className="hidden lg:inline">PANIC</span>
+          </button>
+
+          <button 
+            onClick={() => setIsSettingsOpen(true)}
+            className="flex items-center gap-1.5 px-2 sm:px-3 h-full border-l border-synth-border transition-all uppercase text-[9px] font-bold tracking-widest text-zinc-500 hover:bg-white/5"
+          >
+            <Settings2 size={10} />
+            <span className="hidden lg:inline">CONFIG</span>
+          </button>
+
+          <button 
+            onClick={toggleFullscreen}
+            className="flex items-center gap-1.5 px-2 sm:px-3 h-full border-l border-synth-border transition-all uppercase text-[9px] font-bold tracking-widest text-zinc-500 hover:bg-white/5"
+          >
+            {isFullscreen ? <Minimize size={10} /> : <Maximize size={10} />}
+            <span className="hidden lg:inline">FS</span>
+          </button>
+        </div>
+      </div>
+
+      {/* Main Content Area */}
+      <div className="flex-1 relative flex flex-col overflow-hidden">
+        <div className={`flex-1 relative overflow-y-auto lg:overflow-hidden no-scrollbar transition-all duration-300`}>
+          {currentScreen === 'SYNTH' && (
+            <div className="relative lg:absolute lg:inset-0 flex flex-col md:grid md:grid-cols-2 lg:flex lg:flex-row bg-synth-border/40 gap-[1px] min-h-fit lg:min-h-0 lg:h-full overflow-y-auto lg:overflow-y-hidden lg:overflow-x-auto no-scrollbar">
+              {synthSections}
+            </div>
+          )}
+
+          {currentScreen === 'ARP' && (
+            <div className="relative lg:absolute lg:inset-0 flex flex-col md:grid md:grid-cols-2 lg:flex lg:flex-row bg-synth-border/40 gap-[1px] min-h-fit lg:min-h-0 lg:h-full overflow-y-auto lg:overflow-y-hidden lg:overflow-x-auto no-scrollbar">
+              {arpSections}
+            </div>
+          )}
+
+          {currentScreen === 'FX' && (
+            <div className="relative lg:absolute lg:inset-0 flex flex-col md:grid md:grid-cols-2 lg:flex lg:flex-row bg-synth-border/40 gap-[1px] min-h-fit lg:min-h-0 lg:h-full overflow-y-auto lg:overflow-y-hidden lg:overflow-x-auto no-scrollbar">
+              {fxSections}
+            </div>
+          )}
+
+          {currentScreen === 'PATCHES' && (
+            <div className="absolute inset-0 bg-synth-bg p-4 sm:p-8 overflow-y-auto">
+              <div className="max-w-4xl mx-auto">
+                <div className="flex justify-between items-center mb-8 sm:mb-12 border-b border-synth-border pb-6">
+                   <div className="flex items-center gap-4">
+                     <h2 className="text-xl sm:text-3xl font-bold tracking-tight uppercase">Patch Library</h2>
+                     <button 
+                       onClick={saveAsNewPatch}
+                       className="p-2 hover:bg-white/5 rounded-full text-zinc-400 hover:text-white transition-colors"
+                       title="Save Current as New"
+                     >
+                       <Save size={24} />
+                     </button>
+                   </div>
+                   <button 
+                     onClick={() => { setParams(DEFAULT_PARAMS); setActivePatchId(null); setCurrentScreen('SYNTH'); }}
+                     className="px-6 py-2 bg-zinc-800 hover:bg-zinc-700 text-white font-bold uppercase tracking-widest text-[10px]"
+                   >
+                     Reset to Init
+                   </button>
+                </div>
+
+                <div className="bg-zinc-900 border border-zinc-800 p-4 sm:p-6 mb-8 flex flex-col gap-4">
+                  <div className="flex items-center gap-2 text-zinc-400 mb-1">
+                    <Cloud size={16} />
+                    <h3 className="text-[10px] font-bold uppercase tracking-widest">Google Sheets Sync</h3>
+                    {googleSheetsService.isConnected() && (
+                      <div className="flex items-center gap-1 text-[8px] bg-green-500/10 text-green-500 px-2 py-0.5 rounded-full border border-green-500/20">
+                        <div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
+                        CONNECTED
+                      </div>
+                    )}
+                  </div>
+                  
+                  <div className="flex flex-col sm:flex-row gap-2">
+                    <div className="flex-1 relative">
+                      <Link size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" />
+                      <input 
+                        type="text" 
+                        value={sheetUrl}
+                        onChange={(e) => setSheetUrl(e.target.value)}
+                        placeholder="Enter Google Sheets URL..."
+                        className="w-full bg-black border border-zinc-800 p-2 pl-9 text-[11px] font-mono text-zinc-300 focus:border-orange-500 outline-none"
+                      />
+                    </div>
+                    <div className="flex gap-2">
+                      <button 
+                        onClick={handleSaveSheetUrl}
+                        className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-white font-bold uppercase tracking-widest text-[9px] border border-zinc-700"
+                      >
+                        Save URL
+                      </button>
+                      <button 
+                        onClick={handleConnectGoogle}
+                        disabled={isSyncing || !import.meta.env.VITE_GOOGLE_CLIENT_ID}
+                        className={`px-4 py-2 font-bold uppercase tracking-widest text-[9px] border transition-all ${
+                          googleSheetsService.isConnected() 
+                            ? 'bg-green-600/20 border-green-500/30 text-green-500' 
+                            : 'bg-blue-600/20 border-blue-500/30 text-blue-500 hover:bg-blue-600/30'
+                        } disabled:opacity-30`}
+                      >
+                        {googleSheetsService.isConnected() ? 'Reconnect' : 'Authorize'}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-col sm:flex-row gap-4 items-center">
+                    {!import.meta.env.VITE_GOOGLE_CLIENT_ID && (
+                      <div className="w-full text-center p-3 bg-red-500/10 border border-red-500/30 text-red-500 text-[10px] font-bold uppercase tracking-tight mb-2">
+                        Missing VITE_GOOGLE_CLIENT_ID in Secrets
+                      </div>
+                    )}
+                    <button 
+                      onClick={handlePushToSheet}
+                      disabled={isSyncing || !sheetUrl || !import.meta.env.VITE_GOOGLE_CLIENT_ID}
+                      className="w-full sm:flex-1 px-4 py-3 bg-orange-600/20 hover:bg-orange-600/30 text-orange-500 border border-orange-500/30 font-bold uppercase tracking-widest text-[10px] flex items-center justify-center gap-2 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+                    >
+                      {isSyncing ? <Activity size={14} className="animate-spin" /> : <UploadCloud size={14} />}
+                      Push Library
+                    </button>
+                    <button 
+                      onClick={handlePullFromSheet}
+                      disabled={isSyncing || !sheetUrl || !import.meta.env.VITE_GOOGLE_CLIENT_ID}
+                      className="w-full sm:flex-1 px-4 py-3 bg-[#111] hover:bg-zinc-800 text-zinc-400 border border-zinc-800 font-bold uppercase tracking-widest text-[10px] flex items-center justify-center gap-2 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+                    >
+                      {isSyncing ? <Activity size={14} className="animate-spin" /> : <DownloadCloud size={14} />}
+                      Pull Library
+                    </button>
+                  </div>
+                  
+                  {syncError && (
+                    <div className="text-[9px] text-red-500 font-mono bg-red-500/5 p-2 border border-red-500/20 break-all">
+                      ERROR: {syncError}
+                    </div>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {patches.map(patch => (
+                    <div 
+                      key={patch.id}
+                      className={`p-6 border transition-all cursor-pointer flex flex-col gap-4 group ${
+                        activePatchId === patch.id 
+                          ? 'bg-orange-600/10 border-orange-500' 
+                          : 'bg-zinc-900/50 border-zinc-800 hover:border-zinc-600'
+                      }`}
+                      onClick={() => loadPatch(patch)}
+                    >
+                      <div className="flex justify-between items-start">
+                        <span className="text-zinc-500 font-mono text-xs">P-{patch.id.slice(-4)}</span>
+                        <button 
+                          onClick={(e) => { e.stopPropagation(); deletePatch(patch.id); }}
+                          className="opacity-0 group-hover:opacity-100 p-2 hover:bg-red-500/20 text-red-500 rounded transition-all"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
+                      <h3 className="text-xl font-bold uppercase truncate">{patch.name}</h3>
+                      <div className="flex gap-2">
+                         <div className={`w-1 h-4 ${patch.params.vco1Waveform === 'sawtooth' ? 'bg-orange-500' : 'bg-blue-500'}`} />
+                         <div className={`w-1 h-4 ${patch.params.filterCutoff > 5000 ? 'bg-zinc-300' : 'bg-zinc-700'}`} />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Inline Keyboard - Takes up space in the flex layout */}
+        {showKeyboard && (
+          <div className="shrink-0 animate-in slide-in-from-bottom duration-300">
+            <PianoKeyboard 
+              onNoteOn={handleNoteOn}
+              onNoteOff={handleNoteOff}
+            />
+          </div>
+        )}
+      </div>
+
+      {/* Keyboard Modal for naming */}
+        {isNaming && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4">
+            <div className="bg-synth-panel border border-synth-border p-4 sm:p-8 w-full max-w-[800px] shadow-2xl">
+              <div className="flex justify-between items-center mb-4 sm:mb-6">
+                <h2 className="text-lg sm:text-xl font-bold uppercase tracking-widest text-zinc-400">
+                  {namingMode === 'SAVE' ? 'Overwrite' : 'Save As'}
+                </h2>
+                <button 
+                  onClick={() => setIsNaming(false)}
+                  className="p-2 hover:bg-white/10 text-zinc-500 hover:text-white"
+                >
+                  <X size={24} />
+                </button>
+              </div>
+              
+              <input 
+                type="text" 
+                value={pendingName}
+                readOnly
+                className="w-full bg-black border-2 border-orange-500/50 p-4 sm:p-6 text-xl sm:text-3xl font-bold uppercase tracking-wider text-white mb-6 sm:mb-8 outline-none"
+              />
+
+              <div className="keyboard-container overflow-hidden bg-zinc-900 p-2 sm:p-4">
+                <Keyboard
+                  onChange={(input) => setPendingName(input.toUpperCase())}
+                  onKeyPress={(button) => {
+                    if (button === "{enter}") handleNameSubmit();
+                    if (button === "{escape}") setIsNaming(false);
+                  }}
+                  layout={{
+                    default: [
+                      "Q W E R T Y U I O P",
+                      "A S D F G H J K L",
+                      "Z X C V B N M",
+                      "{bksp} {space} {enter}"
+                    ]
+                  }}
+                  display={{
+                    "{bksp}": "DEL",
+                    "{enter}": "SAVE",
+                    "{space}": "SPACE"
+                  }}
+                  theme="hg-theme-default hg-layout-default custom-keyboard scale-90 sm:scale-100 origin-top"
+                />
+              </div>
+              
+              <div className="flex justify-end gap-3 sm:gap-4 mt-6 sm:mt-8">
+                 <button 
+                   onClick={() => setIsNaming(false)}
+                   className="flex-1 sm:flex-none px-4 sm:px-8 py-3 bg-zinc-800 hover:bg-zinc-700 text-white font-bold uppercase tracking-widest text-[10px] sm:text-xs"
+                 >
+                   Cancel
+                 </button>
+                 <button 
+                   onClick={handleNameSubmit}
+                   className="flex-1 sm:flex-none px-4 sm:px-8 py-3 bg-orange-600 hover:bg-orange-500 text-white font-bold uppercase tracking-widest text-[10px] sm:text-xs"
+                 >
+                   Confirm
+                 </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        <SettingsModal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} />
+      </div>
+    );
+  }

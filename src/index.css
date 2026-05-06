@@ -1,0 +1,76 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+  
+  --breakpoint-xs: 400px;
+
+  --color-synth-bg: #0A0A0A;
+  --color-synth-panel: #141414;
+  --color-synth-module: #0F0F0F;
+  --color-synth-border: #333333;
+  --color-synth-vco: #E67E22;
+  --color-synth-vcf: #3498DB;
+  --color-synth-env: #F1C40F;
+  --color-synth-lfo: #2ECC71;
+}
+
+@layer utilities {
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+}
+
+@layer base {
+  body {
+    @apply bg-synth-bg text-white overflow-hidden;
+  }
+
+  ::-webkit-scrollbar {
+    height: 4px;
+    width: 0px;
+  }
+
+  ::-webkit-scrollbar-track {
+    @apply bg-black;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    @apply bg-zinc-800 rounded-full;
+  }
+
+  /* Custom Keyboard Styling */
+  .custom-keyboard.hg-theme-default {
+    background-color: transparent !important;
+    padding: 0 !important;
+  }
+
+  .custom-keyboard .hg-button {
+    background: #222 !important;
+    color: #fff !important;
+    border-bottom: 3px solid #000 !important;
+    height: 60px !important;
+    font-weight: bold !important;
+    font-family: var(--font-mono) !important;
+    text-transform: uppercase !important;
+    border-radius: 4px !important;
+    font-size: 1.2rem !important;
+  }
+
+  .custom-keyboard .hg-button:active {
+    background: #e67e22 !important;
+    border-bottom: 1px solid #000 !important;
+    transform: translateY(2px);
+  }
+
+  .custom-keyboard .hg-button.hg-functionBtn {
+    background: #333 !important;
+    color: #aaa !important;
+  }
+}
