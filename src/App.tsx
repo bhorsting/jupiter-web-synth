@@ -19,7 +19,8 @@ import {
   EnvelopeSection, 
   VolumeSection,
   ArpSection,
-  FXSection
+  FXSection,
+  GlobalSection
 } from './components/SynthPanel';
 import { DEFAULT_PARAMS, VoiceParams, Patch, MidiMapping } from './types';
 import { Power, Save, FolderOpen, Sliders, Waves, Activity, Trash2, X, Keyboard as PianoIcon, Cloud, UploadCloud, DownloadCloud, Link, Maximize, Minimize, Settings2, Plus } from 'lucide-react';
@@ -59,7 +60,6 @@ function App() {
   const [pendingName, setPendingName] = useState('');
   const [namingMode, setNamingMode] = useState<'SAVE' | 'SAVE_AS'>('SAVE');
   
-  const [sheetUrl, setSheetUrl] = useState('');
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
   const [isMidiMappingMode, setIsMidiMappingMode] = useState(false);
@@ -125,41 +125,49 @@ function App() {
       }));
       
       setPatches(migrated);
-
-      // Restore last selected patch if exists
-      const lastPatchId = localStorage.getItem('jupiter_last_patch_id');
-      if (lastPatchId) {
-        const patch = migrated.find(p => p.id === lastPatchId);
-        if (patch) {
-          setParams({ ...DEFAULT_PARAMS, ...patch.params });
-          setActivePatchId(patch.id);
-          setMidiMappings(patch.midiMappings || []);
+      
+      // Restore last selected patch and params if exists in appState
+      const appState = await indexedDBService.getAppState();
+      if (appState) {
+        if (appState.activePatchId) setActivePatchId(appState.activePatchId);
+        if (appState.params) setParams({ ...DEFAULT_PARAMS, ...appState.params });
+        if (appState.midiMappings) setMidiMappings(appState.midiMappings);
+      } else {
+        // Fallback to legacy localStorage
+        const lastPatchId = localStorage.getItem('jupiter_last_patch_id');
+        if (lastPatchId) {
+          const patch = migrated.find(p => p.id === lastPatchId);
+          if (patch) {
+            setParams({ ...DEFAULT_PARAMS, ...patch.params });
+            setActivePatchId(patch.id);
+          }
         }
       }
     };
     initDB();
   }, []);
 
-  // Save active patch ID to localStorage
+  // Save app state (params, active patch ID, mappings) whenever they change
   useEffect(() => {
+    const saveState = async () => {
+      await indexedDBService.saveAppState({
+        activePatchId,
+        params,
+        midiMappings
+      });
+    };
+    saveState();
+    
+    // Also keep localStorage as minimal fallback
     if (activePatchId) {
       localStorage.setItem('jupiter_last_patch_id', activePatchId);
     } else {
       localStorage.removeItem('jupiter_last_patch_id');
     }
-  }, [activePatchId]);
+  }, [activePatchId, params]);
 
   // Load current patch mappings only when activePatchId changes
-  useEffect(() => {
-    if (activePatchId) {
-      const activePatch = patches.find(p => p.id === activePatchId);
-      if (activePatch) {
-        setMidiMappings(activePatch.midiMappings || []);
-      }
-    } else {
-      setMidiMappings([]);
-    }
-  }, [activePatchId]);
+  // Removed automatic effector to avoid overwriting persisted unsaved state on startup
   
   const engineRef = useRef<JupiterEngine | null>(null);
   const midiRef = useRef<MIDIService | null>(null);
@@ -224,30 +232,29 @@ function App() {
   const midiNoteOnRef = useRef<(note: number, velocity: number) => void>(() => {});
   const midiNoteOffRef = useRef<(note: number) => void>(() => {});
   const midiPitchBendRef = useRef<(value: number) => void>(() => {});
+  const handlePanicRef = useRef<() => void>(() => {});
 
   useEffect(() => {
     midiCCRef.current = handleMidiCC;
     midiNoteOnRef.current = handleNoteOn;
     midiNoteOffRef.current = handleNoteOff;
     midiPitchBendRef.current = handlePitchBend;
-  }, [handleMidiCC, handleNoteOn, handleNoteOff, handlePitchBend]);
+    handlePanicRef.current = handlePanic;
+  }, [handleMidiCC, handleNoteOn, handleNoteOff, handlePitchBend, handlePanic]);
 
   useEffect(() => {
-    googleSheetsService.getSheetConfig().then(async config => {
-      if (config) {
-        setSheetUrl(config.url);
-        // Try to pull on load if config exists
-        try {
-          const remotePatches = await googleSheetsService.loadPatchesFromSheet();
-          if (remotePatches.length > 0) {
-            setPatches(remotePatches);
-            console.log('App: Auto-pulled patches from Google Sheets');
-          }
-        } catch (e) {
-          console.warn('App: Initial sync pull failed (likely auth required)', e);
+    const configUrl = settings.googleSheetUrl;
+    if (configUrl && googleSheetsService.isConnected()) {
+      // Try to pull on load if config exists and already connected
+      googleSheetsService.loadPatchesFromSheet(configUrl).then(remotePatches => {
+        if (remotePatches && remotePatches.length > 0) {
+          setPatches(remotePatches);
+          console.log('App: Auto-pulled patches from Google Sheets');
         }
-      }
-    });
+      }).catch(e => {
+        console.warn('App: Initial sync pull failed', e);
+      });
+    }
   }, []);
 
   useEffect(() => {
@@ -366,10 +373,11 @@ function App() {
   };
 
   const handlePushToSheet = async () => {
+    if (!settings.googleSheetUrl) return;
     setIsSyncing(true);
     setSyncError(null);
     try {
-      await googleSheetsService.savePatchesToSheet(patches);
+      await googleSheetsService.savePatchesToSheet(patches, settings.googleSheetUrl);
       alert('Patches synced to Google Sheets successfully!');
     } catch (error: any) {
       console.error(error);
@@ -380,11 +388,12 @@ function App() {
   };
 
   const handlePullFromSheet = async () => {
+    if (!settings.googleSheetUrl) return;
     if (!confirm('This will overwrite local library with patches from Google Sheets. Continue?')) return;
     setIsSyncing(true);
     setSyncError(null);
     try {
-      const remotePatches = await googleSheetsService.loadPatchesFromSheet();
+      const remotePatches = await googleSheetsService.loadPatchesFromSheet(settings.googleSheetUrl);
       if (remotePatches.length > 0) {
         setPatches(remotePatches);
         alert('Library updated from Google Sheets!');
@@ -400,12 +409,8 @@ function App() {
   };
 
   const handleSaveSheetUrl = async () => {
-    try {
-      await googleSheetsService.saveSheetConfig(sheetUrl);
-      alert('Google Sheets URL saved!');
-    } catch (error: any) {
-      alert(error.message);
-    }
+    // Already updating via onChange in input calling updateSettings
+    alert('Google Sheets URL preferred and saved to local settings!');
   };
 
 
@@ -420,7 +425,8 @@ function App() {
           (note) => midiNoteOffRef.current(note),
           (cc, value, channel) => midiCCRef.current(cc, value, channel),
           (data) => addMidiLog(data),
-          (value) => midiPitchBendRef.current(value)
+          (value) => midiPitchBendRef.current(value),
+          () => handlePanicRef.current()
         );
         midiRef.current.init().then(() => {
           midiRef.current?.setFilter(settings.midiInputId, settings.midiChannel);
@@ -478,9 +484,9 @@ function App() {
     setIsNaming(false);
 
     // Auto-sync to sheets if URL exists
-    if (sheetUrl && import.meta.env.VITE_GOOGLE_CLIENT_ID) {
+    if (settings.googleSheetUrl && import.meta.env.VITE_GOOGLE_CLIENT_ID) {
       try {
-        await googleSheetsService.savePatchesToSheet(updatedPatches);
+        await googleSheetsService.savePatchesToSheet(updatedPatches, settings.googleSheetUrl);
         console.log('App: Auto-synced to Google Sheets after save');
       } catch (error) {
         console.error('App: Auto-sync failed:', error);
@@ -492,6 +498,7 @@ function App() {
     // Ensure all params exist by merging with defaults
     setParams({ ...DEFAULT_PARAMS, ...patch.params });
     setActivePatchId(patch.id);
+    setMidiMappings(patch.midiMappings || []);
     setCurrentScreen('SYNTH');
   };
 
@@ -502,9 +509,9 @@ function App() {
       if (activePatchId === id) setActivePatchId(null);
 
       // Auto-sync to sheets if URL exists
-      if (sheetUrl && import.meta.env.VITE_GOOGLE_CLIENT_ID) {
+      if (settings.googleSheetUrl && import.meta.env.VITE_GOOGLE_CLIENT_ID) {
         try {
-          await googleSheetsService.savePatchesToSheet(updatedPatches);
+          await googleSheetsService.savePatchesToSheet(updatedPatches, settings.googleSheetUrl);
           console.log('App: Auto-synced to Google Sheets after delete');
         } catch (error) {
           console.error('App: Auto-sync failed:', error);
@@ -515,9 +522,17 @@ function App() {
 
   const synthSections = (
     <>
+      <GlobalSection 
+        bpm={params.bpm}
+        timeSignature={params.timeSignature}
+        updateParam={updateParam}
+      />
+
       <LFOSection 
         lfoWaveform={params.lfoWaveform}
         lfoRate={params.lfoRate}
+        lfoSync={params.lfoSync}
+        lfoSyncDivision={params.lfoSyncDivision}
         updateParam={updateParam}
         isMidiMappingMode={isMidiMappingMode}
         handleMapClick={handleMapClick}
@@ -635,11 +650,20 @@ function App() {
 
   const arpSections = (
     <>
+      <GlobalSection 
+        bpm={params.bpm}
+        timeSignature={params.timeSignature}
+        updateParam={updateParam}
+      />
       <ArpSection 
         enabled={params.arpEnabled}
         rate={params.arpRate}
         mode={params.arpMode}
         range={params.arpRange}
+        bpm={params.bpm}
+        sync={params.arpSync}
+        syncDivision={params.arpSyncDivision}
+        timeSignature={params.timeSignature}
         updateParam={updateParam}
         isMidiMappingMode={isMidiMappingMode}
         handleMapClick={handleMapClick}
@@ -649,7 +673,6 @@ function App() {
       <div className="flex-1 min-h-[150px] flex items-center justify-center opacity-30">
         <div className="text-center font-mono pointer-events-none">
           <div className="text-xl sm:text-4xl font-bold tracking-[0.5em] mb-4 uppercase">Arpeggiator</div>
-          <div className="hidden sm:block text-[10px] tracking-[1em]">READY FOR PERFORMANCE</div>
         </div>
       </div>
     </>
@@ -657,6 +680,11 @@ function App() {
 
   const fxSections = (
     <>
+      <GlobalSection 
+        bpm={params.bpm}
+        timeSignature={params.timeSignature}
+        updateParam={updateParam}
+      />
       <FXSection 
         label="Chorus"
         mix={params.chorusMix}
@@ -958,12 +986,17 @@ function App() {
                         </button>
                       </div>
                     </div>
-                   <button 
-                     onClick={() => { setParams(DEFAULT_PARAMS); setActivePatchId(null); setCurrentScreen('SYNTH'); }}
-                     className="px-6 py-2 bg-zinc-800 hover:bg-zinc-700 text-white font-bold uppercase tracking-widest text-[10px]"
-                   >
-                     Reset to Init
-                   </button>
+                    <button 
+                      onClick={() => { 
+                        setParams(DEFAULT_PARAMS); 
+                        setActivePatchId(null); 
+                        setMidiMappings([]);
+                        setCurrentScreen('SYNTH'); 
+                      }}
+                      className="px-6 py-2 bg-zinc-800 hover:bg-zinc-700 text-white font-bold uppercase tracking-widest text-[10px]"
+                    >
+                      Reset to Init
+                    </button>
                 </div>
 
                 <div className="bg-zinc-900 border border-zinc-800 p-4 sm:p-6 mb-8 flex flex-col gap-4">
@@ -983,8 +1016,8 @@ function App() {
                       <Link size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" />
                       <input 
                         type="text" 
-                        value={sheetUrl}
-                        onChange={(e) => setSheetUrl(e.target.value)}
+                        value={settings.googleSheetUrl}
+                        onChange={(e) => updateSettings({ googleSheetUrl: e.target.value })}
                         placeholder="Enter Google Sheets URL..."
                         className="w-full bg-black border border-zinc-800 p-2 pl-9 text-[11px] font-mono text-zinc-300 focus:border-orange-500 outline-none"
                       />
@@ -1018,7 +1051,7 @@ function App() {
                     )}
                     <button 
                       onClick={handlePushToSheet}
-                      disabled={isSyncing || !sheetUrl || !import.meta.env.VITE_GOOGLE_CLIENT_ID}
+                      disabled={isSyncing || !settings.googleSheetUrl || !import.meta.env.VITE_GOOGLE_CLIENT_ID}
                       className="w-full sm:flex-1 px-4 py-3 bg-orange-600/20 hover:bg-orange-600/30 text-orange-500 border border-orange-500/30 font-bold uppercase tracking-widest text-[10px] flex items-center justify-center gap-2 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
                     >
                       {isSyncing ? <Activity size={14} className="animate-spin" /> : <UploadCloud size={14} />}
@@ -1026,7 +1059,7 @@ function App() {
                     </button>
                     <button 
                       onClick={handlePullFromSheet}
-                      disabled={isSyncing || !sheetUrl || !import.meta.env.VITE_GOOGLE_CLIENT_ID}
+                      disabled={isSyncing || !settings.googleSheetUrl || !import.meta.env.VITE_GOOGLE_CLIENT_ID}
                       className="w-full sm:flex-1 px-4 py-3 bg-[#111] hover:bg-zinc-800 text-zinc-400 border border-zinc-800 font-bold uppercase tracking-widest text-[10px] flex items-center justify-center gap-2 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
                     >
                       {isSyncing ? <Activity size={14} className="animate-spin" /> : <DownloadCloud size={14} />}

@@ -12,53 +12,8 @@ export interface SheetConfig {
 
 class GoogleSheetsService {
   private accessToken: string | null = null;
-  private db: IDBDatabase | null = null;
 
-  constructor() {
-    this.initDB();
-  }
-
-  private initDB(): Promise<void> {
-    return new Promise((resolve, reject) => {
-      const request = indexedDB.open('JupiterSynthDB', 1);
-      request.onupgradeneeded = (event: any) => {
-        const db = event.target.result;
-        if (!db.objectStoreNames.contains('config')) {
-          db.createObjectStore('config');
-        }
-      };
-      request.onsuccess = (event: any) => {
-        this.db = event.target.result;
-        resolve();
-      };
-      request.onerror = (event: any) => reject(event);
-    });
-  }
-
-  async saveSheetConfig(url: string): Promise<void> {
-    if (!this.db) await this.initDB();
-    const id = this.extractSheetId(url);
-    if (!id) throw new Error('Invalid Google Sheets URL');
-
-    return new Promise((resolve, reject) => {
-      const transaction = this.db!.transaction(['config'], 'readwrite');
-      const store = transaction.objectStore('config');
-      store.put({ url, id }, 'sheetConfig');
-      transaction.oncomplete = () => resolve();
-      transaction.onerror = (event: any) => reject(event);
-    });
-  }
-
-  async getSheetConfig(): Promise<SheetConfig | null> {
-    if (!this.db) await this.initDB();
-    return new Promise((resolve, reject) => {
-      const transaction = this.db!.transaction(['config'], 'readonly');
-      const store = transaction.objectStore('config');
-      const request = store.get('sheetConfig');
-      request.onsuccess = () => resolve(request.result || null);
-      request.onerror = (event: any) => reject(event);
-    });
-  }
+  constructor() {}
 
   private extractSheetId(url: string): string | null {
     const match = url.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
@@ -108,9 +63,9 @@ class GoogleSheetsService {
     });
   }
 
-  async savePatchesToSheet(patches: Patch[]): Promise<void> {
-    const config = await this.getSheetConfig();
-    if (!config) throw new Error('Sheet URL not configured');
+  async savePatchesToSheet(patches: Patch[], url: string): Promise<void> {
+    const id = this.extractSheetId(url);
+    if (!id) throw new Error('Invalid Sheet URL');
 
     const token = await this.signIn();
     
@@ -128,13 +83,13 @@ class GoogleSheetsService {
     });
     
     // First, clear the sheet (using a wider range to be safe)
-    await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${config.id}/values/Sheet1!A:Z:clear`, {
+    await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${id}/values/Sheet1!A:Z:clear`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${token}` }
     });
 
     // Then, update with new values
-    const response = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${config.id}/values/Sheet1!A1?valueInputOption=RAW`, {
+    const response = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${id}/values/Sheet1!A1?valueInputOption=RAW`, {
       method: 'PUT',
       headers: {
         Authorization: `Bearer ${token}`,
@@ -151,13 +106,13 @@ class GoogleSheetsService {
     }
   }
 
-  async loadPatchesFromSheet(): Promise<Patch[]> {
-    const config = await this.getSheetConfig();
-    if (!config) throw new Error('Sheet URL not configured');
+  async loadPatchesFromSheet(url: string): Promise<Patch[]> {
+    const id = this.extractSheetId(url);
+    if (!id) throw new Error('Invalid Sheet URL');
 
     const token = await this.signIn();
     // Read a wide range to get all potential columns
-    const response = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${config.id}/values/Sheet1!A1:Z`, {
+    const response = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${id}/values/Sheet1!A1:Z`, {
       headers: { Authorization: `Bearer ${token}` }
     });
 

@@ -1,6 +1,8 @@
 import React from 'react';
-import { JupiterSlider, JupiterToggle, JupiterSelector } from './Controls';
+import { JupiterSlider, JupiterToggle, JupiterSelector, NumericKeypad } from './Controls';
 import { VoiceParams } from '../types';
+import { AnimatePresence } from 'motion/react';
+import { Activity } from 'lucide-react';
 
 interface SectionProps {
   title: string;
@@ -18,9 +20,63 @@ const Section = React.memo<SectionProps>(({ title, children }) => (
   </div>
 ));
 
+interface GlobalSectionProps {
+  bpm: number;
+  timeSignature: string;
+  updateParam: (key: keyof VoiceParams, val: any) => void;
+}
+
+export const GlobalSection = React.memo<GlobalSectionProps>(({ bpm, timeSignature, updateParam }) => {
+  const [isKeypadOpen, setIsKeypadOpen] = React.useState(false);
+
+  return (
+    <div className="flex border-b border-synth-border p-4 gap-8 items-center bg-zinc-950/50 backdrop-blur-sm">
+      <div className="flex flex-col gap-1">
+        <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-[0.2em]">Master Tempo</span>
+        <div 
+          onClick={() => setIsKeypadOpen(true)}
+          className="bg-black border border-zinc-800 px-4 py-2 text-2xl font-mono text-orange-500 cursor-pointer hover:border-orange-500 transition-all flex items-center gap-3 group min-w-[120px]"
+        >
+          <Activity size={18} className="text-orange-600 animate-pulse" />
+          {bpm} 
+          <span className="text-[10px] text-zinc-700 group-hover:text-zinc-500 uppercase font-bold">bpm</span>
+        </div>
+      </div>
+
+      <div className="flex flex-col gap-1">
+        <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-[0.2em]">Signature</span>
+        <JupiterSelector 
+          label="" 
+          options={['4/4', '3/4', '6/8', '2/4', '5/4', '7/8']} 
+          value={timeSignature} 
+          onChange={(v) => updateParam('timeSignature', v)} 
+        />
+      </div>
+
+      <AnimatePresence>
+        {isKeypadOpen && (
+          <NumericKeypad 
+            label="Set Master Tempo"
+            value={bpm}
+            min={40}
+            max={300}
+            onSave={(v) => {
+              updateParam('bpm', v);
+              setIsKeypadOpen(false);
+            }}
+            onCancel={() => setIsKeypadOpen(false)}
+          />
+        )}
+      </AnimatePresence>
+    </div>
+  );
+});
+
 interface LFOSectionProps {
   lfoWaveform: string;
   lfoRate: number;
+  lfoSync: boolean;
+  lfoSyncDivision: string;
   updateParam: (key: keyof VoiceParams, val: any) => void;
   isMidiMappingMode: boolean;
   handleMapClick: (param: keyof VoiceParams) => void;
@@ -28,8 +84,10 @@ interface LFOSectionProps {
   selectedMapParam: string | null;
 }
 
+const DIVISIONS = ['1/1', '1/2', '1/2t', '1/4', '1/4t', '1/8', '1/8t', '1/16', '1/16t', '1/32'];
+
 export const LFOSection = React.memo<LFOSectionProps>(({
-  lfoWaveform, lfoRate, updateParam, isMidiMappingMode, handleMapClick, getMappedCC, selectedMapParam
+  lfoWaveform, lfoRate, lfoSync, lfoSyncDivision, updateParam, isMidiMappingMode, handleMapClick, getMappedCC, selectedMapParam
 }) => (
   <Section title="LFO">
     <JupiterSelector 
@@ -49,7 +107,24 @@ export const LFOSection = React.memo<LFOSectionProps>(({
       onMapClick={() => handleMapClick('lfoRate')}
       mappedCC={getMappedCC('lfoRate')}
       isSelected={selectedMapParam === 'lfoRate'}
+      disabled={lfoSync}
     />
+    <div className="flex flex-col gap-2 items-center justify-center p-1">
+      <JupiterToggle 
+        label="Sync" 
+        active={lfoSync} 
+        onChange={(v) => updateParam('lfoSync', v)} 
+        color="bg-synth-lfo"
+      />
+      {lfoSync && (
+        <JupiterSelector 
+          label="Div" 
+          options={DIVISIONS} 
+          value={lfoSyncDivision} 
+          onChange={(v) => updateParam('lfoSyncDivision', v)} 
+        />
+      )}
+    </div>
   </Section>
 ));
 
@@ -424,12 +499,15 @@ export const ArpSection = React.memo<{
   rate: number;
   mode: string;
   range: number;
+  bpm: number;
+  sync: boolean;
+  syncDivision: string;
   updateParam: (key: keyof VoiceParams, val: any) => void;
   isMidiMappingMode: boolean;
   handleMapClick: (param: keyof VoiceParams) => void;
   getMappedCC: (param: keyof VoiceParams) => string | undefined;
   selectedMapParam: string | null;
-}>(({ enabled, rate, mode, range, updateParam, isMidiMappingMode, handleMapClick, getMappedCC, selectedMapParam }) => (
+}>(({ enabled, rate, mode, range, bpm, sync, syncDivision, timeSignature, updateParam, isMidiMappingMode, handleMapClick, getMappedCC, selectedMapParam }) => (
   <Section title="ARPEGGIO">
     <div className="flex flex-col gap-2 text-center pb-2">
       <JupiterToggle 
@@ -441,17 +519,34 @@ export const ArpSection = React.memo<{
         mappedCC={getMappedCC('arpEnabled')}
         isSelected={selectedMapParam === 'arpEnabled'}
       />
+      <JupiterToggle 
+        label="Sync" 
+        active={sync} 
+        onChange={(v) => updateParam('arpSync', v)} 
+        color="bg-orange-500"
+      />
     </div>
-    <JupiterSlider 
-      label="Rate" 
-      value={rate} 
-      min={40} max={300} 
-      onChange={(v) => updateParam('arpRate', v)} 
-      isMapMode={isMidiMappingMode}
-      onMapClick={() => handleMapClick('arpRate')}
-      mappedCC={getMappedCC('arpRate')}
-      isSelected={selectedMapParam === 'arpRate'}
-    />
+
+    {!sync ? (
+      <JupiterSlider 
+        label="Rate" 
+        value={rate} 
+        min={40} max={300} 
+        onChange={(v) => updateParam('arpRate', v)} 
+        isMapMode={isMidiMappingMode}
+        onMapClick={() => handleMapClick('arpRate')}
+        mappedCC={getMappedCC('arpRate')}
+        isSelected={selectedMapParam === 'arpRate'}
+      />
+    ) : (
+      <JupiterSelector 
+        label="Div" 
+        options={DIVISIONS} 
+        value={syncDivision} 
+        onChange={(v) => updateParam('arpSyncDivision', v)} 
+      />
+    )}
+    
     <JupiterSelector 
       label="Mode" 
       options={['up', 'down', 'up-down', 'random', 'chord', 'as-played', 'up-poly', 'down-poly']} 

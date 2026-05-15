@@ -599,6 +599,41 @@ export class JupiterEngine {
     this.updateFXParams();
   }
 
+  private getRateFromBPM(bpm: number, division: string): number {
+    let beatDuration = 60 / bpm; // duration of one designated "beat" in seconds
+    
+    // In compound time like 6/8, the beat is often a dotted quarter.
+    // We want our multipliers (1/4, 1/8) to be relative to a standard quarter note.
+    const isCompound = this.params.timeSignature === '6/8' || 
+                      this.params.timeSignature === '9/8' || 
+                      this.params.timeSignature === '12/8';
+    
+    const quarterDuration = isCompound ? beatDuration * (2/3) : beatDuration;
+    let multiplier = 1;
+
+    // Base divisions (relative to a quarter note)
+    if (division.startsWith('1/16')) multiplier = 0.25;
+    else if (division.startsWith('1/32')) multiplier = 0.125;
+    else if (division.startsWith('1/1')) multiplier = 4;
+    else if (division.startsWith('1/2')) multiplier = 2;
+    else if (division.startsWith('1/4')) multiplier = 1;
+    else if (division.startsWith('1/8')) multiplier = 0.5;
+
+    // Modifiers
+    if (division.endsWith('t')) {
+      multiplier *= 2/3; // Triplets are 2/3 of the base
+    } else if (division.endsWith('d')) {
+      multiplier *= 1.5; // Dotted are 1.5 of the base
+    }
+
+    const duration = quarterDuration * multiplier;
+    return 1 / duration; // Frequency in Hz
+  }
+
+  private getIntervalFromBPM(bpm: number, division: string): number {
+    return (1 / this.getRateFromBPM(bpm, division)) * 1000; // Interval in ms
+  }
+
   private updateFXParams(oldParams?: VoiceParams) {
     if (!this.ctx) return;
     const time = this.ctx.currentTime;
@@ -609,7 +644,12 @@ export class JupiterEngine {
       } else {
         this.mainLFO.type = 'sine'; // Fallback for now
       }
-      this.mainLFO.frequency.setTargetAtTime(this.params.lfoRate, time, 0.05);
+      
+      const rate = this.params.lfoSync 
+        ? this.getRateFromBPM(this.params.bpm, this.params.lfoSyncDivision)
+        : this.params.lfoRate;
+        
+      this.mainLFO.frequency.setTargetAtTime(rate, time, 0.05);
     }
 
     // Chorus
@@ -715,8 +755,13 @@ export class JupiterEngine {
     this.voices.forEach(voice => voice.updateParams(params, this.perfSettings));
     this.updateFXParams(oldParams);
 
-    // If arpeggiator rate changed and it's running, restart it to apply new rate immediately
-    if (this.arpTimer && oldParams.arpRate !== params.arpRate) {
+    // If arpeggiator rate or sync changed and it's running, restart it
+    const rateChanged = oldParams.arpRate !== params.arpRate;
+    const syncChanged = oldParams.arpSync !== params.arpSync;
+    const divChanged = oldParams.arpSyncDivision !== params.arpSyncDivision;
+    const bpmChanged = oldParams.bpm !== params.bpm;
+
+    if (this.arpTimer && (rateChanged || syncChanged || divChanged || bpmChanged)) {
       this.stopArpeggiator();
       this.startArpeggiator();
     }
@@ -774,6 +819,11 @@ export class JupiterEngine {
   noteOn(midiNote: number, velocity: number = 0.8) {
     if (!this.ctx) this.init();
     if (!this.ctx) return;
+    
+    // Ensure context is resumed
+    if (this.ctx.state === 'suspended') {
+      this.ctx.resume();
+    }
     
     if (this.params.arpEnabled) {
       if (!this.heldNotes.includes(midiNote)) {
@@ -838,9 +888,9 @@ export class JupiterEngine {
       return;
     }
 
-    const voice = this.voices.find(v => v.midiNote === midiNote && !v.isReleasing);
-    if (voice && this.ctx) {
-      voice.triggerRelease(this.ctx.currentTime);
+    const matchingVoices = this.voices.filter(v => v.midiNote === midiNote && !v.isReleasing);
+    if (matchingVoices.length > 0 && this.ctx) {
+      matchingVoices.forEach(voice => voice.triggerRelease(this.ctx!.currentTime));
       this.lastReleaseTime = this.ctx.currentTime;
     }
   }
@@ -873,7 +923,10 @@ export class JupiterEngine {
     this.arpDirection = 1;
     this.tickArp();
     
-    const interval = 60000 / (this.params.arpRate * 4); // assume 16th notes at arpRate BPM
+    const interval = this.params.arpSync
+      ? this.getIntervalFromBPM(this.params.bpm, this.params.arpSyncDivision)
+      : 60000 / (this.params.arpRate * 4); // legacy fallback
+      
     this.arpTimer = window.setInterval(() => this.tickArp(), interval);
   }
 
@@ -907,7 +960,7 @@ export class JupiterEngine {
     const notes = this.getArpNotes();
     if (notes.length === 0) return;
 
-    const { arpMode, arpRate } = this.params;
+    const { arpMode } = this.params;
     let notesToPlay: number[] = [];
 
     if (arpMode === 'chord') {
@@ -923,12 +976,16 @@ export class JupiterEngine {
       this.allNotesOff();
     }
 
+    const interval = this.params.arpSync
+      ? this.getIntervalFromBPM(this.params.bpm, this.params.arpSyncDivision)
+      : (60000 / (this.params.arpRate * 4));
+
     // Trigger specified notes
     notesToPlay.forEach(midiNote => {
       const voice = this.internalNoteOn(midiNote);
       if (voice) {
         // Auto-release for staccato feel
-        const gateTime = (60000 / (arpRate * 4)) * 0.8;
+        const gateTime = interval * 0.8;
         setTimeout(() => {
           if (voice.midiNote === midiNote) {
             voice.triggerRelease(this.ctx!.currentTime);

@@ -24,11 +24,17 @@ export interface VoiceParams {
   portamentoTime: number;
   portamentoMode: 'off' | 'on' | 'auto';
   
+  // Performance
+  bpm: number;
+  timeSignature: string;
+  
   // Arpeggiator
   arpEnabled: boolean;
   arpMode: 'up' | 'down' | 'up-down' | 'random' | 'chord' | 'as-played' | 'up-poly' | 'down-poly';
   arpRange: 1 | 2 | 3 | 4;
-  arpRate: number; // BPM or Hz equivalent
+  arpRate: number; 
+  arpSync: boolean;
+  arpSyncDivision: string;
 
   mixerVco1: number;
   mixerVco2: number;
@@ -39,6 +45,8 @@ export interface VoiceParams {
   filterEnvAmount: number;
   filterLfoAmount: number;
   filterKeyboardTrack: number;
+  lfoSync: boolean;
+  lfoSyncDivision: string;
   
   vcaLevel: number;
   vcaEnvAmount: number;
@@ -125,12 +133,16 @@ export const DEFAULT_PARAMS: VoiceParams = {
   vcoMix: 0.5,
   portamentoTime: 0.1,
   portamentoMode: 'off',
+  bpm: 120,
+  timeSignature: '4/4',
 
   // Arpeggiator
   arpEnabled: false,
   arpMode: 'up',
   arpRange: 1,
-  arpRate: 120,
+  arpRate: 300,
+  arpSync: false,
+  arpSyncDivision: '1/16',
 
   mixerVco1: 0.8,
   mixerVco2: 0.6,
@@ -141,6 +153,8 @@ export const DEFAULT_PARAMS: VoiceParams = {
   filterEnvAmount: 0,
   filterLfoAmount: 0,
   filterKeyboardTrack: 0.5,
+  lfoSync: false,
+  lfoSyncDivision: '1/4',
   
   vcaLevel: 0.8,
   vcaEnvAmount: 1,
@@ -200,6 +214,7 @@ export interface PerformanceSettings {
   midiChannel: number; // 0 for all channels, 1-16 for specific
   pitchBendRange: number;
   velocitySensitivity: number;
+  googleSheetUrl: string;
 }
 
 export const DEFAULT_PERFORMANCE_SETTINGS: PerformanceSettings = {
@@ -213,4 +228,5 @@ export const DEFAULT_PERFORMANCE_SETTINGS: PerformanceSettings = {
   midiChannel: 0,
   pitchBendRange: 2,
   velocitySensitivity: 0.5,
+  googleSheetUrl: '',
 };

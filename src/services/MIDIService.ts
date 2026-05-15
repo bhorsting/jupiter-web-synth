@@ -6,6 +6,7 @@
 export type MIDICallback = (note: number, velocity: number) => void;
 export type MIDICCCallback = (cc: number, value: number, channel: number) => void;
 export type MIDIPitchBendCallback = (value: number, channel: number) => void;
+export type MIDIPanicCallback = () => void;
 export type MIDIRawCallback = (data: Uint8Array) => void;
 
 export class MIDIService {
@@ -13,6 +14,7 @@ export class MIDIService {
   private onNoteOff: MIDICallback;
   private onCC?: MIDICCCallback;
   private onPitchBend?: MIDIPitchBendCallback;
+  private onPanic?: MIDIPanicCallback;
   private onMessage?: MIDIRawCallback;
   private access: MIDIAccess | null = null;
   private inputId: string = 'all';
@@ -23,13 +25,15 @@ export class MIDIService {
     onNoteOff: MIDICallback, 
     onCC?: MIDICCCallback, 
     onMessage?: MIDIRawCallback,
-    onPitchBend?: MIDIPitchBendCallback
+    onPitchBend?: MIDIPitchBendCallback,
+    onPanic?: MIDIPanicCallback
   ) {
     this.onNoteOn = onNoteOn;
     this.onNoteOff = onNoteOff;
     this.onCC = onCC;
     this.onMessage = onMessage;
     this.onPitchBend = onPitchBend;
+    this.onPanic = onPanic;
   }
 
   async init() {

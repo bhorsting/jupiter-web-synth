@@ -7,7 +7,8 @@ import { Patch } from "../types";
 
 const DB_NAME = "JupiterDB";
 const STORE_NAME = "patches";
-const DB_VERSION = 1;
+const SETTINGS_STORE = "settings";
+const DB_VERSION = 2;
 
 export class IndexedDBService {
   private db: IDBDatabase | null = null;
@@ -31,7 +32,34 @@ export class IndexedDBService {
         if (!db.objectStoreNames.contains(STORE_NAME)) {
           db.createObjectStore(STORE_NAME, { keyPath: "id" });
         }
+        if (!db.objectStoreNames.contains(SETTINGS_STORE)) {
+          db.createObjectStore(SETTINGS_STORE);
+        }
       };
+    });
+  }
+
+  async getAppState(): Promise<any> {
+    if (!this.db) await this.init();
+    return new Promise((resolve, reject) => {
+      const transaction = this.db!.transaction(SETTINGS_STORE, "readonly");
+      const store = transaction.objectStore(SETTINGS_STORE);
+      const request = store.get("appState");
+
+      request.onsuccess = () => resolve(request.result || null);
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  async saveAppState(state: any): Promise<void> {
+    if (!this.db) await this.init();
+    return new Promise((resolve, reject) => {
+      const transaction = this.db!.transaction(SETTINGS_STORE, "readwrite");
+      const store = transaction.objectStore(SETTINGS_STORE);
+      const request = store.put(state, "appState");
+
+      request.onsuccess = () => resolve();
+      request.onerror = () => reject(request.error);
     });
   }
 

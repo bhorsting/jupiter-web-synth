@@ -3,8 +3,112 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { motion } from 'motion/react';
+import { motion, AnimatePresence } from 'motion/react';
 import React from 'react';
+import { createPortal } from 'react-dom';
+import { Delete, X, Check } from 'lucide-react';
+
+interface NumericKeypadProps {
+  value: number;
+  min: number;
+  max: number;
+  onSave: (val: number) => void;
+  onCancel: () => void;
+  label: string;
+}
+
+export const NumericKeypad: React.FC<NumericKeypadProps> = ({ value, min, max, onSave, onCancel, label }) => {
+  const [currentValue, setCurrentValue] = React.useState(String(value));
+
+  const handleKey = (key: string) => {
+    if (currentValue.length >= 5 && key !== 'backspace') return;
+    
+    if (key === 'backspace') {
+      setCurrentValue(prev => prev.length > 0 ? prev.slice(0, -1) : '0');
+    } else {
+      setCurrentValue(prev => (prev === '0' && key !== '.') ? key : prev + key);
+    }
+  };
+
+  const handleConfirm = () => {
+    const num = Math.max(min, Math.min(max, Number(currentValue) || 0));
+    onSave(num);
+  };
+
+  const keypadContent = (
+    <motion.div 
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="fixed inset-0 z-[99999] flex items-center justify-center bg-black/90 backdrop-blur-md p-4 touch-none"
+      onClick={onCancel}
+      style={{ overscrollBehavior: 'contain' }}
+    >
+      <motion.div 
+        initial={{ opacity: 0, scale: 0.9, y: 20 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        exit={{ opacity: 0, scale: 0.9, y: 20 }}
+        className="bg-zinc-900 border border-zinc-800 w-full max-w-[340px] shadow-2xl p-6 overflow-y-auto max-h-[95vh] rounded-xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex justify-between items-start mb-4">
+          <div className="flex flex-col">
+            <span className="text-[10px] font-bold text-orange-500 uppercase tracking-widest">{label}</span>
+            <span className="text-[9px] text-zinc-500 font-mono mt-0.5">MIN: {min} / MAX: {max}</span>
+          </div>
+          <button 
+            onClick={onCancel} 
+            className="w-10 h-10 -mr-2 bg-zinc-800 hover:bg-zinc-700 rounded-full flex items-center justify-center text-zinc-400 hover:text-white transition-colors"
+          >
+            <X size={20} />
+          </button>
+        </div>
+
+        <div className="bg-black border-2 border-zinc-800 p-4 mb-6 rounded-lg text-right flex items-baseline justify-end gap-2">
+          <span className="text-4xl font-mono text-orange-500 tracking-tight leading-none">
+            {currentValue || '0'}
+          </span>
+          <span className="text-xs text-zinc-600 font-bold uppercase">val</span>
+        </div>
+
+        <div className="grid grid-cols-3 gap-2.5 mb-6">
+          {[1, 2, 3, 4, 5, 6, 7, 8, 9, '.', 0].map(n => (
+            <button
+              key={n}
+              onClick={() => handleKey(String(n))}
+              className="bg-zinc-800 hover:bg-zinc-700 active:bg-orange-600 transition-colors py-5 rounded-lg font-mono text-2xl text-zinc-200 active:scale-95 flex items-center justify-center shadow-lg"
+            >
+              {n}
+            </button>
+          ))}
+          <button
+            onClick={() => handleKey('backspace')}
+            className="bg-zinc-800 hover:bg-red-900/50 active:bg-red-600 transition-colors py-5 rounded-lg flex items-center justify-center text-zinc-200 active:scale-95 shadow-lg border border-transparent active:border-red-500"
+          >
+            <Delete size={22} />
+          </button>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <button
+            onClick={onCancel}
+            className="py-4 bg-zinc-800 rounded-lg font-bold uppercase tracking-widest text-[10px] text-zinc-400 hover:bg-zinc-700 transition-colors"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={handleConfirm}
+            className="bg-orange-600 py-4 rounded-lg font-bold uppercase tracking-widest text-[11px] flex items-center justify-center gap-2 hover:bg-orange-500 transition-all shadow-[0_4px_20px_rgba(234,88,12,0.3)] active:scale-95 text-white"
+          >
+            <Check size={18} /> Confirm
+          </button>
+        </div>
+      </motion.div>
+    </motion.div>
+  );
+
+  return createPortal(keypadContent, document.body);
+};
 
 interface SliderProps {
   label: string;
