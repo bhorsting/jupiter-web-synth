@@ -404,6 +404,12 @@ export class JupiterEngine {
     return this.analyser;
   }
 
+  resume() {
+    if (this.ctx && this.ctx.state === 'suspended') {
+      this.ctx.resume();
+    }
+  }
+
   init() {
     if (this.ctx) return;
     this.ctx = new AudioContext({

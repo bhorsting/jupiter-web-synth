@@ -22,7 +22,7 @@ import {
   FXSection
 } from './components/SynthPanel';
 import { DEFAULT_PARAMS, VoiceParams, Patch, MidiMapping } from './types';
-import { Power, Save, FolderOpen, Sliders, Waves, Activity, Trash2, X, Keyboard as PianoIcon, Cloud, UploadCloud, DownloadCloud, Link, Maximize, Minimize, Settings2 } from 'lucide-react';
+import { Power, Save, FolderOpen, Sliders, Waves, Activity, Trash2, X, Keyboard as PianoIcon, Cloud, UploadCloud, DownloadCloud, Link, Maximize, Minimize, Settings2, Plus } from 'lucide-react';
 import React from 'react';
 import Keyboard from 'react-simple-keyboard';
 import { PianoKeyboard } from './components/PianoKeyboard';
@@ -69,6 +69,7 @@ function App() {
   const [isMidiLogVisible, setIsMidiLogVisible] = useState(false);
 
   const [patches, setPatches] = useState<Patch[]>([]);
+  const [searchQuery, setSearchQuery] = useState('');
 
   useEffect(() => {
     const handleFsChange = () => setIsFullscreen(!!document.fullscreenElement);
@@ -90,16 +91,30 @@ function App() {
   useEffect(() => {
     const initDB = async () => {
       await indexedDBService.init();
-      let storedPatches = await indexedDBService.getAllPatches();
+      const storedPatches = await indexedDBService.getAllPatches();
       
-      if (storedPatches.length === 0) {
+      // Always merge PRESET_PATCHES to ensure user has the latest ones if they haven't deleted them
+      // We identify presets by their prefix in the ID if we had one, but here they are just objects.
+      // Let's check by name or ID if it exists.
+      const existingIds = new Set(storedPatches.map(p => p.id));
+      const newPresets = PRESET_PATCHES.filter(p => !existingIds.has(p.id));
+      
+      let finalPatches = [...storedPatches];
+      
+      if (newPresets.length > 0) {
+        console.log(`Adding ${newPresets.length} new preset patches...`);
+        await indexedDBService.savePatches([...storedPatches, ...newPresets]);
+        finalPatches = [...storedPatches, ...newPresets];
+      }
+
+      if (storedPatches.length === 0 && finalPatches.length === 0) {
         console.log('Seeding IndexedDB with preset patches...');
         await indexedDBService.savePatches(PRESET_PATCHES);
-        storedPatches = PRESET_PATCHES;
+        finalPatches = PRESET_PATCHES;
       }
 
       // Migration: ensure all fields exist
-      const migrated = storedPatches.map((p: any) => ({
+      const migrated = finalPatches.map((p: any) => ({
         ...p,
         params: { ...DEFAULT_PARAMS, ...p.params },
         midiMappings: (p.midiMappings || []).map((m: any) => ({
@@ -238,7 +253,26 @@ function App() {
   useEffect(() => {
     if (!engineRef.current) {
       engineRef.current = new JupiterEngine(params, settings);
+      startEngine();
     }
+  }, []);
+
+  // Resume engine on first interaction to satisfy browser policies
+  useEffect(() => {
+    const handleFirstInteraction = () => {
+      engineRef.current?.resume();
+      window.removeEventListener('mousedown', handleFirstInteraction);
+      window.removeEventListener('touchstart', handleFirstInteraction);
+      window.removeEventListener('keydown', handleFirstInteraction);
+    };
+    window.addEventListener('mousedown', handleFirstInteraction);
+    window.addEventListener('touchstart', handleFirstInteraction);
+    window.addEventListener('keydown', handleFirstInteraction);
+    return () => {
+      window.removeEventListener('mousedown', handleFirstInteraction);
+      window.removeEventListener('touchstart', handleFirstInteraction);
+      window.removeEventListener('keydown', handleFirstInteraction);
+    };
   }, []);
 
   useEffect(() => {
@@ -375,7 +409,7 @@ function App() {
   };
 
 
-  const startEngine = () => {
+  function startEngine() {
     if (engineRef.current) {
       engineRef.current.init();
       setEngineReady(true);
@@ -735,7 +769,7 @@ function App() {
     </>
   );
 
-  const APP_VERSION = '1.4.1';
+  const APP_VERSION = '1.6.1';
 
   const NavButton = ({ target, label, icon: Icon }: { target: Screen, label: string, icon: any }) => (
     <button 
@@ -798,38 +832,29 @@ function App() {
         </div>
 
         <div className="flex items-center gap-1 sm:gap-2 ml-2 h-full">
-          {!engineReady ? (
-            <button
-              onClick={startEngine}
-              className="px-2 sm:px-3 py-1.5 bg-orange-600 text-white font-bold uppercase tracking-widest text-[9px] flex items-center gap-1 border border-orange-400 active:scale-95"
+          <div className="flex items-center gap-1.5 h-full">
+            <div 
+              className="hidden sm:flex h-full items-center px-2 cursor-pointer hover:bg-white/5 transition-colors group relative"
+              onClick={() => updateSettings({ enableOscilloscope: !settings.enableOscilloscope })}
+              title={settings.enableOscilloscope ? "Click to disable visualizer (CPU Intensive)" : "Click to enable visualizer"}
             >
-              <Power size={10} /> <span>START</span>
-            </button>
-          ) : (
-            <div className="flex items-center gap-1.5 h-full">
-              <div 
-                className="hidden sm:flex h-full items-center px-2 cursor-pointer hover:bg-white/5 transition-colors group relative"
-                onClick={() => updateSettings({ enableOscilloscope: !settings.enableOscilloscope })}
-                title={settings.enableOscilloscope ? "Click to disable visualizer (CPU Intensive)" : "Click to enable visualizer"}
-              >
-                {!settings.enableOscilloscope && (
-                  <div className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity z-10 rounded">
-                    <span className="text-[6px] font-bold text-white uppercase tracking-widest">CPU SAVER ON</span>
-                  </div>
-                )}
-                <Oscilloscope 
-                  analyser={settings.enableOscilloscope ? (engineRef.current?.getAnalyser() || null) : null} 
-                  isActive={engineReady && settings.enableOscilloscope} 
-                />
-              </div>
-              <button 
-                onClick={savePatch}
-                className="p-1.5 sm:p-2 h-full hover:bg-white/5 text-zinc-400 hover:text-white transition-colors border-l border-white/5"
-              >
-                <Save size={14} />
-              </button>
+              {!settings.enableOscilloscope && (
+                <div className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity z-10 rounded">
+                  <span className="text-[6px] font-bold text-white uppercase tracking-widest">CPU SAVER ON</span>
+                </div>
+              )}
+              <Oscilloscope 
+                analyser={settings.enableOscilloscope ? (engineRef.current?.getAnalyser() || null) : null} 
+                isActive={engineReady && settings.enableOscilloscope} 
+              />
             </div>
-          )}
+            <button 
+              onClick={savePatch}
+              className="p-1.5 sm:p-2 h-full hover:bg-white/5 text-zinc-400 hover:text-white transition-colors border-l border-white/5"
+            >
+              <Save size={14} />
+            </button>
+          </div>
           
           <div className="flex items-center gap-1 font-mono text-[9px] text-zinc-500 border-l border-synth-border pl-2 sm:pl-3">
             <Activity size={10} className={activeNotes.length > 0 ? 'text-green-500' : ''} />
@@ -912,16 +937,27 @@ function App() {
             <div className="absolute inset-0 bg-synth-bg p-4 sm:p-8 overflow-y-auto">
               <div className="max-w-4xl mx-auto">
                 <div className="flex justify-between items-center mb-8 sm:mb-12 border-b border-synth-border pb-6">
-                   <div className="flex items-center gap-4">
-                     <h2 className="text-xl sm:text-3xl font-bold tracking-tight uppercase">Patch Library</h2>
-                     <button 
-                       onClick={saveAsNewPatch}
-                       className="p-2 hover:bg-white/5 rounded-full text-zinc-400 hover:text-white transition-colors"
-                       title="Save Current as New"
-                     >
-                       <Save size={24} />
-                     </button>
-                   </div>
+                    <div className="flex items-center gap-4">
+                      <h2 className="text-xl sm:text-3xl font-bold tracking-tight uppercase">Patch Library</h2>
+                      <div className="flex items-center gap-2">
+                        {activePatchId && (
+                          <button 
+                            onClick={savePatch}
+                            className="p-2 hover:bg-white/5 rounded-full text-blue-400 hover:text-white transition-colors"
+                            title="Update Current Patch"
+                          >
+                            <Save size={24} />
+                          </button>
+                        )}
+                        <button 
+                          onClick={saveAsNewPatch}
+                          className="p-2 hover:bg-white/5 rounded-full text-zinc-400 hover:text-white transition-colors"
+                          title="Save Current as New"
+                        >
+                          <Plus size={24} />
+                        </button>
+                      </div>
+                    </div>
                    <button 
                      onClick={() => { setParams(DEFAULT_PARAMS); setActivePatchId(null); setCurrentScreen('SYNTH'); }}
                      className="px-6 py-2 bg-zinc-800 hover:bg-zinc-700 text-white font-bold uppercase tracking-widest text-[10px]"
@@ -1005,33 +1041,60 @@ function App() {
                   )}
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {patches.map(patch => (
-                    <div 
-                      key={patch.id}
-                      className={`p-6 border transition-all cursor-pointer flex flex-col gap-4 group ${
-                        activePatchId === patch.id 
-                          ? 'bg-orange-600/10 border-orange-500' 
-                          : 'bg-zinc-900/50 border-zinc-800 hover:border-zinc-600'
-                      }`}
-                      onClick={() => loadPatch(patch)}
+                <div className="mb-6 relative">
+                  <Activity size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" />
+                  <input 
+                    type="text" 
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder="Search patches..."
+                    className="w-full bg-zinc-900 border border-zinc-800 p-4 pl-10 text-sm font-bold uppercase tracking-widest text-white focus:border-orange-500 outline-none transition-all"
+                  />
+                  {searchQuery && (
+                    <button 
+                      onClick={() => setSearchQuery('')}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-white"
                     >
-                      <div className="flex justify-between items-start">
-                        <span className="text-zinc-500 font-mono text-xs">P-{patch.id.slice(-4)}</span>
-                        <button 
-                          onClick={(e) => { e.stopPropagation(); deletePatch(patch.id); }}
-                          className="opacity-0 group-hover:opacity-100 p-2 hover:bg-red-500/20 text-red-500 rounded transition-all"
-                        >
-                          <Trash2 size={16} />
-                        </button>
-                      </div>
-                      <h3 className="text-xl font-bold uppercase truncate">{patch.name}</h3>
-                      <div className="flex gap-2">
-                         <div className={`w-1 h-4 ${patch.params.vco1Waveform === 'sawtooth' ? 'bg-orange-500' : 'bg-blue-500'}`} />
-                         <div className={`w-1 h-4 ${patch.params.filterCutoff > 5000 ? 'bg-zinc-300' : 'bg-zinc-700'}`} />
-                      </div>
+                      <X size={16} />
+                    </button>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {patches.filter(p => p.name.toLowerCase().includes(searchQuery.toLowerCase())).length === 0 ? (
+                    <div className="col-span-full py-12 text-center bg-zinc-900 border border-dashed border-zinc-800 text-zinc-500 uppercase tracking-widest text-[10px] font-bold">
+                      No matching patches found
                     </div>
-                  ))}
+                  ) : (
+                    patches
+                      .filter(p => p.name.toLowerCase().includes(searchQuery.toLowerCase()))
+                      .map(patch => (
+                      <div 
+                        key={patch.id}
+                        className={`p-6 border transition-all cursor-pointer flex flex-col gap-4 group ${
+                          activePatchId === patch.id 
+                            ? 'bg-orange-600/10 border-orange-500' 
+                            : 'bg-zinc-900/50 border-zinc-800 hover:border-zinc-600'
+                        }`}
+                        onClick={() => loadPatch(patch)}
+                      >
+                        <div className="flex justify-between items-start">
+                          <span className="text-zinc-500 font-mono text-xs">P-{patch.id.slice(-4)}</span>
+                          <button 
+                            onClick={(e) => { e.stopPropagation(); deletePatch(patch.id); }}
+                            className="opacity-0 group-hover:opacity-100 p-2 hover:bg-red-500/20 text-red-500 rounded transition-all"
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        </div>
+                        <h3 className="text-xl font-bold uppercase truncate">{patch.name}</h3>
+                        <div className="flex gap-2">
+                           <div className={`w-1 h-4 ${patch.params.vco1Waveform === 'sawtooth' ? 'bg-orange-500' : 'bg-blue-500'}`} />
+                           <div className={`w-1 h-4 ${patch.params.filterCutoff > 5000 ? 'bg-zinc-300' : 'bg-zinc-700'}`} />
+                        </div>
+                      </div>
+                    ))
+                  )}
                 </div>
               </div>
             </div>
@@ -1081,9 +1144,10 @@ function App() {
                   }}
                   layout={{
                     default: [
+                      "1 2 3 4 5 6 7 8 9 0",
                       "Q W E R T Y U I O P",
                       "A S D F G H J K L",
-                      "Z X C V B N M",
+                      "Z X C V B N M - _",
                       "{bksp} {space} {enter}"
                     ]
                   }}
