@@ -814,24 +814,43 @@ function App() {
   return (
     <div className={`w-screen h-[100dvh] overflow-hidden bg-synth-bg text-white font-sans select-none flex flex-col theme-${settings.theme}`}>
       {/* Dynamic Header */}
-      <div className="h-[50px] bg-synth-panel border-b border-synth-border flex items-center justify-between px-2 sm:px-3 shrink-0 z-20">
-        <div className="flex items-center h-full flex-1 min-w-0">
-          <div className="mr-2 sm:mr-4 flex items-center gap-1.5 sm:gap-2 shrink-0">
-             <div className={`w-1.5 h-1.5 sm:w-2 sm:h-2 ${engineReady ? 'bg-red-600 shadow-[0_0_8px_red]' : 'bg-zinc-800'}`} />
-             <div className="flex flex-col gap-4">
-               <h1 className="text-[10px] sm:text-xs font-bold tracking-tighter text-white uppercase truncate max-w-[80px] sm:max-w-[150px] leading-none">
-                 {activePatchId ? patches.find(p => p.id === activePatchId)?.name : 'UNSAVED'}
-               </h1>
-               <span className="text-[7px] text-zinc-600 font-mono tracking-widest leading-tight">v{APP_VERSION}</span>
-             </div>
+      <div className="flex flex-col sm:flex-row bg-synth-panel border-b border-synth-border shrink-0 z-20">
+        {/* Mobile-only Top Patch Title Row */}
+        <div className="flex sm:hidden h-[34px] items-center justify-between px-3 border-b border-synth-border/40 bg-black/20 shrink-0">
+          <div className="flex items-center gap-2">
+            <div className={`w-1.5 h-1.5 rounded-full ${engineReady ? 'bg-red-600 shadow-[0_0_8px_red]' : 'bg-zinc-800'}`} />
+            <h1 className="text-[11px] font-bold tracking-wider text-white uppercase truncate max-w-[150px]">
+              {activePatchId ? patches.find(p => p.id === activePatchId)?.name : 'UNSAVED'}
+            </h1>
+            <span className="text-[7px] text-zinc-600 font-mono tracking-wider">v{APP_VERSION}</span>
           </div>
           
-          <nav className="flex h-full min-w-0">
-            <NavButton target="SYNTH" label="Synthesizer" icon={Sliders} />
-            <NavButton target="ARP" label="Arpeggio" icon={Activity} />
-            <NavButton target="FX" label="Master FX" icon={Waves} />
-            <NavButton target="PATCHES" label="Library" icon={FolderOpen} />
-          </nav>
+          <div className="flex items-center gap-1 font-mono text-[9px] text-zinc-500">
+            <Activity size={10} className={activeNotes.length > 0 ? 'text-green-500 animate-pulse' : ''} />
+            <span>{activeNotes.length} ACTIVE NOTES</span>
+          </div>
+        </div>
+
+        {/* Header Action Row (Primary across sm and containing controls) */}
+        <div className="h-[50px] flex items-center justify-between px-2 sm:px-3 w-full min-w-0">
+          <div className="flex items-center h-full flex-1 min-w-0">
+            {/* Desktop-only Patch Name & LED */}
+            <div className="hidden sm:flex mr-4 items-center gap-2 shrink-0">
+               <div className={`w-1.5 h-1.5 sm:w-2 sm:h-2 ${engineReady ? 'bg-red-600 shadow-[0_0_8px_red]' : 'bg-zinc-800'}`} />
+               <div className="flex flex-col gap-0.5 justify-center">
+                 <h1 className="text-[10px] sm:text-xs font-bold tracking-tighter text-white uppercase truncate max-w-[80px] sm:max-w-[150px] leading-none">
+                   {activePatchId ? patches.find(p => p.id === activePatchId)?.name : 'UNSAVED'}
+                 </h1>
+                 <span className="text-[7px] text-zinc-600 font-mono tracking-widest leading-none">v{APP_VERSION}</span>
+               </div>
+            </div>
+            
+            <nav className="flex h-full min-w-0">
+              <NavButton target="SYNTH" label="Synthesizer" icon={Sliders} />
+              <NavButton target="ARP" label="Arpeggio" icon={Activity} />
+              <NavButton target="FX" label="Master FX" icon={Waves} />
+              <NavButton target="PATCHES" label="Library" icon={FolderOpen} />
+            </nav>
  
           <div 
             className="hidden lg:flex ml-4 h-full items-center border-l border-white/5 pl-4 overflow-hidden cursor-pointer group relative hover:bg-white/5 transition-colors min-w-[120px]"
@@ -939,6 +958,7 @@ function App() {
           </button>
         </div>
       </div>
+    </div>
 
       {/* Main Content Area */}
       <div className="flex-1 relative flex flex-col overflow-hidden">
