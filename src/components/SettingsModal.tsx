@@ -184,9 +184,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                     <div className="space-y-2">
                       <label className="text-[10px] uppercase tracking-widest text-zinc-500 font-bold">Latency Mode</label>
                       <div className="flex flex-col gap-2">
-                        {(['interactive', 'balanced', 'playback'] as const).map(mode => (
+                        {(['interactive', 'balanced', 'playback', 0] as const).map(mode => (
                           <button
-                            key={mode}
+                            key={String(mode)}
                             onClick={() => updateSettings({ latencyHint: mode })}
                             className={`px-3 py-2 rounded text-left text-[10px] uppercase font-bold transition-all border ${
                               settings.latencyHint === mode 
@@ -194,7 +194,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                                 : 'bg-black/20 border-zinc-800 text-zinc-500 hover:border-zinc-700'
                             }`}
                           >
-                            {mode}
+                            {mode === 0 ? 'ultra-low latency (0)' : mode}
                           </button>
                         ))}
                       </div>

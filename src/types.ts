@@ -207,7 +207,7 @@ export interface PerformanceSettings {
   maxVoices: number;
   sampleRate: number;
   audioBufferLength: 128 | 256 | 512 | 1024 | 2048;
-  latencyHint: 'balanced' | 'interactive' | 'playback';
+  latencyHint: 'balanced' | 'interactive' | 'playback' | 0;
   enableOscilloscope: boolean;
   theme: 'jupiter' | 'dark' | 'light';
   midiInputId: string;
