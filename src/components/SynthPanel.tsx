@@ -23,14 +23,42 @@ const Section = React.memo<SectionProps>(({ title, children }) => (
 interface GlobalSectionProps {
   bpm: number;
   timeSignature: string;
+  synthEngine: 'jupiter' | 'hammond';
   updateParam: (key: keyof VoiceParams, val: any) => void;
 }
 
-export const GlobalSection = React.memo<GlobalSectionProps>(({ bpm, timeSignature, updateParam }) => {
+export const GlobalSection = React.memo<GlobalSectionProps>(({ bpm, timeSignature, synthEngine, updateParam }) => {
   const [isKeypadOpen, setIsKeypadOpen] = React.useState(false);
 
   return (
     <div className="flex border-b border-synth-border p-4 gap-8 items-center bg-zinc-950/50 backdrop-blur-sm">
+      {/* Engine Selection Toggle Switch */}
+      <div className="flex flex-col gap-1.5 border-r border-zinc-850 pr-8">
+        <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-[0.2em]">Synthesis Engine</span>
+        <div className="flex border border-zinc-850 bg-black/50 p-0.5 rounded shadow-inner">
+          <button
+            onClick={() => updateParam('synthEngine', 'jupiter')}
+            className={`px-3 py-1.5 text-[9px] uppercase font-mono font-bold tracking-widest rounded-sm transition-all cursor-pointer ${
+              synthEngine === 'jupiter' 
+                ? 'bg-orange-600 text-white shadow shadow-orange-600/20' 
+                : 'text-zinc-500 hover:text-zinc-300'
+            }`}
+          >
+            JP-8 Synth
+          </button>
+          <button
+            onClick={() => updateParam('synthEngine', 'hammond')}
+            className={`px-3 py-1.5 text-[9px] uppercase font-mono font-bold tracking-widest rounded-sm transition-all cursor-pointer ${
+              synthEngine === 'hammond' 
+                ? 'bg-orange-600 text-white shadow shadow-orange-600/20' 
+                : 'text-zinc-500 hover:text-zinc-300'
+            }`}
+          >
+            B3 Organ
+          </button>
+        </div>
+      </div>
+
       <div className="flex flex-col gap-1">
         <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-[0.2em]">Master Tempo</span>
         <div 
@@ -683,6 +711,137 @@ export const EnvelopeSection = React.memo<EnvelopeSectionProps>(({
         onMapClick={() => handleMapClick(rKey)}
         mappedCC={getMappedCC(rKey)}
         isSelected={selectedMapParam === rKey}
+      />
+    </Section>
+  );
+});
+
+interface HammondDrawbarsSectionProps {
+  db16: number;
+  db513: number;
+  db8: number;
+  db4: number;
+  db223: number;
+  db2: number;
+  db135: number;
+  db113: number;
+  db1: number;
+  updateParam: (key: keyof VoiceParams, val: any) => void;
+  isMidiMappingMode: boolean;
+  handleMapClick: (param: keyof VoiceParams) => void;
+  getMappedCC: (param: keyof VoiceParams) => string | undefined;
+  selectedMapParam: string | null;
+}
+
+export const HammondDrawbarsSection = React.memo<HammondDrawbarsSectionProps>(({
+  db16, db513, db8, db4, db223, db2, db135, db113, db1,
+  updateParam, isMidiMappingMode, handleMapClick, getMappedCC, selectedMapParam
+}) => {
+  const drawbars = [
+    { key: 'hammondDb16' as const, label: "16'", color: 'bg-amber-800 text-amber-100 hover:bg-amber-700' },
+    { key: 'hammondDb513' as const, label: "5 ⅓'", color: 'bg-amber-800 text-amber-100 hover:bg-amber-700' },
+    { key: 'hammondDb8' as const, label: "8'", color: 'bg-white text-zinc-900 hover:bg-zinc-100 border border-zinc-300' },
+    { key: 'hammondDb4' as const, label: "4'", color: 'bg-white text-zinc-900 hover:bg-zinc-100 border border-zinc-300' },
+    { key: 'hammondDb223' as const, label: "2 ⅔'", color: 'bg-zinc-800 text-zinc-100 hover:bg-zinc-700 border border-zinc-600' },
+    { key: 'hammondDb2' as const, label: "2'", color: 'bg-white text-zinc-900 hover:bg-zinc-100 border border-zinc-300' },
+    { key: 'hammondDb135' as const, label: "1 ⅗'", color: 'bg-zinc-800 text-zinc-100 hover:bg-zinc-700 border border-zinc-600' },
+    { key: 'hammondDb113' as const, label: "1 ⅓'", color: 'bg-zinc-800 text-zinc-100 hover:bg-zinc-700 border border-zinc-600' },
+    { key: 'hammondDb1' as const, label: "1'", color: 'bg-white text-zinc-900 hover:bg-zinc-100 border border-zinc-300' }
+  ];
+
+  const values = [db16, db513, db8, db4, db223, db2, db135, db113, db1];
+
+  return (
+    <Section title="Drawbars">
+      <div className="flex gap-2">
+        {drawbars.map((db, idx) => (
+          <div key={db.key} className="flex flex-col items-center">
+            <JupiterSlider 
+              label={db.label}
+              value={values[idx]}
+              min={0}
+              max={8}
+              step={1}
+              color={db.color}
+              isSmall={true}
+              onChange={(val) => updateParam(db.key, Math.round(val))}
+              isMapMode={isMidiMappingMode}
+              onMapClick={() => handleMapClick(db.key)}
+              mappedCC={getMappedCC(db.key)}
+              isSelected={selectedMapParam === db.key}
+            />
+            <div className="text-[10px] font-mono text-zinc-500 font-bold -mt-8">
+              {Math.round(values[idx])}
+            </div>
+          </div>
+        ))}
+      </div>
+    </Section>
+  );
+});
+
+interface HammondPercussionSectionProps {
+  percussionEnabled: boolean;
+  percussionHarmonic: 'second' | 'third';
+  percussionDecay: 'fast' | 'slow';
+  percussionVolume: 'soft' | 'normal';
+  keyClick: number;
+  updateParam: (key: keyof VoiceParams, val: any) => void;
+  isMidiMappingMode: boolean;
+  handleMapClick: (param: keyof VoiceParams) => void;
+  getMappedCC: (param: keyof VoiceParams) => string | undefined;
+  selectedMapParam: string | null;
+}
+
+export const HammondPercussionSection = React.memo<HammondPercussionSectionProps>(({
+  percussionEnabled, percussionHarmonic, percussionDecay, percussionVolume, keyClick,
+  updateParam, isMidiMappingMode, handleMapClick, getMappedCC, selectedMapParam
+}) => {
+  return (
+    <Section title="Percussion & Click">
+      <div className="flex flex-col gap-4 justify-center items-center px-2 min-w-[80px]">
+        <JupiterToggle 
+          label="Perc On"
+          active={percussionEnabled}
+          onChange={(v) => updateParam('hammondPercussionEnabled', v)}
+          color="bg-orange-500"
+        />
+        {percussionEnabled && (
+          <div className="flex flex-col gap-1.5 mt-2 bg-black/45 p-2 rounded border border-zinc-800">
+            <JupiterSelector 
+              label="Harmonic"
+              options={['second', 'third']}
+              value={percussionHarmonic}
+              onChange={(v) => updateParam('hammondPercussionHarmonic', v)}
+            />
+            <JupiterSelector 
+              label="Decay"
+              options={['fast', 'slow']}
+              value={percussionDecay}
+              onChange={(v) => updateParam('hammondPercussionDecay', v)}
+            />
+            <JupiterSelector 
+              label="Volume"
+              options={['soft', 'normal']}
+              value={percussionVolume}
+              onChange={(v) => updateParam('hammondPercussionVolume', v)}
+            />
+          </div>
+        )}
+      </div>
+
+      <JupiterSlider 
+        label="Key Click"
+        value={keyClick}
+        min={0}
+        max={1}
+        step={0.01}
+        onChange={(v) => updateParam('hammondKeyClick', v)}
+        color="bg-amber-600"
+        isMapMode={isMidiMappingMode}
+        onMapClick={() => handleMapClick('hammondKeyClick')}
+        mappedCC={getMappedCC('hammondKeyClick')}
+        isSelected={selectedMapParam === 'hammondKeyClick'}
       />
     </Section>
   );

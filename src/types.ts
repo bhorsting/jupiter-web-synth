@@ -85,6 +85,7 @@ export interface VoiceParams {
   leslieMix: number;
   leslieRate: number;
   leslieDepth: number;
+  leslieSpeed: 'off' | 'lo' | 'high';
 
   // Tremolo
   tremoloMix: number;
@@ -98,6 +99,23 @@ export interface VoiceParams {
   compAttack: number;
   compRelease: number;
   filterEnvSource: 'env1' | 'env2';
+
+  // Hammond Organ Engine Params
+  synthEngine: 'jupiter' | 'hammond';
+  hammondDb16: number;     // 16' (sub-octave)
+  hammondDb513: number;    // 5 1/3' (quint)
+  hammondDb8: number;      // 8' (fundamental)
+  hammondDb4: number;      // 4' (octave)
+  hammondDb223: number;    // 2 2/3' (nazard)
+  hammondDb2: number;      // 2' (blockflote)
+  hammondDb135: number;    // 1 3/5' (tierce)
+  hammondDb113: number;    // 1 1/3' (larigot)
+  hammondDb1: number;      // 1' (sifflote)
+  hammondPercussionEnabled: boolean;
+  hammondPercussionHarmonic: 'second' | 'third';
+  hammondPercussionDecay: 'fast' | 'slow';
+  hammondPercussionVolume: 'soft' | 'normal';
+  hammondKeyClick: number; // key click level 0 to 1
 }
 
 export interface MidiMapping {
@@ -190,6 +208,7 @@ export const DEFAULT_PARAMS: VoiceParams = {
   leslieMix: 0,
   leslieRate: 0.8,
   leslieDepth: 0.5,
+  leslieSpeed: 'lo',
 
   tremoloMix: 0,
   tremoloRate: 4.0,
@@ -201,6 +220,23 @@ export const DEFAULT_PARAMS: VoiceParams = {
   compAttack: 0.003,
   compRelease: 0.25,
   filterEnvSource: 'env1',
+
+  // Hammond defaults
+  synthEngine: 'jupiter',
+  hammondDb16: 8,
+  hammondDb513: 8,
+  hammondDb8: 8,
+  hammondDb4: 8,
+  hammondDb223: 0,
+  hammondDb2: 8,
+  hammondDb135: 0,
+  hammondDb113: 0,
+  hammondDb1: 0,
+  hammondPercussionEnabled: false,
+  hammondPercussionHarmonic: 'third',
+  hammondPercussionDecay: 'fast',
+  hammondPercussionVolume: 'normal',
+  hammondKeyClick: 0.5,
 };
 
 export interface PerformanceSettings {

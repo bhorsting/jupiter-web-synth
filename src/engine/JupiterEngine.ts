@@ -24,6 +24,13 @@ class Voice {
   private vcaLfoMod: GainNode;
   private vcoLfoMod: GainNode;
   private crossModGain: GainNode;
+
+  // Hammond organ engines
+  private hammondOscs: OscillatorNode[] = [];
+  private hammondGains: GainNode[] = [];
+  private percussionOsc: OscillatorNode | null = null;
+  private percussionGain: GainNode | null = null;
+
   private params: VoiceParams;
   private perfSettings: PerformanceSettings;
   private pitchBendOffset: number = 0; // in semitones
@@ -85,6 +92,41 @@ class Voice {
     this.params = params;
     if (settings) this.perfSettings = settings;
     const time = this.ctx.currentTime;
+
+    if (params.synthEngine === 'hammond') {
+      const drawbarLevels = [
+        params.hammondDb16,
+        params.hammondDb513,
+        params.hammondDb8,
+        params.hammondDb4,
+        params.hammondDb223,
+        params.hammondDb2,
+        params.hammondDb135,
+        params.hammondDb113,
+        params.hammondDb1
+      ];
+
+      this.hammondGains.forEach((gainNode, idx) => {
+        const dbIndex = (gainNode as any).drawbarIndex;
+        if (dbIndex !== undefined) {
+          const level = drawbarLevels[dbIndex];
+          const fraction = level / 8;
+          gainNode.gain.setTargetAtTime(fraction * 0.15, time, 0.01);
+        }
+      });
+
+      this.filter.type = 'lowpass'; 
+      this.filter.Q.setTargetAtTime(params.filterResonance * 10, time, 0.05);
+
+      if (!this.isReleasing) {
+        this.filter.frequency.setTargetAtTime(Math.max(20, params.filterCutoff), time, 0.05);
+      }
+
+      if (!this.isReleasing) {
+        this.output.gain.setTargetAtTime(params.vcaLevel, time, 0.05);
+      }
+      return;
+    }
 
     const isVco1Noise = params.vco1Waveform === 'noise';
     const isVco2Noise = params.vco2Waveform === 'noise';
@@ -160,7 +202,102 @@ class Voice {
     this.velocity = velocity;
 
     const freq = 440 * Math.pow(2, (midiNote - 69) / 12);
-    
+
+    if (this.params.synthEngine === 'hammond') {
+      const bendFactor = Math.pow(2, this.pitchBendOffset / 12);
+      const footages = [0.5, 1.5, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 8.0];
+      const drawbarLevels = [
+        this.params.hammondDb16,
+        this.params.hammondDb513,
+        this.params.hammondDb8,
+        this.params.hammondDb4,
+        this.params.hammondDb223,
+        this.params.hammondDb2,
+        this.params.hammondDb135,
+        this.params.hammondDb113,
+        this.params.hammondDb1
+      ];
+
+      this.hammondOscs = [];
+      this.hammondGains = [];
+
+      footages.forEach((footage, index) => {
+        const osc = this.ctx.createOscillator();
+        osc.type = 'sine';
+        (osc as any).footMultiplier = footage;
+
+        const targetFreq = freq * footage * bendFactor;
+        osc.frequency.setValueAtTime(targetFreq, time);
+
+        const gainNode = this.ctx.createGain();
+        (gainNode as any).drawbarIndex = index;
+        const level = drawbarLevels[index];
+        const fraction = level / 8;
+        gainNode.gain.setValueAtTime(0, time);
+        gainNode.gain.linearRampToValueAtTime(fraction * 0.15, time + 0.008);
+
+        osc.connect(gainNode);
+        gainNode.connect(this.filter);
+        
+        osc.start(time);
+
+        this.hammondOscs.push(osc);
+        this.hammondGains.push(gainNode);
+      });
+
+      // Vintage Key Click Simulation
+      if (this.params.hammondKeyClick > 0 && this.sharedNoiseBuffer) {
+        const clickSrc = this.ctx.createBufferSource();
+        clickSrc.buffer = this.sharedNoiseBuffer;
+
+        const clickFilter = this.ctx.createBiquadFilter();
+        clickFilter.type = 'bandpass';
+        clickFilter.frequency.setValueAtTime(3500, time);
+        clickFilter.Q.setValueAtTime(3.0, time);
+
+        const clickGainNode = this.ctx.createGain();
+        clickGainNode.gain.setValueAtTime(this.params.hammondKeyClick * 0.15, time);
+        clickGainNode.gain.exponentialRampToValueAtTime(0.0001, time + 0.015);
+
+        clickSrc.connect(clickFilter);
+        clickFilter.connect(clickGainNode);
+        clickGainNode.connect(this.filter);
+
+        clickSrc.start(time);
+        clickSrc.stop(time + 0.05);
+      }
+
+      // Hammond Harmonic Percussion
+      if (this.params.hammondPercussionEnabled) {
+        const pertHarm = this.params.hammondPercussionHarmonic === 'second' ? 2.0 : 3.0;
+        const percFreq = freq * pertHarm * bendFactor;
+
+        this.percussionOsc = this.ctx.createOscillator();
+        this.percussionOsc.type = 'sine';
+        this.percussionOsc.frequency.setValueAtTime(percFreq, time);
+
+        this.percussionGain = this.ctx.createGain();
+        const maxPercGain = this.params.hammondPercussionVolume === 'soft' ? 0.08 : 0.22;
+        const decayTime = this.params.hammondPercussionDecay === 'fast' ? 0.16 : 0.55;
+
+        this.percussionGain.gain.setValueAtTime(maxPercGain, time);
+        this.percussionGain.gain.exponentialRampToValueAtTime(0.0001, time + decayTime);
+
+        this.percussionOsc.connect(this.percussionGain);
+        this.percussionGain.connect(this.filter);
+
+        this.percussionOsc.start(time);
+        this.percussionOsc.stop(time + decayTime + 0.1);
+      }
+
+      // Snappy but 100% click-free Organ VCA gating
+      this.vca.gain.cancelScheduledValues(time);
+      this.vca.gain.setValueAtTime(0, time);
+      this.vca.gain.linearRampToValueAtTime(1.0, time + 0.008);
+
+      return;
+    }
+
     this.vco1 = this.ctx.createOscillator();
     this.vco2 = this.ctx.createOscillator();
     this.vco1Noise = this.ctx.createBufferSource();
@@ -268,18 +405,31 @@ class Voice {
 
   setPitchBend(offset: number) {
     this.pitchBendOffset = offset;
-    if (this.vco1 && this.vco2 && this.midiNote !== null && !this.isReleasing) {
-      const time = this.ctx.currentTime;
-      const freq = 440 * Math.pow(2, (this.midiNote - 69) / 12);
-      const { vco1Freq, vco1Range, vco2Freq, vco2Range, vco2Detune } = this.params;
-      
-      const bendFactor = Math.pow(2, offset / 12);
-      
-      const targetFreq1 = freq * (8/vco1Range) * Math.pow(2, vco1Freq / 12) * bendFactor;
-      const targetFreq2 = freq * (8/vco2Range) * Math.pow(2, (vco2Freq + (vco2Detune / 100)) / 12) * bendFactor;
+    const time = this.ctx.currentTime;
+    if (this.midiNote !== null && !this.isReleasing) {
+      if (this.params.synthEngine === 'hammond') {
+        const freq = 440 * Math.pow(2, (this.midiNote - 69) / 12);
+        const bendFactor = Math.pow(2, offset / 12);
+        this.hammondOscs.forEach((osc) => {
+          const mult = (osc as any).footMultiplier || 1.0;
+          osc.frequency.setTargetAtTime(freq * mult * bendFactor, time, 0.02);
+        });
+        if (this.percussionOsc) {
+          const pertHarm = this.params.hammondPercussionHarmonic === 'second' ? 2.0 : 3.0;
+          this.percussionOsc.frequency.setTargetAtTime(freq * pertHarm * bendFactor, time, 0.02);
+        }
+      } else if (this.vco1 && this.vco2) {
+        const freq = 440 * Math.pow(2, (this.midiNote - 69) / 12);
+        const { vco1Freq, vco1Range, vco2Freq, vco2Range, vco2Detune } = this.params;
+        
+        const bendFactor = Math.pow(2, offset / 12);
+        
+        const targetFreq1 = freq * (8/vco1Range) * Math.pow(2, vco1Freq / 12) * bendFactor;
+        const targetFreq2 = freq * (8/vco2Range) * Math.pow(2, (vco2Freq + (vco2Detune / 100)) / 12) * bendFactor;
 
-      this.vco1.frequency.setTargetAtTime(targetFreq1, time, 0.02);
-      this.vco2.frequency.setTargetAtTime(targetFreq2, time, 0.02);
+        this.vco1.frequency.setTargetAtTime(targetFreq1, time, 0.02);
+        this.vco2.frequency.setTargetAtTime(targetFreq2, time, 0.02);
+      }
     }
   }
 
@@ -304,20 +454,57 @@ class Voice {
       this.vco2Noise.disconnect();
       this.vco2Noise = null;
     }
+    if (this.hammondOscs && this.hammondOscs.length > 0) {
+      this.hammondOscs.forEach(osc => {
+        try { osc.stop(time); } catch(e) {}
+        osc.disconnect();
+      });
+      this.hammondOscs = [];
+    }
+    if (this.hammondGains && this.hammondGains.length > 0) {
+      this.hammondGains.forEach(g => g.disconnect());
+      this.hammondGains = [];
+    }
+    if (this.percussionOsc) {
+      try { this.percussionOsc.stop(time); } catch(e) {}
+      this.percussionOsc.disconnect();
+      this.percussionOsc = null;
+    }
+    if (this.percussionGain) {
+      this.percussionGain.disconnect();
+      this.percussionGain = null;
+    }
   }
 
   triggerRelease(time: number) {
     this.isReleasing = true;
-    const { env1Release, env2Release, filterEnvSource } = this.params;
-    const envRelease = filterEnvSource === 'env1' ? env1Release : env2Release;
-    
-    this.vca.gain.cancelScheduledValues(time);
-    this.vca.gain.setValueAtTime(this.vca.gain.value, time);
-    this.vca.gain.setTargetAtTime(0, time, Math.max(0.001, env2Release / 3));
-    
-    this.filter.frequency.cancelScheduledValues(time);
-    this.filter.frequency.setValueAtTime(this.filter.frequency.value, time);
-    this.filter.frequency.setTargetAtTime(this.params.filterCutoff, time, Math.max(0.001, envRelease / 3));
+    if (this.params.synthEngine === 'hammond') {
+      const organRelease = 0.04; // snappy organ release
+      this.vca.gain.cancelScheduledValues(time);
+      this.vca.gain.setValueAtTime(this.vca.gain.value, time);
+      this.vca.gain.setTargetAtTime(0, time, organRelease / 3);
+
+      // Schedule stop on physical Hammond oscillators at completion of envelope
+      if (this.hammondOscs && this.hammondOscs.length > 0) {
+        this.hammondOscs.forEach(osc => {
+          try { osc.stop(time + organRelease); } catch (e) {}
+        });
+      }
+      if (this.percussionOsc) {
+        try { this.percussionOsc.stop(time + organRelease); } catch (e) {}
+      }
+    } else {
+      const { env1Release, env2Release, filterEnvSource } = this.params;
+      const envRelease = filterEnvSource === 'env1' ? env1Release : env2Release;
+      
+      this.vca.gain.cancelScheduledValues(time);
+      this.vca.gain.setValueAtTime(this.vca.gain.value, time);
+      this.vca.gain.setTargetAtTime(0, time, Math.max(0.001, env2Release / 3));
+      
+      this.filter.frequency.cancelScheduledValues(time);
+      this.filter.frequency.setValueAtTime(this.filter.frequency.value, time);
+      this.filter.frequency.setTargetAtTime(this.params.filterCutoff, time, Math.max(0.001, envRelease / 3));
+    }
   }
   
   stop() {
@@ -376,12 +563,19 @@ export class JupiterEngine {
   private distortionDry: GainNode | null = null;
 
   // Leslie (Rotary)
-  private leslieDelay: DelayNode | null = null;
   private leslieLFO: OscillatorNode | null = null;
-  private leslieGain: GainNode | null = null;
+  private leslieLfoInverter: GainNode | null = null;
+  private leslieDelayL: DelayNode | null = null;
+  private leslieDelayR: DelayNode | null = null;
+  private leslieGainL: GainNode | null = null;
+  private leslieGainR: GainNode | null = null;
   private leslieDry: GainNode | null = null;
-  private leslieLfoGain: GainNode | null = null;
-  private leslieVibGain: GainNode | null = null;
+  private leslieLfoGainL: GainNode | null = null;
+  private leslieLfoGainR: GainNode | null = null;
+  private leslieVibGainL: GainNode | null = null;
+  private leslieVibGainR: GainNode | null = null;
+  private leslieMerger: ChannelMergerNode | null = null;
+  private lastTargetLeslieRate: number = 1.2;
 
   // Tremolo
   private tremoloLFO: OscillatorNode | null = null;
@@ -571,30 +765,57 @@ export class JupiterEngine {
     this.tremoloGain.connect(tremoloNext);
     this.tremoloDry.connect(tremoloNext);
 
-    // Leslie stage
-    this.leslieDelay = this.ctx.createDelay(0.1);
-    this.leslieGain = this.ctx.createGain();
-    this.leslieDry = this.ctx.createGain();
+    // Leslie stage (Stereo Rotary Effect)
     this.leslieLFO = this.ctx.createOscillator();
-    this.leslieLfoGain = this.ctx.createGain();
-    this.leslieVibGain = this.ctx.createGain();
-    
-    this.leslieLFO.connect(this.leslieLfoGain);
-    this.leslieLFO.connect(this.leslieVibGain);
-    this.leslieLfoGain.connect(this.leslieGain.gain);
-    this.leslieVibGain.connect(this.leslieDelay.delayTime);
+    this.leslieLfoInverter = this.ctx.createGain();
+    this.leslieLfoInverter.gain.setValueAtTime(-1, this.ctx.currentTime);
+    this.leslieLFO.connect(this.leslieLfoInverter);
+
+    this.leslieDelayL = this.ctx.createDelay(0.1);
+    this.leslieDelayR = this.ctx.createDelay(0.1);
+    this.leslieGainL = this.ctx.createGain();
+    this.leslieGainR = this.ctx.createGain();
+    this.leslieDry = this.ctx.createGain();
+
+    this.leslieLfoGainL = this.ctx.createGain();
+    this.leslieLfoGainR = this.ctx.createGain();
+    this.leslieVibGainL = this.ctx.createGain();
+    this.leslieVibGainR = this.ctx.createGain();
+
+    this.leslieMerger = this.ctx.createChannelMerger(2);
+
+    // Left channel connections (Direct LFO)
+    this.leslieLFO.connect(this.leslieLfoGainL);
+    this.leslieLFO.connect(this.leslieVibGainL);
+    this.leslieLfoGainL.connect(this.leslieGainL.gain);
+    this.leslieVibGainL.connect(this.leslieDelayL.delayTime);
+
+    // Right channel connections (Inverted LFO for Stereo phase difference)
+    this.leslieLfoInverter.connect(this.leslieLfoGainR);
+    this.leslieLfoInverter.connect(this.leslieVibGainR);
+    this.leslieLfoGainR.connect(this.leslieGainR.gain);
+    this.leslieVibGainR.connect(this.leslieDelayR.delayTime);
+
     this.leslieLFO.start();
 
-    tremoloNext.connect(this.leslieDelay);
-    this.leslieDelay.connect(this.leslieGain);
+    // Route signal into Leslie Delay Lines
+    tremoloNext.connect(this.leslieDelayL);
+    tremoloNext.connect(this.leslieDelayR);
+
+    // Route Delays into Gains
+    this.leslieDelayL.connect(this.leslieGainL);
+    this.leslieDelayR.connect(this.leslieGainR);
+
+    // Merge Left and Right paths into Stereo
+    this.leslieGainL.connect(this.leslieMerger, 0, 0);
+    this.leslieGainR.connect(this.leslieMerger, 0, 1);
+
+    // Dry path (for Wet/Dry mix mapping)
     tremoloNext.connect(this.leslieDry);
 
-    const leslieNext = this.ctx.createGain();
-    this.leslieGain.connect(leslieNext);
-    this.leslieDry.connect(leslieNext);
-
-    // Final to compressor
-    leslieNext.connect(this.compressor!);
+    // Connect both wet (merged) and dry paths to compressor input
+    this.leslieMerger.connect(this.compressor!);
+    this.leslieDry.connect(this.compressor!);
     
     this.updateFXParams();
   }
@@ -685,15 +906,60 @@ export class JupiterEngine {
       this.tremoloDry.gain.setTargetAtTime(1.0 - this.params.tremoloMix, time, 0.05);
     }
 
-    // Leslie
-    if (this.leslieLFO) this.leslieLFO.frequency.setTargetAtTime(this.params.leslieRate, time, 0.05);
-    if (this.leslieLfoGain) this.leslieLfoGain.gain.setTargetAtTime(this.params.leslieDepth * 0.5 * this.params.leslieMix, time, 0.05);
-    if (this.leslieVibGain) this.leslieVibGain.gain.setTargetAtTime(this.params.leslieDepth * 0.005 * this.params.leslieMix, time, 0.05);
-    if (this.leslieGain && this.leslieDry) {
-      this.leslieGain.gain.setTargetAtTime(this.params.leslieMix, time, 0.05);
-      this.leslieDry.gain.setTargetAtTime(1.0 - this.params.leslieMix, time, 0.05);
+    // Leslie (Rotary Effect)
+    let targetRate = 1.2;
+    let targetDepth = this.params.leslieDepth;
+
+    if (this.params.leslieSpeed === 'off') {
+      targetRate = 0.05; // Slow down to near static position
+      targetDepth = 0.0; // Fade out modulation depth
+    } else if (this.params.leslieSpeed === 'lo') {
+      targetRate = 1.2; // Slow chorale speed
+      targetDepth = this.params.leslieDepth;
+    } else if (this.params.leslieSpeed === 'high') {
+      targetRate = 6.2; // Fast tremolo speed
+      targetDepth = this.params.leslieDepth;
     }
-    if (this.leslieDelay) this.leslieDelay.delayTime.setTargetAtTime(0.015, time, 0.05); // baseline delay
+
+    // Determine physics-based motor inertia time constant
+    let rateTimeConstant = 1.0;
+    if (targetRate > this.lastTargetLeslieRate) {
+      // Speeding up: motor accelerates in a couple seconds
+      rateTimeConstant = 1.2;
+    } else if (targetRate < this.lastTargetLeslieRate) {
+      // Slowing down: mechanical friction takes longer to bring heavy rotor to rest
+      rateTimeConstant = 2.4;
+    }
+    this.lastTargetLeslieRate = targetRate;
+
+    // Apply the inertia-based speed ramp to the LFO
+    if (this.leslieLFO) {
+      this.leslieLFO.frequency.setTargetAtTime(targetRate, time, rateTimeConstant);
+    }
+
+    // Calculate modulation depths scaled by mix and speed-state
+    const currentMix = this.params.leslieMix;
+    const lfoGain = targetDepth * 0.4 * currentMix; // Amplitude modulation swing
+    const vibGain = targetDepth * 0.006 * currentMix; // Doppler vibrato shift swing (±6ms)
+
+    // Time constant for depth changes (spins down/up slightly faster than speed)
+    const depthTimeConstant = targetRate < 1.0 ? 1.8 : 0.8;
+
+    if (this.leslieLfoGainL) this.leslieLfoGainL.gain.setTargetAtTime(lfoGain, time, depthTimeConstant);
+    if (this.leslieLfoGainR) this.leslieLfoGainR.gain.setTargetAtTime(lfoGain, time, depthTimeConstant);
+    if (this.leslieVibGainL) this.leslieVibGainL.gain.setTargetAtTime(vibGain, time, depthTimeConstant);
+    if (this.leslieVibGainR) this.leslieVibGainR.gain.setTargetAtTime(vibGain, time, depthTimeConstant);
+
+    // Apply Leslie gains and dry mix
+    if (this.leslieGainL) this.leslieGainL.gain.setTargetAtTime(0.5, time, 0.05);
+    if (this.leslieGainR) this.leslieGainR.gain.setTargetAtTime(0.5, time, 0.05);
+    if (this.leslieDry) {
+      this.leslieDry.gain.setTargetAtTime(1.0 - currentMix, time, 0.05);
+    }
+
+    // Baseline delay times
+    if (this.leslieDelayL) this.leslieDelayL.delayTime.setTargetAtTime(0.015, time, 0.05);
+    if (this.leslieDelayR) this.leslieDelayR.delayTime.setTargetAtTime(0.015, time, 0.05);
     
     if (this.volumeGain) this.volumeGain.gain.setTargetAtTime(this.params.masterVolume, time, 0.05);
 

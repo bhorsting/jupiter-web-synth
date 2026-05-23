@@ -20,7 +20,9 @@ import {
   VolumeSection,
   ArpSection,
   FXSection,
-  GlobalSection
+  GlobalSection,
+  HammondDrawbarsSection,
+  HammondPercussionSection
 } from './components/SynthPanel';
 import { DEFAULT_PARAMS, VoiceParams, Patch, MidiMapping } from './types';
 import { Power, Save, FolderOpen, Sliders, Waves, Activity, Trash2, X, Keyboard as PianoIcon, Cloud, UploadCloud, DownloadCloud, Link, Maximize, Minimize, Settings2, Plus } from 'lucide-react';
@@ -525,117 +527,154 @@ function App() {
       <GlobalSection 
         bpm={params.bpm}
         timeSignature={params.timeSignature}
+        synthEngine={params.synthEngine}
         updateParam={updateParam}
       />
 
-      <LFOSection 
-        lfoWaveform={params.lfoWaveform}
-        lfoRate={params.lfoRate}
-        lfoSync={params.lfoSync}
-        lfoSyncDivision={params.lfoSyncDivision}
-        updateParam={updateParam}
-        isMidiMappingMode={isMidiMappingMode}
-        handleMapClick={handleMapClick}
-        getMappedCC={getMappedCC}
-        selectedMapParam={selectedMapParam}
-      />
+      {params.synthEngine === 'hammond' ? (
+        <>
+          <HammondDrawbarsSection 
+            db16={params.hammondDb16}
+            db513={params.hammondDb513}
+            db8={params.hammondDb8}
+            db4={params.hammondDb4}
+            db223={params.hammondDb223}
+            db2={params.hammondDb2}
+            db135={params.hammondDb135}
+            db113={params.hammondDb113}
+            db1={params.hammondDb1}
+            updateParam={updateParam}
+            isMidiMappingMode={isMidiMappingMode}
+            handleMapClick={handleMapClick}
+            getMappedCC={getMappedCC}
+            selectedMapParam={selectedMapParam}
+          />
 
-      <VCOModSection 
-        portamentoTime={params.portamentoTime}
-        portamentoMode={params.portamentoMode}
-        vcoLfoAmount={params.vcoLfoAmount}
-        updateParam={updateParam}
-        isMidiMappingMode={isMidiMappingMode}
-        handleMapClick={handleMapClick}
-        getMappedCC={getMappedCC}
-        selectedMapParam={selectedMapParam}
-      />
+          <HammondPercussionSection 
+            percussionEnabled={params.hammondPercussionEnabled}
+            percussionHarmonic={params.hammondPercussionHarmonic}
+            percussionDecay={params.hammondPercussionDecay}
+            percussionVolume={params.hammondPercussionVolume}
+            keyClick={params.hammondKeyClick}
+            updateParam={updateParam}
+            isMidiMappingMode={isMidiMappingMode}
+            handleMapClick={handleMapClick}
+            getMappedCC={getMappedCC}
+            selectedMapParam={selectedMapParam}
+          />
+        </>
+      ) : (
+        <>
+          <LFOSection 
+            lfoWaveform={params.lfoWaveform}
+            lfoRate={params.lfoRate}
+            lfoSync={params.lfoSync}
+            lfoSyncDivision={params.lfoSyncDivision}
+            updateParam={updateParam}
+            isMidiMappingMode={isMidiMappingMode}
+            handleMapClick={handleMapClick}
+            getMappedCC={getMappedCC}
+            selectedMapParam={selectedMapParam}
+          />
 
-      <VCO1Section 
-        vco1Range={params.vco1Range}
-        crossMod={params.crossMod}
-        vco1PulseWidth={params.vco1PulseWidth}
-        vco1Waveform={params.vco1Waveform}
-        updateParam={updateParam}
-        isMidiMappingMode={isMidiMappingMode}
-        handleMapClick={handleMapClick}
-        getMappedCC={getMappedCC}
-        selectedMapParam={selectedMapParam}
-      />
+          <VCOModSection 
+            portamentoTime={params.portamentoTime}
+            portamentoMode={params.portamentoMode}
+            vcoLfoAmount={params.vcoLfoAmount}
+            updateParam={updateParam}
+            isMidiMappingMode={isMidiMappingMode}
+            handleMapClick={handleMapClick}
+            getMappedCC={getMappedCC}
+            selectedMapParam={selectedMapParam}
+          />
 
-      <VCO2Section 
-        vco2Range={params.vco2Range}
-        vco2Freq={params.vco2Freq}
-        vco2Detune={params.vco2Detune}
-        vco2Waveform={params.vco2Waveform}
-        vco2Sync={params.vco2Sync}
-        updateParam={updateParam}
-        isMidiMappingMode={isMidiMappingMode}
-        handleMapClick={handleMapClick}
-        getMappedCC={getMappedCC}
-        selectedMapParam={selectedMapParam}
-      />
+          <VCO1Section 
+            vco1Range={params.vco1Range}
+            crossMod={params.crossMod}
+            vco1PulseWidth={params.vco1PulseWidth}
+            vco1Waveform={params.vco1Waveform}
+            updateParam={updateParam}
+            isMidiMappingMode={isMidiMappingMode}
+            handleMapClick={handleMapClick}
+            getMappedCC={getMappedCC}
+            selectedMapParam={selectedMapParam}
+          />
 
-      <MixerSection 
-        vcoMix={params.vcoMix}
-        updateParam={updateParam}
-        isMidiMappingMode={isMidiMappingMode}
-        handleMapClick={handleMapClick}
-        getMappedCC={getMappedCC}
-        selectedMapParam={selectedMapParam}
-      />
+          <VCO2Section 
+            vco2Range={params.vco2Range}
+            vco2Freq={params.vco2Freq}
+            vco2Detune={params.vco2Detune}
+            vco2Waveform={params.vco2Waveform}
+            vco2Sync={params.vco2Sync}
+            updateParam={updateParam}
+            isMidiMappingMode={isMidiMappingMode}
+            handleMapClick={handleMapClick}
+            getMappedCC={getMappedCC}
+            selectedMapParam={selectedMapParam}
+          />
 
-      <VCFSection 
-        filterCutoff={params.filterCutoff}
-        filterResonance={params.filterResonance}
-        filterEnvAmount={params.filterEnvAmount}
-        filterEnvSource={params.filterEnvSource}
-        filterSlope={params.filterSlope}
-        filterLfoAmount={params.filterLfoAmount}
-        updateParam={updateParam}
-        isMidiMappingMode={isMidiMappingMode}
-        handleMapClick={handleMapClick}
-        getMappedCC={getMappedCC}
-        selectedMapParam={selectedMapParam}
-      />
+          <MixerSection 
+            vcoMix={params.vcoMix}
+            updateParam={updateParam}
+            isMidiMappingMode={isMidiMappingMode}
+            handleMapClick={handleMapClick}
+            getMappedCC={getMappedCC}
+            selectedMapParam={selectedMapParam}
+          />
 
-      <VCASection 
-        vcaLevel={params.vcaLevel}
-        vcaLfoAmount={params.vcaLfoAmount}
-        updateParam={updateParam}
-        isMidiMappingMode={isMidiMappingMode}
-        handleMapClick={handleMapClick}
-        getMappedCC={getMappedCC}
-        selectedMapParam={selectedMapParam}
-      />
+          <VCFSection 
+            filterCutoff={params.filterCutoff}
+            filterResonance={params.filterResonance}
+            filterEnvAmount={params.filterEnvAmount}
+            filterEnvSource={params.filterEnvSource}
+            filterSlope={params.filterSlope}
+            filterLfoAmount={params.filterLfoAmount}
+            updateParam={updateParam}
+            isMidiMappingMode={isMidiMappingMode}
+            handleMapClick={handleMapClick}
+            getMappedCC={getMappedCC}
+            selectedMapParam={selectedMapParam}
+          />
 
-      <EnvelopeSection 
-        title="ENV-1"
-        prefix="env1"
-        attack={params.env1Attack}
-        decay={params.env1Decay}
-        sustain={params.env1Sustain}
-        release={params.env1Release}
-        updateParam={updateParam}
-        isMidiMappingMode={isMidiMappingMode}
-        handleMapClick={handleMapClick}
-        getMappedCC={getMappedCC}
-        selectedMapParam={selectedMapParam}
-      />
+          <VCASection 
+            vcaLevel={params.vcaLevel}
+            vcaLfoAmount={params.vcaLfoAmount}
+            updateParam={updateParam}
+            isMidiMappingMode={isMidiMappingMode}
+            handleMapClick={handleMapClick}
+            getMappedCC={getMappedCC}
+            selectedMapParam={selectedMapParam}
+          />
 
-      <EnvelopeSection 
-        title="ENV-2"
-        prefix="env2"
-        attack={params.env2Attack}
-        decay={params.env2Decay}
-        sustain={params.env2Sustain}
-        release={params.env2Release}
-        updateParam={updateParam}
-        isMidiMappingMode={isMidiMappingMode}
-        handleMapClick={handleMapClick}
-        getMappedCC={getMappedCC}
-        selectedMapParam={selectedMapParam}
-      />
+          <EnvelopeSection 
+            title="ENV-1"
+            prefix="env1"
+            attack={params.env1Attack}
+            decay={params.env1Decay}
+            sustain={params.env1Sustain}
+            release={params.env1Release}
+            updateParam={updateParam}
+            isMidiMappingMode={isMidiMappingMode}
+            handleMapClick={handleMapClick}
+            getMappedCC={getMappedCC}
+            selectedMapParam={selectedMapParam}
+          />
+
+          <EnvelopeSection 
+            title="ENV-2"
+            prefix="env2"
+            attack={params.env2Attack}
+            decay={params.env2Decay}
+            sustain={params.env2Sustain}
+            release={params.env2Release}
+            updateParam={updateParam}
+            isMidiMappingMode={isMidiMappingMode}
+            handleMapClick={handleMapClick}
+            getMappedCC={getMappedCC}
+            selectedMapParam={selectedMapParam}
+          />
+        </>
+      )}
 
       <VolumeSection 
         masterVolume={params.masterVolume}
@@ -747,6 +786,9 @@ function App() {
       <FXSection 
         label="Leslie"
         mix={params.leslieMix}
+        selectors={[
+          { label: 'Speed', key: 'leslieSpeed', options: ['off', 'lo', 'high'], value: params.leslieSpeed }
+        ]}
         params={[
           { label: 'Rate', key: 'leslieRate', value: params.leslieRate, min: 0.1, max: 15 },
           { label: 'Depth', key: 'leslieDepth', value: params.leslieDepth, min: 0, max: 1 },
