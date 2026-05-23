@@ -166,7 +166,7 @@ function App() {
     } else {
       localStorage.removeItem('jupiter_last_patch_id');
     }
-  }, [activePatchId, params]);
+  }, [activePatchId, params, midiMappings]);
 
   // Load current patch mappings only when activePatchId changes
   // Removed automatic effector to avoid overwriting persisted unsaved state on startup
@@ -174,37 +174,143 @@ function App() {
   const engineRef = useRef<JupiterEngine | null>(null);
   const midiRef = useRef<MIDIService | null>(null);
 
+  const updateParam = React.useCallback((key: keyof VoiceParams, val: any) => {
+    setParams(prev => ({ ...prev, [key]: val }));
+  }, []);
+
+  const updateParamFromCC = React.useCallback((key: keyof VoiceParams, ccValue: number) => {
+    // 1. Support boolean toggles
+    const toggles: Set<string> = new Set([
+      'vco2Sync', 'arpEnabled', 'arpSync', 'lfoSync', 'hammondPercussionEnabled'
+    ]);
+    if (toggles.has(key)) {
+      updateParam(key, ccValue >= 64);
+      return;
+    }
+
+    // 2. Support selector / discrete list options
+    const discreteLists: Record<string, any[]> = {
+      vco1Range: [16, 8, 4, 2],
+      vco2Range: [16, 8, 4, 2],
+      arpRange: [1, 2, 3, 4],
+      synthEngine: ['jupiter', 'hammond'],
+      lfoWaveform: ['sine', 'sawtooth', 'square', 'random'],
+      vco1Waveform: ['sawtooth', 'square', 'pulse', 'triangle', 'sine', 'noise'],
+      vco2Waveform: ['sawtooth', 'square', 'pulse', 'triangle', 'sine', 'noise'],
+      arpMode: ['up', 'down', 'up-down', 'random', 'chord', 'as-played', 'up-poly', 'down-poly'],
+      portamentoMode: ['off', 'on', 'auto'],
+      filterSlope: [12, 24],
+      filterEnvSource: ['env1', 'env2'],
+      chorusMode: [1, 2, 3],
+      reverbMode: [1, 2, 3],
+      leslieSpeed: ['off', 'lo', 'high'],
+      hammondPercussionHarmonic: ['second', 'third'],
+      hammondPercussionDecay: ['fast', 'slow'],
+      hammondPercussionVolume: ['soft', 'normal'],
+    };
+
+    if (discreteLists[key]) {
+      const options = discreteLists[key];
+      const index = Math.floor((ccValue / 127) * 0.99 * options.length);
+      updateParam(key, options[index]);
+      return;
+    }
+
+    // 3. Slider key value scaling ranges
+    const ranges: Record<string, [number, number]> = {
+      lfoRate: [0.1, 50],
+      filterCutoff: [20, 15000],
+      vco2Freq: [-12, 12],
+      vco2Detune: [-100, 100],
+      vcaLevel: [0, 1],
+      vcoMix: [0, 1],
+      portamentoTime: [0, 2],
+      arpRate: [40, 300],
+      // Envelope params
+      env1Attack: [0.001, 10], env1Hold: [0, 10], env1Decay: [0.001, 10], env1Sustain: [0, 1], env1Release: [0.001, 10],
+      env2Attack: [0.001, 10], env2Decay: [0.001, 10], env2Sustain: [0, 1], env2Release: [0.001, 10],
+      // Filter params
+      filterResonance: [0, 1], filterEnvAmount: [0, 1], filterLfoAmount: [0, 1],
+      // VCO/VCA modulation params
+      vcoLfoAmount: [0, 1], vcaLfoAmount: [0, 1],
+      // VCO params
+      vco1Freq: [-12, 12], vco1PulseWidth: [0, 1],
+      vco2PulseWidth: [0, 1], crossMod: [0, 1],
+      mixerVco1: [0, 1], mixerVco2: [0, 1],
+      // FX
+      chorusMix: [0, 1], delayMix: [0, 1], delayTime: [0.01, 1], delayFeedback: [0, 0.9],
+      reverbMix: [0, 1], reverbTime: [0.1, 10], reverbDecay: [0.1, 10], reverbDamping: [0, 0.99],
+      compThreshold: [-60, 0], compRatio: [1, 20], compAttack: [0.001, 0.5], compRelease: [0.01, 1],
+      leslieMix: [0, 1], leslieRate: [0.1, 15], leslieDepth: [0, 1],
+      tremoloMix: [0, 1], tremoloRate: [0.5, 20], tremoloDepth: [0, 1],
+      distortionMix: [0, 1], distortionAmount: [0, 1],
+      masterVolume: [0, 1],
+      // Hammond Drawbars
+      hammondDb16: [0, 8],
+      hammondDb513: [0, 8],
+      hammondDb8: [0, 8],
+      hammondDb4: [0, 8],
+      hammondDb223: [0, 8],
+      hammondDb2: [0, 8],
+      hammondDb135: [0, 8],
+      hammondDb113: [0, 8],
+      hammondDb1: [0, 8],
+      hammondKeyClick: [0, 1],
+    };
+
+    const [min, max] = ranges[key] || [0, 1];
+    const normalizedValue = ccValue / 127;
+    let mappedValue = min + normalizedValue * (max - min);
+
+    // Apply integer rounding to Hammond DRAWBAR sliders
+    if (key.startsWith('hammondDb') && key !== 'hammondKeyClick') {
+      mappedValue = Math.round(mappedValue);
+    }
+
+    updateParam(key, mappedValue);
+  }, [updateParam]);
+
   const handleMidiCC = React.useCallback((cc: number, value: number, channel: number) => {
+    console.log(`[MIDI EVENT] CC message received: cc=${cc}, value=${value}, channel=${channel}. isMidiMappingMode=${isMidiMappingMode}, selectedMapParam=${selectedMapParam}`);
+    
     if (isMidiMappingMode) {
       if (selectedMapParam) {
-        console.log(`MIDI Mapping: Assigning CH ${channel + 1} CC ${cc} to ${selectedMapParam}`);
-        // Assign CC to parameter
+        console.log(`[MIDI LEARN] Assigning CC ${cc} (Ch ${channel + 1}) to parameter ${selectedMapParam}`);
+        
+        const newMapping = { parameter: selectedMapParam, cc, channel };
+        
+        // Update mappings state atomic selector link
         setMidiMappings(prev => {
           const filtered = prev.filter(m => m.parameter !== selectedMapParam && !(m.cc === cc && m.channel === channel));
-          const newMappings = [...filtered, { parameter: selectedMapParam, cc, channel }];
-          
-          // Also update the patches array so it's persisted/ready for sync
-          if (activePatchId) {
-            setPatches(currentPatches => 
-              currentPatches.map(p => p.id === activePatchId ? { ...p, midiMappings: newMappings } : p)
-            );
-          }
-          
-          return newMappings;
+          return [...filtered, newMapping];
         });
-        setSelectedMapParam(null); // Finish assignment
+        
+        // Safely update patches array
+        if (activePatchId) {
+          setPatches(currentPatches => 
+            currentPatches.map(p => p.id === activePatchId ? { 
+              ...p, 
+              midiMappings: [
+                ...(p.midiMappings || []).filter(m => m.parameter !== selectedMapParam && !(m.cc === cc && m.channel === channel)),
+                newMapping
+              ]
+            } : p)
+          );
+        }
+        
+        setSelectedMapParam(null); // Finish learn stage
       }
       return;
     }
 
-    // Normal operation: find mapping for this CC and Channel
+    // Normal operation: route to slider / toggle / selector
     const mapping = midiMappings.find(m => m.cc === cc && m.channel === channel);
     if (mapping) {
       const paramKey = mapping.parameter;
       updateParamFromCC(paramKey, value);
     }
 
-    // Default Mod Wheel behavior
+    // Default Mod Wheel modifier
     if (cc === 1) {
       engineRef.current?.setModWheel(value);
     }
@@ -229,20 +335,21 @@ function App() {
     engineRef.current?.setPitchBend(value);
   }, []);
 
-  // Use refs for MIDI callbacks to avoid stale closures
+  // Use refs for MIDI callbacks. Assign them directly in render to prevent stale closure lag from asynchronous useEffect runs
   const midiCCRef = useRef<(cc: number, value: number, channel: number) => void>(() => {});
   const midiNoteOnRef = useRef<(note: number, velocity: number) => void>(() => {});
   const midiNoteOffRef = useRef<(note: number) => void>(() => {});
   const midiPitchBendRef = useRef<(value: number) => void>(() => {});
   const handlePanicRef = useRef<() => void>(() => {});
 
+  // Synchronously update Callback Refs on every render cycle to prevent any lag or stale closures
   useEffect(() => {
     midiCCRef.current = handleMidiCC;
     midiNoteOnRef.current = handleNoteOn;
     midiNoteOffRef.current = handleNoteOff;
     midiPitchBendRef.current = handlePitchBend;
     handlePanicRef.current = handlePanic;
-  }, [handleMidiCC, handleNoteOn, handleNoteOff, handlePitchBend, handlePanic]);
+  });
 
   useEffect(() => {
     const configUrl = settings.googleSheetUrl;
@@ -307,51 +414,6 @@ function App() {
       indexedDBService.savePatches(patches);
     }
   }, [patches]);
-
-
-  function updateParamFromCC(key: keyof VoiceParams, ccValue: number) {
-    const ranges: Record<string, [number, number]> = {
-      lfoRate: [0.1, 50],
-      filterCutoff: [20, 15000],
-      vco2Freq: [-12, 12],
-      vco2Detune: [-100, 100],
-      vcaLevel: [0, 1],
-      vcoMix: [0, 1],
-      portamentoTime: [0, 2],
-      arpRate: [40, 300],
-      // Envelope params
-      env1Attack: [0.001, 10], env1Hold: [0, 10], env1Decay: [0.001, 10], env1Release: [0.001, 10],
-      env2Attack: [0.001, 10], env2Decay: [0.001, 10], env2Release: [0.001, 10],
-      // Filter params
-      filterResonance: [0, 1], filterEnvAmount: [0, 1], filterLfoAmount: [0, 1],
-      // VCO params
-      vco1Freq: [-12, 12], vco1PulseWidth: [0, 1],
-      vco2PulseWidth: [0, 1], crossMod: [0, 1],
-      mixerVco1: [0, 1], mixerVco2: [0, 1],
-      // FX
-      chorusMix: [0, 1], delayMix: [0, 1], delayTime: [0.01, 1], delayFeedback: [0, 0.9],
-      reverbMix: [0, 1], reverbTime: [0.1, 10], reverbDecay: [0.1, 10], reverbDamping: [0, 0.99],
-      compThreshold: [-60, 0], compRatio: [1, 20], compAttack: [0.001, 0.5], compRelease: [0.01, 1],
-      leslieMix: [0, 1], leslieRate: [0.1, 15], leslieDepth: [0, 1],
-      tremoloMix: [0, 1], tremoloRate: [0.5, 20], tremoloDepth: [0, 1],
-      distortionMix: [0, 1], distortionAmount: [0, 1],
-      masterVolume: [0, 1],
-    };
-
-    const [min, max] = ranges[key] || [0, 1];
-    const normalizedValue = ccValue / 127;
-
-    // Special handling for discrete ranges
-    if (key === 'vco1Range' || key === 'vco2Range' || key === 'arpRange') {
-      const options = key === 'arpRange' ? [1, 2, 3, 4] : [16, 8, 4, 2];
-      const index = Math.floor(normalizedValue * 0.99 * options.length);
-      updateParam(key, options[index]);
-      return;
-    }
-
-    const mappedValue = min + normalizedValue * (max - min);
-    updateParam(key, mappedValue);
-  }
 
   const addMidiLog = (data: Uint8Array) => {
     if (data[0] === 0xF8) return; // Filter out MIDI Timing Clock
@@ -436,10 +498,6 @@ function App() {
       }
     }
   };
-
-  const updateParam = React.useCallback((key: keyof VoiceParams, val: any) => {
-    setParams(prev => ({ ...prev, [key]: val }));
-  }, []);
 
   const handleMapClick = React.useCallback((param: keyof VoiceParams) => {
     if (isMidiMappingMode) {
