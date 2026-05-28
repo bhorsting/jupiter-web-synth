@@ -31,47 +31,50 @@ export const GlobalSection = React.memo<GlobalSectionProps>(({ bpm, timeSignatur
   const [isKeypadOpen, setIsKeypadOpen] = React.useState(false);
 
   return (
-    <div className="flex border-b border-synth-border p-4 gap-8 items-center bg-zinc-950/50 backdrop-blur-sm">
-      {/* Engine Selection Toggle Switch */}
-      <div className="flex flex-col gap-1.5 border-r border-zinc-850 pr-8">
-        <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-[0.2em]">Synthesis Engine</span>
-        <div className="flex border border-zinc-850 bg-black/50 p-0.5 rounded shadow-inner">
-          <button
-            onClick={() => updateParam('synthEngine', 'jupiter')}
-            className={`px-3 py-1.5 text-[9px] uppercase font-mono font-bold tracking-widest rounded-sm transition-all cursor-pointer ${
-              synthEngine === 'jupiter' 
-                ? 'bg-orange-600 text-white shadow shadow-orange-600/20' 
-                : 'text-zinc-500 hover:text-zinc-300'
-            }`}
+    <div className="flex border-b border-synth-border p-4 gap-8 items-start bg-zinc-950/50 backdrop-blur-sm">
+      <div className="flex flex-col gap-3">
+        {/* Master Tempo */}
+        <div className="flex flex-col gap-1">
+          <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-[0.2em]">Master Tempo</span>
+          <div 
+            onClick={() => setIsKeypadOpen(true)}
+            className="bg-black border border-zinc-800 px-4 py-2 text-2xl font-mono text-orange-500 cursor-pointer hover:border-orange-500 transition-all flex items-center gap-3 group min-w-[120px]"
           >
-            JP-8 Synth
-          </button>
-          <button
-            onClick={() => updateParam('synthEngine', 'hammond')}
-            className={`px-3 py-1.5 text-[9px] uppercase font-mono font-bold tracking-widest rounded-sm transition-all cursor-pointer ${
-              synthEngine === 'hammond' 
-                ? 'bg-orange-600 text-white shadow shadow-orange-600/20' 
-                : 'text-zinc-500 hover:text-zinc-300'
-            }`}
-          >
-            B3 Organ
-          </button>
+            <Activity size={18} className="text-orange-600 animate-pulse" />
+            {bpm} 
+            <span className="text-[10px] text-zinc-700 group-hover:text-zinc-500 uppercase font-bold">bpm</span>
+          </div>
+        </div>
+
+        {/* Engine Selection Toggle Switch */}
+        <div className="flex flex-col gap-1.5">
+          <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-[0.2em]">Synthesis Engine</span>
+          <div className="flex border border-zinc-850 bg-black/50 p-0.5 shadow-inner">
+            <button
+              onClick={() => updateParam('synthEngine', 'jupiter')}
+              className={`px-3 py-1.5 text-[9px] uppercase font-mono font-bold tracking-widest transition-all cursor-pointer ${
+                synthEngine === 'jupiter' 
+                  ? 'bg-orange-600 text-white shadow shadow-orange-600/20' 
+                  : 'text-zinc-500 hover:text-zinc-300'
+              }`}
+            >
+              JP-8 Synth
+            </button>
+            <button
+              onClick={() => updateParam('synthEngine', 'hammond')}
+              className={`px-3 py-1.5 text-[9px] uppercase font-mono font-bold tracking-widest transition-all cursor-pointer ${
+                synthEngine === 'hammond' 
+                  ? 'bg-orange-600 text-white shadow shadow-orange-600/20' 
+                  : 'text-zinc-500 hover:text-zinc-300'
+              }`}
+            >
+              B3 Organ
+            </button>
+          </div>
         </div>
       </div>
 
-      <div className="flex flex-col gap-1">
-        <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-[0.2em]">Master Tempo</span>
-        <div 
-          onClick={() => setIsKeypadOpen(true)}
-          className="bg-black border border-zinc-800 px-4 py-2 text-2xl font-mono text-orange-500 cursor-pointer hover:border-orange-500 transition-all flex items-center gap-3 group min-w-[120px]"
-        >
-          <Activity size={18} className="text-orange-600 animate-pulse" />
-          {bpm} 
-          <span className="text-[10px] text-zinc-700 group-hover:text-zinc-500 uppercase font-bold">bpm</span>
-        </div>
-      </div>
-
-      <div className="flex flex-col gap-1">
+      <div className="flex flex-col gap-1 self-start pt-1">
         <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-[0.2em]">Signature</span>
         <JupiterSelector 
           label="" 
