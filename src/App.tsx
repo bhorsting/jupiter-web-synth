@@ -341,6 +341,8 @@ function App() {
   const midiNoteOffRef = useRef<(note: number) => void>(() => {});
   const midiPitchBendRef = useRef<(value: number) => void>(() => {});
   const handlePanicRef = useRef<() => void>(() => {});
+  const isMidiLogVisibleRef = useRef<boolean>(false);
+  const addMidiLogRef = useRef<(data: Uint8Array) => void>(() => {});
 
   // Synchronously update Callback Refs on every render cycle to prevent any lag or stale closures
   useEffect(() => {
@@ -349,6 +351,8 @@ function App() {
     midiNoteOffRef.current = handleNoteOff;
     midiPitchBendRef.current = handlePitchBend;
     handlePanicRef.current = handlePanic;
+    addMidiLogRef.current = addMidiLog;
+    isMidiLogVisibleRef.current = isMidiLogVisible;
   });
 
   useEffect(() => {
@@ -416,6 +420,7 @@ function App() {
   }, [patches]);
 
   const addMidiLog = (data: Uint8Array) => {
+    if (!isMidiLogVisibleRef.current) return;
     if (data[0] === 0xF8) return; // Filter out MIDI Timing Clock
     const bytes = Array.from(data).map(b => b.toString(16).toUpperCase().padStart(2, '0')).join(' ');
     const id = Date.now() + Math.random();
@@ -488,7 +493,7 @@ function App() {
           (note, velocity) => midiNoteOnRef.current(note, velocity / 127),
           (note) => midiNoteOffRef.current(note),
           (cc, value, channel) => midiCCRef.current(cc, value, channel),
-          (data) => addMidiLog(data),
+          (data) => addMidiLogRef.current(data),
           (value) => midiPitchBendRef.current(value),
           () => handlePanicRef.current()
         );

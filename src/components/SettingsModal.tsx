@@ -13,21 +13,31 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
   const [midiInputs, setMidiInputs] = useState<{ id: string; name: string }[]>([]);
 
   useEffect(() => {
-    if (isOpen && navigator.requestMIDIAccess) {
-      navigator.requestMIDIAccess().then(access => {
-        const inputs = Array.from(access.inputs.values()).map(input => ({
+    if (isOpen) {
+      const getMappedInputs = (access: MIDIAccess | null) => {
+        const list = access ? Array.from(access.inputs.values()).map(input => ({
           id: input.id,
           name: input.name || `MIDI Input ${input.id}`
-        }));
-        setMidiInputs(inputs);
-        
-        access.onstatechange = () => {
-          setMidiInputs(Array.from(access.inputs.values()).map(input => ({
-            id: input.id,
-            name: input.name || `MIDI Input ${input.id}`
-          })));
-        };
-      });
+        })) : [];
+        return [
+          { id: 'capacitor-shell', name: 'iPad Shell Bridge' },
+          ...list
+        ];
+      };
+
+      if (navigator.requestMIDIAccess) {
+        navigator.requestMIDIAccess().then(access => {
+          setMidiInputs(getMappedInputs(access));
+          
+          access.onstatechange = () => {
+            setMidiInputs(getMappedInputs(access));
+          };
+        }).catch(() => {
+          setMidiInputs(getMappedInputs(null));
+        });
+      } else {
+        setMidiInputs(getMappedInputs(null));
+      }
     }
   }, [isOpen]);
 

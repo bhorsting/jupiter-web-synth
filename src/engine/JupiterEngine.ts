@@ -1127,6 +1127,8 @@ export class JupiterEngine {
         } else {
             voice = this.voices.sort((a, b) => a.startTime - b.startTime)[0];
         }
+        // Hard-stop voice to prevent stuck tail or duplicate state
+        voice.stop();
       }
     }
 
@@ -1154,9 +1156,14 @@ export class JupiterEngine {
       return;
     }
 
-    const matchingVoices = this.voices.filter(v => v.midiNote === midiNote && !v.isReleasing);
+    // Match even releasing voices to keep noteOff idempotent and prevent state desync
+    const matchingVoices = this.voices.filter(v => v.midiNote === midiNote);
     if (matchingVoices.length > 0 && this.ctx) {
-      matchingVoices.forEach(voice => voice.triggerRelease(this.ctx!.currentTime));
+      matchingVoices.forEach(voice => {
+        if (!voice.isReleasing) {
+          voice.triggerRelease(this.ctx!.currentTime);
+        }
+      });
       this.lastReleaseTime = this.ctx.currentTime;
     }
   }
