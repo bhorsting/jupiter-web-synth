@@ -72,6 +72,7 @@ function App() {
 
   const [patches, setPatches] = useState<Patch[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
+  const [isRestored, setIsRestored] = useState(false);
 
   useEffect(() => {
     const handleFsChange = () => setIsFullscreen(!!document.fullscreenElement);
@@ -134,6 +135,9 @@ function App() {
         if (appState.activePatchId) setActivePatchId(appState.activePatchId);
         if (appState.params) setParams({ ...DEFAULT_PARAMS, ...appState.params });
         if (appState.midiMappings) setMidiMappings(appState.midiMappings);
+        if (appState.currentScreen) setCurrentScreen(appState.currentScreen);
+        if (appState.showKeyboard !== undefined) setShowKeyboard(appState.showKeyboard);
+        if (appState.isMidiLogVisible !== undefined) setIsMidiLogVisible(appState.isMidiLogVisible);
       } else {
         // Fallback to legacy localStorage
         const lastPatchId = localStorage.getItem('jupiter_last_patch_id');
@@ -145,28 +149,87 @@ function App() {
           }
         }
       }
+      setIsRestored(true);
     };
     initDB();
   }, []);
 
-  // Save app state (params, active patch ID, mappings) whenever they change
-  useEffect(() => {
-    const saveState = async () => {
-      await indexedDBService.saveAppState({
-        activePatchId,
-        params,
-        midiMappings
-      });
-    };
-    saveState();
-    
+  const persistAppState = React.useCallback(async () => {
+    if (!isRestored) return;
+    await indexedDBService.saveAppState({
+      activePatchId,
+      params,
+      midiMappings,
+      currentScreen,
+      showKeyboard,
+      isMidiLogVisible
+    });
+
     // Also keep localStorage as minimal fallback
     if (activePatchId) {
       localStorage.setItem('jupiter_last_patch_id', activePatchId);
     } else {
       localStorage.removeItem('jupiter_last_patch_id');
     }
-  }, [activePatchId, params, midiMappings]);
+  }, [activePatchId, params, midiMappings, currentScreen, showKeyboard, isMidiLogVisible, isRestored]);
+
+  // Save app state (params, active patch ID, mappings, and UI state) whenever they change
+  useEffect(() => {
+    persistAppState();
+  }, [persistAppState]);
+
+  // Message event listener to handle calls from the host iOS app
+  useEffect(() => {
+    const handlePostMessage = async (ev: MessageEvent) => {
+      const msg = ev.data;
+      if (!msg) return;
+
+      const actionType = msg.type || msg.action;
+      if (!actionType) return;
+
+      switch (actionType) {
+        case 'midi': {
+          if (msg.data && midiRef.current) {
+            let bytes: Uint8Array;
+            if (msg.data instanceof Uint8Array) {
+              bytes = msg.data;
+            } else if (Array.isArray(msg.data)) {
+              bytes = new Uint8Array(msg.data);
+            } else if (msg.data.buffer) {
+              bytes = new Uint8Array(msg.data.buffer);
+            } else {
+              bytes = new Uint8Array(Object.values(msg.data));
+            }
+            midiRef.current.processRawMIDI(bytes, 'capacitor-shell');
+          }
+          break;
+        }
+        case 'save-state': {
+          await persistAppState();
+          break;
+        }
+        case 'restart-audio': {
+          if (engineRef.current) {
+            engineRef.current.restartAudio();
+          }
+          break;
+        }
+        case 'resume': {
+          if (engineRef.current) {
+            await engineRef.current.resume();
+          }
+          break;
+        }
+        default:
+          break;
+      }
+    };
+
+    window.addEventListener('message', handlePostMessage);
+    return () => {
+      window.removeEventListener('message', handlePostMessage);
+    };
+  }, [persistAppState]);
 
   // Load current patch mappings only when activePatchId changes
   // Removed automatic effector to avoid overwriting persisted unsaved state on startup

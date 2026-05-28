@@ -598,10 +598,14 @@ export class JupiterEngine {
     return this.analyser;
   }
 
-  resume() {
+  async resume(): Promise<void> {
     if (this.ctx && this.ctx.state === 'suspended') {
-      this.ctx.resume();
+      await this.ctx.resume();
     }
+  }
+
+  restartAudio() {
+    this.restart();
   }
 
   init() {
