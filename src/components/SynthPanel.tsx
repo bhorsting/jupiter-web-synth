@@ -7,10 +7,11 @@ import { Activity } from 'lucide-react';
 interface SectionProps {
   title: string;
   children: React.ReactNode;
+  className?: string;
 }
 
-const Section = React.memo<SectionProps>(({ title, children }) => (
-  <div className="flex flex-col w-full md:w-auto h-auto lg:h-full bg-black/20 border-r border-synth-border group [contain:content] lg:shrink-0">
+const Section = React.memo<SectionProps>(({ title, children, className = "" }) => (
+  <div className={`flex flex-col w-full md:w-auto h-auto lg:h-full bg-black/20 border-r border-synth-border group [contain:content] lg:shrink-0 ${className}`}>
     <div className="h-6 flex items-center px-3 border-b border-synth-border bg-white/5">
       <h3 className="text-[10px] font-bold tracking-[0.2em] text-zinc-500 uppercase">{title}</h3>
     </div>
@@ -755,8 +756,8 @@ export const HammondDrawbarsSection = React.memo<HammondDrawbarsSectionProps>(({
   const values = [db16, db513, db8, db4, db223, db2, db135, db113, db1];
 
   return (
-    <Section title="Drawbars">
-      <div className="flex gap-2">
+    <Section title="Drawbars" className="md:col-span-2">
+      <div className="flex gap-2 w-full justify-between sm:justify-around max-w-4xl mx-auto px-4">
         {drawbars.map((db, idx) => (
           <div key={db.key} className="flex flex-col items-center">
             <JupiterSlider 
