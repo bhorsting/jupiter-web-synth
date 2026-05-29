@@ -71,38 +71,76 @@ div[class*="overflow-x-"] {
   -webkit-overflow-scrolling: auto !important;
 }
 
-/* Chrome, Safari, Edge, Opera, WKWebView globally */
-::-webkit-scrollbar {
+::-webkit-scrollbar,
+*::-webkit-scrollbar,
+div::-webkit-scrollbar,
+section::-webkit-scrollbar,
+.overflow-y-auto::-webkit-scrollbar,
+.overflow-x-auto::-webkit-scrollbar,
+.custom-scrollbar::-webkit-scrollbar {
   display: block !important;
   width: 18px !important;
   height: 18px !important;
+  -webkit-appearance: none !important;
 }
 
-::-webkit-scrollbar-track {
+::-webkit-scrollbar-track,
+*::-webkit-scrollbar-track,
+div::-webkit-scrollbar-track,
+section::-webkit-scrollbar-track,
+.overflow-y-auto::-webkit-scrollbar-track,
+.overflow-x-auto::-webkit-scrollbar-track,
+.custom-scrollbar::-webkit-scrollbar-track {
   background: #0d0d0d !important;
+  background-color: #0d0d0d !important;
   border: 1px solid #27272a !important;
   border-radius: 0px !important;
+  -webkit-appearance: none !important;
 }
 
-::-webkit-scrollbar-thumb {
+::-webkit-scrollbar-thumb,
+*::-webkit-scrollbar-thumb,
+div::-webkit-scrollbar-thumb,
+section::-webkit-scrollbar-thumb,
+.overflow-y-auto::-webkit-scrollbar-thumb,
+.overflow-x-auto::-webkit-scrollbar-thumb,
+.custom-scrollbar::-webkit-scrollbar-thumb {
   background: #4b5563 !important; /* gray-600 */
+  background-color: #4b5563 !important;
   border-radius: 0px !important;
   border: none !important;
+  -webkit-appearance: none !important;
 }
 
-::-webkit-scrollbar-thumb:hover {
+::-webkit-scrollbar-thumb:hover,
+*::-webkit-scrollbar-thumb:hover,
+div::-webkit-scrollbar-thumb:hover,
+section::-webkit-scrollbar-thumb:hover,
+.overflow-y-auto::-webkit-scrollbar-thumb:hover,
+.overflow-x-auto::-webkit-scrollbar-thumb:hover,
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
   background: #ea580c !important; /* Orange-600 */
+  background-color: #ea580c !important;
 }
 
-::-webkit-scrollbar-thumb:active {
+::-webkit-scrollbar-thumb:active,
+*::-webkit-scrollbar-thumb:active,
+div::-webkit-scrollbar-thumb:active,
+section::-webkit-scrollbar-thumb:active,
+.overflow-y-auto::-webkit-scrollbar-thumb:active,
+.overflow-x-auto::-webkit-scrollbar-thumb:active,
+.custom-scrollbar::-webkit-scrollbar-thumb:active {
   background: #f97316 !important; /* Orange-500 */
+  background-color: #f97316 !important;
 }
 
-::-webkit-scrollbar-corner {
+::-webkit-scrollbar-corner,
+*::-webkit-scrollbar-corner {
   background: #0d0d0d !important;
+  -webkit-appearance: none !important;
 }
 
-/* Firefox scrollbar standard styling */
+/* Firefox scrollbar standard */
 * {
   scrollbar-color: #4b5563 #0d0d0d !important;
   scrollbar-width: auto !important;
