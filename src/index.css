@@ -32,19 +32,6 @@
     @apply bg-synth-bg text-white overflow-hidden;
   }
 
-  ::-webkit-scrollbar {
-    height: 4px;
-    width: 0px;
-  }
-
-  ::-webkit-scrollbar-track {
-    @apply bg-black;
-  }
-
-  ::-webkit-scrollbar-thumb {
-    @apply bg-zinc-800 rounded-full;
-  }
-
   /* Custom Keyboard Styling */
   .custom-keyboard.hg-theme-default {
     background-color: transparent !important;
@@ -74,3 +61,50 @@
     color: #aaa !important;
   }
 }
+
+/* Custom Scrollbars overriding native iOS/WKWebView and Safari standard styles */
+.overflow-y-auto,
+.overflow-x-auto,
+.custom-scrollbar,
+div[class*="overflow-y-"],
+div[class*="overflow-x-"] {
+  -webkit-overflow-scrolling: auto !important;
+}
+
+/* Chrome, Safari, Edge, Opera, WKWebView globally */
+::-webkit-scrollbar {
+  display: block !important;
+  width: 18px !important;
+  height: 18px !important;
+}
+
+::-webkit-scrollbar-track {
+  background: #0d0d0d !important;
+  border: 1px solid #27272a !important;
+  border-radius: 0px !important;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #4b5563 !important; /* gray-600 */
+  border-radius: 0px !important;
+  border: none !important;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #ea580c !important; /* Orange-600 */
+}
+
+::-webkit-scrollbar-thumb:active {
+  background: #f97316 !important; /* Orange-500 */
+}
+
+::-webkit-scrollbar-corner {
+  background: #0d0d0d !important;
+}
+
+/* Firefox scrollbar standard styling */
+* {
+  scrollbar-color: #4b5563 #0d0d0d !important;
+  scrollbar-width: auto !important;
+}
+

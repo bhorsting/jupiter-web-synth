@@ -1130,21 +1130,21 @@ function App() {
 
       {/* Main Content Area */}
       <div className="flex-1 relative flex flex-col overflow-hidden">
-        <div className={`flex-1 relative overflow-y-auto lg:overflow-hidden no-scrollbar transition-all duration-300`}>
+        <div className={`flex-1 relative overflow-y-auto lg:overflow-hidden transition-all duration-300`}>
           {currentScreen === 'SYNTH' && (
-            <div className="relative lg:absolute lg:inset-0 flex flex-col md:grid md:grid-cols-2 lg:flex lg:flex-row bg-synth-border/40 gap-[1px] min-h-fit lg:min-h-0 lg:h-full overflow-y-auto lg:overflow-y-hidden lg:overflow-x-auto no-scrollbar">
+            <div className="relative lg:absolute lg:inset-0 flex flex-col md:grid md:grid-cols-2 lg:flex lg:flex-row bg-synth-border/40 gap-[1px] min-h-fit lg:min-h-0 lg:h-full overflow-y-auto lg:overflow-y-hidden lg:overflow-x-auto">
               {synthSections}
             </div>
           )}
 
           {currentScreen === 'ARP' && (
-            <div className="relative lg:absolute lg:inset-0 flex flex-col md:grid md:grid-cols-2 lg:flex lg:flex-row bg-synth-border/40 gap-[1px] min-h-fit lg:min-h-0 lg:h-full overflow-y-auto lg:overflow-y-hidden lg:overflow-x-auto no-scrollbar">
+            <div className="relative lg:absolute lg:inset-0 flex flex-col md:grid md:grid-cols-2 lg:flex lg:flex-row bg-synth-border/40 gap-[1px] min-h-fit lg:min-h-0 lg:h-full overflow-y-auto lg:overflow-y-hidden lg:overflow-x-auto">
               {arpSections}
             </div>
           )}
 
           {currentScreen === 'FX' && (
-            <div className="relative lg:absolute lg:inset-0 flex flex-col md:grid md:grid-cols-2 lg:flex lg:flex-row bg-synth-border/40 gap-[1px] min-h-fit lg:min-h-0 lg:h-full overflow-y-auto lg:overflow-y-hidden lg:overflow-x-auto no-scrollbar">
+            <div className="relative lg:absolute lg:inset-0 flex flex-col md:grid md:grid-cols-2 lg:flex lg:flex-row bg-synth-border/40 gap-[1px] min-h-fit lg:min-h-0 lg:h-full overflow-y-auto lg:overflow-y-hidden lg:overflow-x-auto">
               {fxSections}
             </div>
           )}
