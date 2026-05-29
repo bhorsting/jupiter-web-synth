@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { X, Settings2, Sliders, Cpu, Volume2, Palette, ShieldAlert, Piano } from 'lucide-react';
+import { X, Settings2, Sliders, Cpu, Volume2, Palette, ShieldAlert, Piano, RotateCw, Bluetooth } from 'lucide-react';
 import { useSettings } from '../contexts/SettingsContext';
 
 interface SettingsModalProps {
@@ -76,6 +76,35 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
               {/* Content */}
               <div className="flex-1 overflow-y-auto p-6 space-y-8 custom-scrollbar">
                 
+                {/* Hardware & App Actions */}
+                <section className="space-y-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <button 
+                      onClick={() => {
+                        try {
+                          window.postMessage({ type: 'openBluetoothMidiSettings' }, '*');
+                        } catch (e) {}
+                        try {
+                          window.parent?.postMessage({ type: 'openBluetoothMidiSettings' }, '*');
+                        } catch (e) {}
+                      }}
+                      className="flex items-center justify-center gap-3 py-3 px-4 bg-zinc-900 border border-zinc-800 text-orange-500 hover:text-orange-400 hover:border-orange-500/40 text-[10px] sm:text-xs font-bold uppercase tracking-widest transition-all cursor-pointer rounded-none active:bg-orange-950/20 shadow-inner outline-none focus:outline-none"
+                    >
+                      <Bluetooth className="w-4 h-4 text-orange-500" />
+                      Setup Bluetooth MIDI
+                    </button>
+                    <button 
+                      onClick={() => {
+                        window.location.reload();
+                      }}
+                      className="flex items-center justify-center gap-3 py-3 px-4 bg-zinc-900 border border-zinc-800 text-[#00e5ff] hover:text-cyan-400 hover:border-cyan-500/40 text-[10px] sm:text-xs font-bold uppercase tracking-widest transition-all cursor-pointer rounded-none active:bg-cyan-950/20 shadow-inner outline-none focus:outline-none"
+                    >
+                      <RotateCw className="w-4 h-4 text-[#00e5ff]" />
+                      Reload App
+                    </button>
+                  </div>
+                </section>
+
                 {/* MIDI Configuration Section */}
                 <section className="space-y-4">
                   <div className="flex items-center gap-2 text-green-500/80">

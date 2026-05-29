@@ -172,7 +172,7 @@ export const JupiterSlider: React.FC<SliderProps> = React.memo(({
         </div>
       )}
       <div 
-        className="relative w-full flex-1 flex items-center justify-center cursor-pointer group touch-none min-h-[200px]"
+        className="relative w-full flex-1 flex items-center justify-center cursor-pointer group touch-none min-h-[150px]"
         onPointerDown={(e) => {
           if (isMapMode) return;
           e.currentTarget.setPointerCapture(e.pointerId);
@@ -198,7 +198,7 @@ export const JupiterSlider: React.FC<SliderProps> = React.memo(({
         {/* Thumb */}
         <div 
           className={`absolute left-1/2 -translate-x-1/2 w-11 h-14 ${color} shadow-2xl flex items-center justify-center border border-black/20 pointer-events-none z-10 transition-transform ${isDragging ? 'scale-105 shadow-orange-500/20' : 'active:scale-95'} [will-change:transform,bottom]`}
-          style={{ bottom: `calc(${percentage}% - 28px)` }}
+          style={{ bottom: `calc(${percentage}% - ${(percentage / 100) * 56}px)` }}
         >
            <div className={`w-8 h-0.5 ${isDragging ? 'bg-orange-500/30' : 'bg-black/10'}`} />
         </div>
