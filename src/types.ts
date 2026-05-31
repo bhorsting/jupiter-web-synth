@@ -80,6 +80,16 @@ export interface VoiceParams {
   // Distortion / Saturation
   distortionMix: number;
   distortionAmount: number;
+  distortionMode?: 'default' | 'tube' | 'feedback';
+  distortionFeedbackAmount?: number;
+  distortionFeedbackFreq?: number;
+
+  // Equalizer (5 bands: low, low-mid, mid, high-mid, high)
+  eqBand1?: number;
+  eqBand2?: number;
+  eqBand3?: number;
+  eqBand4?: number;
+  eqBand5?: number;
 
   // Leslie (Rotary)
   leslieMix: number;
@@ -204,6 +214,14 @@ export const DEFAULT_PARAMS: VoiceParams = {
 
   distortionMix: 0,
   distortionAmount: 0.1,
+  distortionMode: 'default',
+  distortionFeedbackAmount: 0.3,
+  distortionFeedbackFreq: 800,
+  eqBand1: 0,
+  eqBand2: 0,
+  eqBand3: 0,
+  eqBand4: 0,
+  eqBand5: 0,
 
   leslieMix: 0,
   leslieRate: 0.8,

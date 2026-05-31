@@ -851,3 +851,50 @@ export const HammondPercussionSection = React.memo<HammondPercussionSectionProps
   );
 });
 
+export const EQSection = React.memo<{
+  params: VoiceParams;
+  updateParam: (key: keyof VoiceParams, val: any) => void;
+  isMidiMappingMode: boolean;
+  handleMapClick: (param: keyof VoiceParams) => void;
+  getMappedCC: (param: keyof VoiceParams) => string | undefined;
+  selectedMapParam: string | null;
+}>(({ params, updateParam, isMidiMappingMode, handleMapClick, getMappedCC, selectedMapParam }) => {
+  const eqBands: { label: string; freq: string; key: keyof VoiceParams }[] = [
+    { label: 'Low', freq: '80Hz', key: 'eqBand1' },
+    { label: 'L-Mid', freq: '250Hz', key: 'eqBand2' },
+    { label: 'Mid', freq: '1kHz', key: 'eqBand3' },
+    { label: 'H-Mid', freq: '4kHz', key: 'eqBand4' },
+    { label: 'High', freq: '12kHz', key: 'eqBand5' },
+  ];
+
+  return (
+    <Section title="Master EQ" className="min-w-[280px]">
+      <div className="flex gap-2 h-full items-stretch justify-around w-full">
+        {eqBands.map(band => (
+          <div key={band.key} className="flex flex-col items-center justify-between h-full min-h-[190px]">
+            <div className="flex-1 flex flex-col justify-center h-full">
+              <JupiterSlider 
+                label={band.label}
+                value={params[band.key] as number ?? 0}
+                min={-12} max={12} step={1}
+                onChange={(v) => {
+                  updateParam(band.key, Math.round(v));
+                }}
+                color="bg-amber-600"
+                isMapMode={isMidiMappingMode}
+                onMapClick={() => handleMapClick(band.key)}
+                mappedCC={getMappedCC(band.key)}
+                isSelected={selectedMapParam === band.key}
+              />
+            </div>
+            <div className="flex flex-col items-center mt-1">
+              <span className="text-[9px] font-mono text-zinc-400">{(params[band.key] as number ?? 0) > 0 ? `+${params[band.key] ?? 0}` : params[band.key] ?? 0}dB</span>
+              <span className="text-[7px] text-zinc-500 font-bold uppercase">{band.freq}</span>
+            </div>
+          </div>
+        ))}
+      </div>
+    </Section>
+  );
+});
+

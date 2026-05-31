@@ -557,10 +557,17 @@ export class JupiterEngine {
   private reverb: ConvolverNode | null = null;
   private reverbGain: GainNode | null = null;
 
+  // Equalizer (5 bands)
+  private eqFilters: BiquadFilterNode[] = [];
+
   // Distortion
+  private distortionInput: GainNode | null = null;
   private distortion: WaveShaperNode | null = null;
   private distortionGain: GainNode | null = null;
   private distortionDry: GainNode | null = null;
+  private distortionFeedbackGain: GainNode | null = null;
+  private distortionFeedbackFilter: BiquadFilterNode | null = null;
+  private distortionFeedbackDelay: DelayNode | null = null;
 
   // Leslie (Rotary)
   private leslieLFO: OscillatorNode | null = null;
@@ -733,24 +740,63 @@ export class JupiterEngine {
     this.reverb!.connect(this.reverbGain!);
     this.reverbGain.connect(this.masterBus!);
     
-    // Master Chain starts here: masterBus -> Distortion -> Tremolo -> Leslie -> Compressor
+    // Master Chain starts here: masterBus -> Equalizer -> Distortion (with optional feedback) -> Tremolo -> Leslie -> Compressor
+
+    // Initialize EQ Filters
+    this.eqFilters = [];
+    const eqFrequencies = [80, 250, 1000, 4000, 12000];
+    const eqTypes: BiquadFilterType[] = ['lowshelf', 'peaking', 'peaking', 'peaking', 'highshelf'];
+    const eqQs = [1, 1, 1, 1, 1];
+
+    for (let i = 0; i < 5; i++) {
+      const filter = this.ctx.createBiquadFilter();
+      filter.type = eqTypes[i];
+      filter.frequency.value = eqFrequencies[i];
+      filter.Q.value = eqQs[i];
+      filter.gain.value = 0; // Starts flat
+      this.eqFilters.push(filter);
+    }
+
+    // Connect the 5-band EQ filters in series
+    for (let i = 0; i < 4; i++) {
+      this.eqFilters[i].connect(this.eqFilters[i + 1]);
+    }
 
     // Initialize Distortion Nodes
     this.distortion = this.ctx.createWaveShaper();
     this.distortionGain = this.ctx.createGain();
     this.distortionDry = this.ctx.createGain();
+    this.distortionInput = this.ctx.createGain();
 
-    // Sum everything from masterBus into distortion
-    const distInput = this.ctx.createGain();
-    this.masterBus.connect(distInput);
+    // Initialize feedback chain nodes
+    this.distortionFeedbackDelay = this.ctx.createDelay(0.1);
+    this.distortionFeedbackFilter = this.ctx.createBiquadFilter();
+    this.distortionFeedbackGain = this.ctx.createGain();
+
+    // Route: masterBus -> EQ chain -> distortionInput
+    this.masterBus.connect(this.eqFilters[0]);
+    this.eqFilters[4].connect(this.distortionInput);
     
-    distInput.connect(this.distortion);
-    distInput.connect(this.distortionDry);
+    // distortionInput routes to the Waveshaper and dry path
+    this.distortionInput.connect(this.distortion);
+    this.distortionInput.connect(this.distortionDry);
 
     const afterDistortion = this.ctx.createGain();
     this.distortion.connect(this.distortionGain);
     this.distortionGain.connect(afterDistortion);
     this.distortionDry.connect(afterDistortion);
+
+    // Setup Feedback overdrive path: afterDistortion -> delay -> filter -> feedback gain -> distortionInput
+    this.distortionFeedbackDelay.delayTime.setValueAtTime(0.015, this.ctx.currentTime);
+    this.distortionFeedbackFilter.type = 'bandpass';
+    this.distortionFeedbackFilter.frequency.setValueAtTime(800, this.ctx.currentTime);
+    this.distortionFeedbackFilter.Q.setValueAtTime(15.0, this.ctx.currentTime);
+    this.distortionFeedbackGain.gain.setValueAtTime(0.0, this.ctx.currentTime);
+
+    afterDistortion.connect(this.distortionFeedbackDelay);
+    this.distortionFeedbackDelay.connect(this.distortionFeedbackFilter);
+    this.distortionFeedbackFilter.connect(this.distortionFeedbackGain);
+    this.distortionFeedbackGain.connect(this.distortionInput);
 
     // Tremolo Stage
     this.tremoloGain = this.ctx.createGain();
@@ -863,6 +909,17 @@ export class JupiterEngine {
     if (!this.ctx) return;
     const time = this.ctx.currentTime;
     
+    // Safely and instantly snap value on initialization to prevent settling glides/transient feedback
+    const setParam = (audioParam: AudioParam | undefined | null, targetVal: number, timeConstant: number = 0.05) => {
+      if (!audioParam) return;
+      if (!oldParams) {
+        audioParam.setValueAtTime(targetVal, time);
+        audioParam.value = targetVal;
+      } else {
+        audioParam.setTargetAtTime(targetVal, time, timeConstant);
+      }
+    };
+
     if (this.mainLFO) {
       if (this.params.lfoWaveform !== 'random') {
         this.mainLFO.type = this.params.lfoWaveform as OscillatorType;
@@ -874,7 +931,7 @@ export class JupiterEngine {
         ? this.getRateFromBPM(this.params.bpm, this.params.lfoSyncDivision)
         : this.params.lfoRate;
         
-      this.mainLFO.frequency.setTargetAtTime(rate, time, 0.05);
+      setParam(this.mainLFO.frequency, rate, 0.05);
     }
 
     // Chorus
@@ -890,24 +947,24 @@ export class JupiterEngine {
         depth = 0.006;
       }
       
-      this.chorusLFO.frequency.setTargetAtTime(rate, time, 0.05);
-      this.chorusLfoGain.gain.setTargetAtTime(depth, time, 0.05);
+      setParam(this.chorusLFO.frequency, rate, 0.05);
+      setParam(this.chorusLfoGain.gain, depth, 0.05);
     }
 
-    if (this.chorusGain) this.chorusGain.gain.setTargetAtTime(this.params.chorusMix, time, 0.05);
+    if (this.chorusGain) setParam(this.chorusGain.gain, this.params.chorusMix, 0.05);
     
-    if (this.delay) this.delay.delayTime.setTargetAtTime(this.params.delayTime, time, 0.05);
-    if (this.delayFeedback) this.delayFeedback.gain.setTargetAtTime(this.params.delayFeedback, time, 0.05);
-    if (this.delayGain) this.delayGain.gain.setTargetAtTime(this.params.delayMix, time, 0.05);
+    if (this.delay) setParam(this.delay.delayTime, this.params.delayTime, 0.05);
+    if (this.delayFeedback) setParam(this.delayFeedback.gain, this.params.delayFeedback, 0.05);
+    if (this.delayGain) setParam(this.delayGain.gain, this.params.delayMix, 0.05);
     
-    if (this.reverbGain) this.reverbGain.gain.setTargetAtTime(this.params.reverbMix, time, 0.05);
+    if (this.reverbGain) setParam(this.reverbGain.gain, this.params.reverbMix, 0.05);
     
     // Tremolo
-    if (this.tremoloLFO) this.tremoloLFO.frequency.setTargetAtTime(this.params.tremoloRate, time, 0.05);
+    if (this.tremoloLFO) setParam(this.tremoloLFO.frequency, this.params.tremoloRate, 0.05);
     if (this.tremoloLfoGain && this.tremoloGain && this.tremoloDry) {
-      this.tremoloLfoGain.gain.setTargetAtTime(this.params.tremoloDepth * this.params.tremoloMix, time, 0.05);
-      this.tremoloGain.gain.setTargetAtTime(this.params.tremoloMix, time, 0.05);
-      this.tremoloDry.gain.setTargetAtTime(1.0 - this.params.tremoloMix, time, 0.05);
+      setParam(this.tremoloLfoGain.gain, this.params.tremoloDepth * this.params.tremoloMix, 0.05);
+      setParam(this.tremoloGain.gain, this.params.tremoloMix, 0.05);
+      setParam(this.tremoloDry.gain, 1.0 - this.params.tremoloMix, 0.05);
     }
 
     // Leslie (Rotary Effect)
@@ -938,7 +995,7 @@ export class JupiterEngine {
 
     // Apply the inertia-based speed ramp to the LFO
     if (this.leslieLFO) {
-      this.leslieLFO.frequency.setTargetAtTime(targetRate, time, rateTimeConstant);
+      setParam(this.leslieLFO.frequency, targetRate, rateTimeConstant);
     }
 
     // Calculate modulation depths scaled by mix and speed-state
@@ -949,50 +1006,94 @@ export class JupiterEngine {
     // Time constant for depth changes (spins down/up slightly faster than speed)
     const depthTimeConstant = targetRate < 1.0 ? 1.8 : 0.8;
 
-    if (this.leslieLfoGainL) this.leslieLfoGainL.gain.setTargetAtTime(lfoGain, time, depthTimeConstant);
-    if (this.leslieLfoGainR) this.leslieLfoGainR.gain.setTargetAtTime(lfoGain, time, depthTimeConstant);
-    if (this.leslieVibGainL) this.leslieVibGainL.gain.setTargetAtTime(vibGain, time, depthTimeConstant);
-    if (this.leslieVibGainR) this.leslieVibGainR.gain.setTargetAtTime(vibGain, time, depthTimeConstant);
+    if (this.leslieLfoGainL) setParam(this.leslieLfoGainL.gain, lfoGain, depthTimeConstant);
+    if (this.leslieLfoGainR) setParam(this.leslieLfoGainR.gain, lfoGain, depthTimeConstant);
+    if (this.leslieVibGainL) setParam(this.leslieVibGainL.gain, vibGain, depthTimeConstant);
+    if (this.leslieVibGainR) setParam(this.leslieVibGainR.gain, vibGain, depthTimeConstant);
 
     // Apply Leslie gains and dry mix
-    if (this.leslieGainL) this.leslieGainL.gain.setTargetAtTime(0.5, time, 0.05);
-    if (this.leslieGainR) this.leslieGainR.gain.setTargetAtTime(0.5, time, 0.05);
+    if (this.leslieGainL) setParam(this.leslieGainL.gain, 0.5, 0.05);
+    if (this.leslieGainR) setParam(this.leslieGainR.gain, 0.5, 0.05);
     if (this.leslieDry) {
-      this.leslieDry.gain.setTargetAtTime(1.0 - currentMix, time, 0.05);
+      setParam(this.leslieDry.gain, 1.0 - currentMix, 0.05);
     }
 
     // Baseline delay times
-    if (this.leslieDelayL) this.leslieDelayL.delayTime.setTargetAtTime(0.015, time, 0.05);
-    if (this.leslieDelayR) this.leslieDelayR.delayTime.setTargetAtTime(0.015, time, 0.05);
+    if (this.leslieDelayL) setParam(this.leslieDelayL.delayTime, 0.015, 0.05);
+    if (this.leslieDelayR) setParam(this.leslieDelayR.delayTime, 0.015, 0.05);
     
-    if (this.volumeGain) this.volumeGain.gain.setTargetAtTime(this.params.masterVolume, time, 0.05);
+    if (this.volumeGain) setParam(this.volumeGain.gain, this.params.masterVolume, 0.05);
 
-    // Distortion
+    // Master 5-Band Equalizer Update
+    if (this.eqFilters && this.eqFilters.length === 5) {
+      setParam(this.eqFilters[0].gain, this.params.eqBand1 ?? 0, 0.05);
+      setParam(this.eqFilters[1].gain, this.params.eqBand2 ?? 0, 0.05);
+      setParam(this.eqFilters[2].gain, this.params.eqBand3 ?? 0, 0.05);
+      setParam(this.eqFilters[3].gain, this.params.eqBand4 ?? 0, 0.05);
+      setParam(this.eqFilters[4].gain, this.params.eqBand5 ?? 0, 0.05);
+    }
+
+    // Distortion / Saturation Modes
     if (this.distortion && this.distortionGain && this.distortionDry) {
-      // Much more aggressive curve
+      const mode = this.params.distortionMode || 'default';
       const amount = this.params.distortionAmount;
-      const k = amount * 100;
       const n_samples = 44100;
       const curve = new Float32Array(n_samples);
-      for (let i = 0; i < n_samples; ++i) {
-        const x = (i * 2) / n_samples - 1;
-        // Sigmoid curve with high gain
-        curve[i] = (Math.PI + k) * x / (Math.PI + k * Math.abs(x));
+
+      if (mode === 'tube') {
+        const kFactor = amount * 12 + 1;
+        for (let i = 0; i < n_samples; ++i) {
+          const x = (i * 2) / n_samples - 1;
+          if (x < 0) {
+            // Negative input: soft, smooth exponential saturation
+            curve[i] = - (1.0 - Math.exp(x * kFactor)) / (1.0 - Math.exp(-kFactor));
+          } else {
+            // Positive input: asymmetric, harder, richer exponential drive
+            curve[i] = (1.0 - Math.exp(-x * kFactor * 1.5)) / (1.0 - Math.exp(-kFactor * 1.5));
+          }
+        }
+      } else if (mode === 'feedback') {
+        // High gain to stimulate feedback loop oscillation
+        const k = amount * 120 + 20;
+        for (let i = 0; i < n_samples; ++i) {
+          const x = (i * 2) / n_samples - 1;
+          curve[i] = (Math.PI + k) * x / (Math.PI + k * Math.abs(x));
+        }
+      } else {
+        // Default standard soft/hard sigmoid clipping
+        const k = amount * 100;
+        for (let i = 0; i < n_samples; ++i) {
+          const x = (i * 2) / n_samples - 1;
+          curve[i] = (Math.PI + k) * x / (Math.PI + k * Math.abs(x));
+        }
       }
+
       this.distortion.curve = curve;
       this.distortion.oversample = 'none';
 
-      this.distortionGain.gain.setTargetAtTime(this.params.distortionMix, time, 0.05);
-      this.distortionDry.gain.setTargetAtTime(1.0 - this.params.distortionMix, time, 0.05);
+      // Updates for the Feedback Overdrive loop nodes
+      if (this.distortionFeedbackFilter) {
+        const feedbackFreq = this.params.distortionFeedbackFreq ?? 800;
+        setParam(this.distortionFeedbackFilter.frequency, feedbackFreq, 0.05);
+      }
+      if (this.distortionFeedbackGain) {
+        const isFeedbackMode = mode === 'feedback';
+        // feedback gain is scaled to self-oscillate nicely above 0.5
+        const feedbackGainVal = isFeedbackMode ? (this.params.distortionFeedbackAmount ?? 0.3) * 1.5 : 0.0;
+        setParam(this.distortionFeedbackGain.gain, feedbackGainVal, 0.05);
+      }
+
+      setParam(this.distortionGain.gain, this.params.distortionMix, 0.05);
+      setParam(this.distortionDry.gain, 1.0 - this.params.distortionMix, 0.05);
     }
 
     // Compander Updates
     if (this.compressor) {
-      this.compressor.threshold.setTargetAtTime(this.params.compThreshold, time, 0.05);
-      this.compressor.ratio.setTargetAtTime(this.params.compRatio, time, 0.05);
-      this.compressor.knee.setTargetAtTime(this.params.compKnee, time, 0.05);
-      this.compressor.attack.setTargetAtTime(this.params.compAttack, time, 0.05);
-      this.compressor.release.setTargetAtTime(this.params.compRelease, time, 0.05);
+      setParam(this.compressor.threshold, this.params.compThreshold, 0.05);
+      setParam(this.compressor.ratio, this.params.compRatio, 0.05);
+      setParam(this.compressor.knee, this.params.compKnee, 0.05);
+      setParam(this.compressor.attack, this.params.compAttack, 0.05);
+      setParam(this.compressor.release, this.params.compRelease, 0.05);
     }
 
     // Regenerate impulse response if relevant params changed

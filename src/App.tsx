@@ -22,7 +22,8 @@ import {
   FXSection,
   GlobalSection,
   HammondDrawbarsSection,
-  HammondPercussionSection
+  HammondPercussionSection,
+  EQSection
 } from './components/SynthPanel';
 import { DEFAULT_PARAMS, VoiceParams, Patch, MidiMapping } from './types';
 import { Power, Save, FolderOpen, Sliders, Waves, Activity, Trash2, X, Keyboard as PianoIcon, Cloud, UploadCloud, DownloadCloud, Link, Maximize, Minimize, Settings2, Plus } from 'lucide-react';
@@ -315,6 +316,8 @@ function App() {
       leslieMix: [0, 1], leslieRate: [0.1, 15], leslieDepth: [0, 1],
       tremoloMix: [0, 1], tremoloRate: [0.5, 20], tremoloDepth: [0, 1],
       distortionMix: [0, 1], distortionAmount: [0, 1],
+      distortionFeedbackAmount: [0, 1], distortionFeedbackFreq: [100, 5000],
+      eqBand1: [-12, 12], eqBand2: [-12, 12], eqBand3: [-12, 12], eqBand4: [-12, 12], eqBand5: [-12, 12],
       masterVolume: [0, 1],
       // Hammond Drawbars
       hammondDb16: [0, 8],
@@ -826,6 +829,7 @@ function App() {
       <GlobalSection 
         bpm={params.bpm}
         timeSignature={params.timeSignature}
+        synthEngine={params.synthEngine}
         updateParam={updateParam}
       />
       <ArpSection 
@@ -843,11 +847,6 @@ function App() {
         getMappedCC={getMappedCC}
         selectedMapParam={selectedMapParam}
       />
-      <div className="flex-1 min-h-[150px] flex items-center justify-center opacity-30">
-        <div className="text-center font-mono pointer-events-none">
-          <div className="text-xl sm:text-4xl font-bold tracking-[0.5em] mb-4 uppercase">Arpeggiator</div>
-        </div>
-      </div>
     </>
   );
 
@@ -856,6 +855,7 @@ function App() {
       <GlobalSection 
         bpm={params.bpm}
         timeSignature={params.timeSignature}
+        synthEngine={params.synthEngine}
         updateParam={updateParam}
       />
       <FXSection 
@@ -875,9 +875,25 @@ function App() {
       <FXSection 
         label="Overdrive"
         mix={params.distortionMix}
+        selectors={[
+          { label: 'Type', key: 'distortionMode' as keyof VoiceParams, options: ['default', 'tube', 'feedback'], value: params.distortionMode || 'default' }
+        ]}
         params={[
           { label: 'Drive', key: 'distortionAmount', value: params.distortionAmount, min: 0, max: 1 },
+          ...(params.distortionMode === 'feedback' ? [
+            { label: 'Fb Amt', key: 'distortionFeedbackAmount' as keyof VoiceParams, value: params.distortionFeedbackAmount ?? 0.3, min: 0, max: 1 },
+            { label: 'Fb Freq', key: 'distortionFeedbackFreq' as keyof VoiceParams, value: params.distortionFeedbackFreq ?? 800, min: 100, max: 5000 }
+          ] : [])
         ]}
+        updateParam={updateParam}
+        isMidiMappingMode={isMidiMappingMode}
+        handleMapClick={handleMapClick}
+        getMappedCC={getMappedCC}
+        selectedMapParam={selectedMapParam}
+      />
+
+      <EQSection 
+        params={params}
         updateParam={updateParam}
         isMidiMappingMode={isMidiMappingMode}
         handleMapClick={handleMapClick}
@@ -964,12 +980,6 @@ function App() {
         selectedMapParam={selectedMapParam}
       />
 
-      <div className="flex-1 min-h-[150px] flex items-center justify-center opacity-30">
-        <div className="text-center font-mono pointer-events-none">
-          <div className="text-xl sm:text-4xl font-bold tracking-[0.5em] mb-4">FX BUS</div>
-          <div className="hidden sm:block text-[10px] tracking-[1em]">MASTER CHAIN READY</div>
-        </div>
-      </div>
     </>
   );
 
