@@ -61,6 +61,14 @@ function App() {
   const [isNaming, setIsNaming] = useState(false);
   const [pendingName, setPendingName] = useState('');
   const [namingMode, setNamingMode] = useState<'SAVE' | 'SAVE_AS'>('SAVE');
+  const keyboardRef = useRef<any>(null);
+  const initializedKeyboardRef = useRef(false);
+
+  useEffect(() => {
+    if (isNaming) {
+      initializedKeyboardRef.current = false;
+    }
+  }, [isNaming]);
   
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
@@ -1358,6 +1366,13 @@ function App() {
 
               <div className="keyboard-container overflow-hidden bg-zinc-900 p-2 sm:p-4">
                 <Keyboard
+                  keyboardRef={(r) => {
+                    keyboardRef.current = r;
+                    if (r && !initializedKeyboardRef.current) {
+                      r.setInput(pendingName);
+                      initializedKeyboardRef.current = true;
+                    }
+                  }}
                   onChange={(input) => setPendingName(input.toUpperCase())}
                   onKeyPress={(button) => {
                     if (button === "{enter}") handleNameSubmit();
