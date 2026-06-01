@@ -312,7 +312,7 @@ function App() {
       // FX
       chorusMix: [0, 1], delayMix: [0, 1], delayTime: [0.01, 1], delayFeedback: [0, 0.9],
       reverbMix: [0, 1], reverbTime: [0.1, 10], reverbDecay: [0.1, 10], reverbDamping: [0, 0.99],
-      compThreshold: [-60, 0], compRatio: [1, 20], compAttack: [0.001, 0.5], compRelease: [0.01, 1],
+      compThreshold: [-60, 0], compRatio: [1, 20], compAttack: [0.001, 0.5], compRelease: [0.01, 1], compMix: [0, 1],
       leslieMix: [0, 1], leslieRate: [0.1, 15], leslieDepth: [0, 1],
       tremoloMix: [0, 1], tremoloRate: [0.5, 20], tremoloDepth: [0, 1],
       distortionMix: [0, 1], distortionAmount: [0, 1],
@@ -966,7 +966,7 @@ function App() {
 
       <FXSection 
         label="Comp"
-        mix={0}
+        mix={params.compMix}
         params={[
           { label: 'Thresh', key: 'compThreshold', value: params.compThreshold, min: -60, max: 0 },
           { label: 'Ratio', key: 'compRatio', value: params.compRatio, min: 1, max: 20 },

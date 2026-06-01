@@ -111,7 +111,7 @@ class Voice {
         if (dbIndex !== undefined) {
           const level = drawbarLevels[dbIndex];
           const fraction = level / 8;
-          gainNode.gain.setTargetAtTime(fraction * 0.15, time, 0.01);
+          gainNode.gain.setTargetAtTime(fraction * 0.35, time, 0.01);
         }
       });
 
@@ -234,7 +234,7 @@ class Voice {
         const level = drawbarLevels[index];
         const fraction = level / 8;
         gainNode.gain.setValueAtTime(0, time);
-        gainNode.gain.linearRampToValueAtTime(fraction * 0.15, time + 0.008);
+        gainNode.gain.linearRampToValueAtTime(fraction * 0.35, time + 0.008);
 
         osc.connect(gainNode);
         gainNode.connect(this.filter);
@@ -256,7 +256,7 @@ class Voice {
         clickFilter.Q.setValueAtTime(3.0, time);
 
         const clickGainNode = this.ctx.createGain();
-        clickGainNode.gain.setValueAtTime(this.params.hammondKeyClick * 0.15, time);
+        clickGainNode.gain.setValueAtTime(this.params.hammondKeyClick * 0.22, time);
         clickGainNode.gain.exponentialRampToValueAtTime(0.0001, time + 0.015);
 
         clickSrc.connect(clickFilter);
@@ -591,6 +591,9 @@ export class JupiterEngine {
   private tremoloLfoGain: GainNode | null = null;
   
   // Limiter & Compander
+  private compressorInput: GainNode | null = null;
+  private compressorDry: GainNode | null = null;
+  private compressorWet: GainNode | null = null;
   private compressor: DynamicsCompressorNode | null = null;
   private limiter: DynamicsCompressorNode | null = null;
   private volumeGain: GainNode | null = null;
@@ -671,6 +674,9 @@ export class JupiterEngine {
     this.analyser.fftSize = 1024;
 
     // Compressor (Compander section)
+    this.compressorInput = this.ctx.createGain();
+    this.compressorDry = this.ctx.createGain();
+    this.compressorWet = this.ctx.createGain();
     this.compressor = this.ctx.createDynamicsCompressor();
     
     // Limiter (Fixed safety)
@@ -689,7 +695,13 @@ export class JupiterEngine {
     // setupFX handles the Master Chain connection from masterBus to compressor
     this.setupFX();
     
-    this.compressor.connect(this.limiter);
+    this.compressorInput.connect(this.compressor);
+    this.compressorInput.connect(this.compressorDry);
+    this.compressor.connect(this.compressorWet);
+
+    this.compressorDry.connect(this.limiter);
+    this.compressorWet.connect(this.limiter);
+
     this.limiter.connect(this.volumeGain!);
     this.volumeGain!.connect(this.analyser);
     this.analyser.connect(this.ctx.destination);
@@ -864,8 +876,8 @@ export class JupiterEngine {
     tremoloNext.connect(this.leslieDry);
 
     // Connect both wet (merged) and dry paths to compressor input
-    this.leslieMerger.connect(this.compressor!);
-    this.leslieDry.connect(this.compressor!);
+    this.leslieMerger.connect(this.compressorInput!);
+    this.leslieDry.connect(this.compressorInput!);
     
     this.updateFXParams();
   }
@@ -1094,6 +1106,11 @@ export class JupiterEngine {
       setParam(this.compressor.knee, this.params.compKnee, 0.05);
       setParam(this.compressor.attack, this.params.compAttack, 0.05);
       setParam(this.compressor.release, this.params.compRelease, 0.05);
+    }
+
+    if (this.compressorDry && this.compressorWet) {
+      setParam(this.compressorDry.gain, 1.0 - this.params.compMix, 0.05);
+      setParam(this.compressorWet.gain, this.params.compMix, 0.05);
     }
 
     // Regenerate impulse response if relevant params changed

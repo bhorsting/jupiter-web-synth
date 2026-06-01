@@ -108,6 +108,7 @@ export interface VoiceParams {
   compKnee: number;
   compAttack: number;
   compRelease: number;
+  compMix: number;
   filterEnvSource: 'env1' | 'env2';
 
   // Hammond Organ Engine Params
@@ -237,6 +238,7 @@ export const DEFAULT_PARAMS: VoiceParams = {
   compKnee: 30,
   compAttack: 0.003,
   compRelease: 0.25,
+  compMix: 1.0,
   filterEnvSource: 'env1',
 
   // Hammond defaults
