@@ -286,3 +286,44 @@ export const DEFAULT_PERFORMANCE_SETTINGS: PerformanceSettings = {
   velocitySensitivity: 0.5,
   googleSheetUrl: '',
 };
+
+export function cleanVoiceParams(rawParams: any): VoiceParams {
+  const params = { ...DEFAULT_PARAMS };
+  
+  if (!rawParams || typeof rawParams !== 'object') {
+    return params;
+  }
+  
+  Object.keys(DEFAULT_PARAMS).forEach(key => {
+    const typedKey = key as keyof VoiceParams;
+    const defaultValue = DEFAULT_PARAMS[typedKey];
+    const rawValue = rawParams[typedKey];
+    
+    // Check if the parameter is missing, undefined, null, or is NaN
+    if (rawValue === undefined || rawValue === null || (typeof defaultValue === 'number' && typeof rawValue === 'number' && isNaN(rawValue))) {
+      // Use default
+      (params as any)[typedKey] = defaultValue;
+    } else if (typeof defaultValue === 'number') {
+      // Coerce to number if it's a string, and check validity
+      const parsed = Number(rawValue);
+      if (isNaN(parsed)) {
+        (params as any)[typedKey] = defaultValue;
+      } else {
+        (params as any)[typedKey] = parsed;
+      }
+    } else if (typeof defaultValue === 'boolean') {
+      // Coerce to boolean if it's a string or other falsy/truthy value
+      if (typeof rawValue === 'string') {
+        (params as any)[typedKey] = (rawValue.toLowerCase() === 'true' || rawValue === '1');
+      } else {
+        (params as any)[typedKey] = !!rawValue;
+      }
+    } else {
+      // Keep string if default is string
+      (params as any)[typedKey] = String(rawValue);
+    }
+  });
+  
+  return params;
+}
+

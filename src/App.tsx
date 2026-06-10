@@ -25,7 +25,7 @@ import {
   HammondPercussionSection,
   EQSection
 } from './components/SynthPanel';
-import { DEFAULT_PARAMS, VoiceParams, Patch, MidiMapping } from './types';
+import { DEFAULT_PARAMS, VoiceParams, Patch, MidiMapping, cleanVoiceParams } from './types';
 import { Power, Save, FolderOpen, Sliders, Waves, Activity, Trash2, X, Keyboard as PianoIcon, Cloud, UploadCloud, DownloadCloud, Link, Maximize, Minimize, Settings2, Plus } from 'lucide-react';
 import React from 'react';
 import Keyboard from 'react-simple-keyboard';
@@ -128,7 +128,7 @@ function App() {
       // Migration: ensure all fields exist
       const migrated = finalPatches.map((p: any) => ({
         ...p,
-        params: { ...DEFAULT_PARAMS, ...p.params },
+        params: cleanVoiceParams(p.params),
         midiMappings: (p.midiMappings || []).map((m: any) => ({
           parameter: m.parameter,
           cc: m.cc,
@@ -142,7 +142,7 @@ function App() {
       const appState = await indexedDBService.getAppState();
       if (appState) {
         if (appState.activePatchId) setActivePatchId(appState.activePatchId);
-        if (appState.params) setParams({ ...DEFAULT_PARAMS, ...appState.params });
+        if (appState.params) setParams(cleanVoiceParams(appState.params));
         if (appState.midiMappings) setMidiMappings(appState.midiMappings);
         if (appState.currentScreen) setCurrentScreen(appState.currentScreen);
         if (appState.showKeyboard !== undefined) setShowKeyboard(appState.showKeyboard);
@@ -153,7 +153,7 @@ function App() {
         if (lastPatchId) {
           const patch = migrated.find(p => p.id === lastPatchId);
           if (patch) {
-            setParams({ ...DEFAULT_PARAMS, ...patch.params });
+            setParams(cleanVoiceParams(patch.params));
             setActivePatchId(patch.id);
           }
         }
@@ -635,7 +635,7 @@ function App() {
 
   const loadPatch = (patch: Patch) => {
     // Ensure all params exist by merging with defaults
-    setParams({ ...DEFAULT_PARAMS, ...patch.params });
+    setParams(cleanVoiceParams(patch.params));
     setActivePatchId(patch.id);
     setMidiMappings(patch.midiMappings || []);
     setCurrentScreen('SYNTH');

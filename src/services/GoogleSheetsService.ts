@@ -1,4 +1,4 @@
-import { Patch } from '../types';
+import { Patch, cleanVoiceParams } from '../types';
 
 const CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID;
 const SCOPES = 'https://www.googleapis.com/auth/spreadsheets';
@@ -152,7 +152,7 @@ class GoogleSheetsService {
       return {
         id: `google-${index}-${Date.now()}`,
         name,
-        params,
+        params: cleanVoiceParams(params),
         midiMappings
       } as Patch;
     });
