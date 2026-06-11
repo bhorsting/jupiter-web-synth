@@ -9,28 +9,37 @@ const NOTES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
 
 export const PianoKeyboard: React.FC<PianoKeyboardProps> = React.memo(({ onNoteOn, onNoteOff }) => {
   const [activeNotes, setActiveNotes] = useState<Set<number>>(new Set());
+  const activeNotesRef = React.useRef<Set<number>>(new Set());
   const startNote = 48; // C3
   const numNotes = 25; // 2 octaves
 
-  const handlePointerDown = (note: number) => {
+  useEffect(() => {
+    return () => {
+      activeNotesRef.current.forEach(note => {
+        onNoteOff(note);
+      });
+      activeNotesRef.current.clear();
+    };
+  }, [onNoteOff]);
+
+  const handlePointerDown = useCallback((note: number) => {
+    if (activeNotesRef.current.has(note)) return;
+    activeNotesRef.current.add(note);
     onNoteOn(note);
-    setActiveNotes(prev => new Set(prev).add(note));
-  };
+    setActiveNotes(new Set(activeNotesRef.current));
+  }, [onNoteOn]);
 
-  const handlePointerUp = (note: number) => {
+  const handlePointerUp = useCallback((note: number) => {
+    if (!activeNotesRef.current.has(note)) return;
+    activeNotesRef.current.delete(note);
     onNoteOff(note);
-    setActiveNotes(prev => {
-      const next = new Set(prev);
-      next.delete(note);
-      return next;
-    });
-  };
+    setActiveNotes(new Set(activeNotesRef.current));
+  }, [onNoteOff]);
 
-  const handlePointerLeave = (note: number) => {
-    if (activeNotes.has(note)) {
-      handlePointerUp(note);
-    }
-  };
+  const handlePointerLeave = useCallback((note: number, pointerType?: string) => {
+    if (pointerType === 'touch') return;
+    handlePointerUp(note);
+  }, [handlePointerUp]);
 
   const whiteNotes = Array.from({ length: numNotes })
     .map((_, i) => startNote + i)
@@ -70,7 +79,7 @@ export const PianoKeyboard: React.FC<PianoKeyboardProps> = React.memo(({ onNoteO
             return (
               <div
                 key={noteNumber}
-                className={`flex-1 border-r last:border-r-0 border-zinc-400/50 bg-zinc-100 hover:bg-white relative shadow-[0_4px_0_rgba(0,0,0,0.2)] ${
+                className={`flex-1 border-r last:border-r-0 border-zinc-400/50 bg-zinc-100 hover:bg-white relative shadow-[0_4px_0_rgba(0,0,0,0.2)] touch-none select-none ${
                   activeNotes.has(noteNumber) ? '!bg-orange-500 shadow-none' : ''
                 }`}
                 onPointerDown={(e) => {
@@ -87,11 +96,12 @@ export const PianoKeyboard: React.FC<PianoKeyboardProps> = React.memo(({ onNoteO
                 }}
                 onPointerEnter={(e) => {
                   e.preventDefault();
+                  if (e.pointerType === 'touch') return;
                   if (e.buttons === 1) handlePointerDown(noteNumber);
                 }}
                 onPointerLeave={(e) => {
                   e.preventDefault();
-                  handlePointerLeave(noteNumber);
+                  handlePointerLeave(noteNumber, e.pointerType);
                 }}
               >
                 <span className="absolute bottom-3 left-1/2 -translate-x-1/2 text-[9px] font-bold text-zinc-500 uppercase tracking-tighter opacity-50">
@@ -110,7 +120,7 @@ export const PianoKeyboard: React.FC<PianoKeyboardProps> = React.memo(({ onNoteO
           return (
             <div
               key={noteNumber}
-              className={`absolute top-0 h-[62%] z-10 shadow-2xl ${
+              className={`absolute top-0 h-[62%] z-10 shadow-2xl touch-none select-none ${
                 activeNotes.has(noteNumber) 
                   ? 'bg-orange-600 shadow-none' 
                   : 'bg-zinc-900 hover:bg-zinc-800'
@@ -134,11 +144,12 @@ export const PianoKeyboard: React.FC<PianoKeyboardProps> = React.memo(({ onNoteO
               }}
               onPointerEnter={(e) => {
                 e.preventDefault();
+                if (e.pointerType === 'touch') return;
                 if (e.buttons === 1) handlePointerDown(noteNumber);
               }}
               onPointerLeave={(e) => {
                 e.preventDefault();
-                handlePointerLeave(noteNumber);
+                handlePointerLeave(noteNumber, e.pointerType);
               }}
             >
               <div className="absolute top-0 left-0 right-0 h-2 bg-white/10" />
