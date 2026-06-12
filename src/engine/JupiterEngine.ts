@@ -420,13 +420,13 @@ class Voice {
       this.vca.gain.setValueAtTime(prevGain, time);
       this.vca.gain.linearRampToValueAtTime(0.0001, time + 0.002);
       this.vca.gain.setValueAtTime(0.0001, time + 0.002);
-      this.vca.gain.exponentialRampToValueAtTime(velocityScale, time + 0.002 + Math.max(0.005, env2Attack));
+      this.vca.gain.linearRampToValueAtTime(velocityScale, time + 0.002 + Math.max(0.005, env2Attack));
       
       const sustainLevel = Math.max(0.0001, env2Sustain * velocityScale);
       this.vca.gain.setTargetAtTime(sustainLevel, time + 0.002 + Math.max(0.005, env2Attack), Math.max(0.01, env2Decay));
     } else {
       this.vca.gain.setValueAtTime(0.0001, time);
-      this.vca.gain.exponentialRampToValueAtTime(velocityScale, time + Math.max(0.005, env2Attack));
+      this.vca.gain.linearRampToValueAtTime(velocityScale, time + Math.max(0.005, env2Attack));
       
       const sustainLevel = Math.max(0.0001, env2Sustain * velocityScale);
       this.vca.gain.setTargetAtTime(sustainLevel, time + Math.max(0.005, env2Attack), Math.max(0.01, env2Decay));
