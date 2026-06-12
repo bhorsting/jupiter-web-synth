@@ -14,6 +14,7 @@ import {
   VCO1Section, 
   VCO2Section, 
   MixerSection, 
+  SubOscSection,
   VCFSection, 
   VCASection, 
   EnvelopeSection, 
@@ -253,7 +254,7 @@ function App() {
   const updateParamFromCC = React.useCallback((key: keyof VoiceParams, ccValue: number) => {
     // 1. Support boolean toggles
     const toggles: Set<string> = new Set([
-      'vco2Sync', 'arpEnabled', 'arpSync', 'lfoSync', 'hammondPercussionEnabled'
+      'vco2Sync', 'arpEnabled', 'arpSync', 'lfoSync', 'hammondPercussionEnabled', 'subOscEnabled'
     ]);
     if (toggles.has(key)) {
       updateParam(key, ccValue >= 64);
@@ -279,6 +280,8 @@ function App() {
       hammondPercussionHarmonic: ['second', 'third'],
       hammondPercussionDecay: ['fast', 'slow'],
       hammondPercussionVolume: ['soft', 'normal'],
+      subOscWaveform: ['sine', 'triangle', 'square'],
+      subOscOctave: [-1, -2],
     };
 
     if (discreteLists[key]) {
@@ -296,6 +299,7 @@ function App() {
       vco2Detune: [-100, 100],
       vcaLevel: [0, 1],
       vcoMix: [0, 1],
+      subOscMix: [0, 1],
       portamentoTime: [0, 2],
       arpRate: [40, 300],
       // Envelope params
@@ -752,6 +756,18 @@ function App() {
 
           <MixerSection 
             vcoMix={params.vcoMix}
+            updateParam={updateParam}
+            isMidiMappingMode={isMidiMappingMode}
+            handleMapClick={handleMapClick}
+            getMappedCC={getMappedCC}
+            selectedMapParam={selectedMapParam}
+          />
+
+          <SubOscSection
+            subOscEnabled={params.subOscEnabled}
+            subOscMix={params.subOscMix}
+            subOscWaveform={params.subOscWaveform}
+            subOscOctave={params.subOscOctave}
             updateParam={updateParam}
             isMidiMappingMode={isMidiMappingMode}
             handleMapClick={handleMapClick}

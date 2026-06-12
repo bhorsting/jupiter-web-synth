@@ -11,10 +11,12 @@ class Voice {
   private ctx: AudioContext;
   private vco1: OscillatorNode | null = null;
   private vco2: OscillatorNode | null = null;
+  private subOsc: OscillatorNode | null = null;
   private vco1Noise: AudioBufferSourceNode | null = null;
   private vco2Noise: AudioBufferSourceNode | null = null;
   private vco1Gain: GainNode;
   private vco2Gain: GainNode;
+  private subOscGain: GainNode;
   private vco1NoiseGain: GainNode;
   private vco2NoiseGain: GainNode;
   private filter: BiquadFilterNode;
@@ -36,6 +38,10 @@ class Voice {
   private pitchBendOffset: number = 0; // in semitones
   private velocity: number = 1;
 
+  // Vintage detuning drift per voice card
+  private vco1Drift: number = 0;
+  private vco2Drift: number = 0;
+
   // State for voice management
   public midiNote: number | null = null;
   public startTime: number = 0;
@@ -52,6 +58,7 @@ class Voice {
     this.vco2Gain = ctx.createGain();
     this.vco1NoiseGain = ctx.createGain();
     this.vco2NoiseGain = ctx.createGain();
+    this.subOscGain = ctx.createGain();
 
     this.filter = ctx.createBiquadFilter();
     this.vca = ctx.createGain();
@@ -70,6 +77,7 @@ class Voice {
     this.vco2Gain.connect(this.filter);
     this.vco1NoiseGain.connect(this.filter);
     this.vco2NoiseGain.connect(this.filter);
+    this.subOscGain.connect(this.filter);
 
     this.filter.connect(this.vca);
     this.vca.connect(this.output);
@@ -134,12 +142,12 @@ class Voice {
     if (this.vco1 && !isVco1Noise) {
       this.vco1.type = params.vco1Waveform === 'pulse' ? 'square' : params.vco1Waveform as OscillatorType;
       
-      // Update VCO1 Frequency in real-time
+      // Update VCO1 Frequency in real-time with vintage drift
       if (this.midiNote !== null) {
         const freq = 440 * Math.pow(2, (this.midiNote - 69) / 12);
         const range1 = 8 / params.vco1Range;
         const bendFactor = Math.pow(2, this.pitchBendOffset / 12);
-        const targetFreq1 = freq * range1 * Math.pow(2, params.vco1Freq / 12) * bendFactor;
+        const targetFreq1 = freq * range1 * Math.pow(2, (params.vco1Freq + this.vco1Drift) / 12) * bendFactor;
         this.vco1.frequency.setTargetAtTime(Math.max(1, targetFreq1), time, 0.02);
       }
     }
@@ -147,15 +155,27 @@ class Voice {
     if (this.vco2 && !isVco2Noise) {
       this.vco2.type = params.vco2Waveform === 'pulse' ? 'square' : params.vco2Waveform as OscillatorType;
 
-      // Update VCO2 Frequency in real-time
+      // Update VCO2 Frequency in real-time with vintage drift
       if (this.midiNote !== null) {
         const freq = 440 * Math.pow(2, (this.midiNote - 69) / 12);
         const range2 = 8 / params.vco2Range;
         const bendFactor = Math.pow(2, this.pitchBendOffset / 12);
-        const targetFreq2 = freq * range2 * Math.pow(2, (params.vco2Freq + (params.vco2Detune / 100)) / 12) * bendFactor;
+        const targetFreq2 = freq * range2 * Math.pow(2, (params.vco2Freq + (params.vco2Detune / 100) + this.vco2Drift) / 12) * bendFactor;
         this.vco2.frequency.setTargetAtTime(Math.max(1, targetFreq2), time, 0.02);
       }
     }
+
+    if (this.subOsc) {
+      this.subOsc.type = params.subOscWaveform;
+      if (this.midiNote !== null) {
+        const freq = 440 * Math.pow(2, (this.midiNote - 69) / 12);
+        const subFreq = freq * Math.pow(2, params.subOscOctave);
+        const bendFactor = Math.pow(2, this.pitchBendOffset / 12);
+        this.subOsc.frequency.setTargetAtTime(Math.max(1, subFreq * bendFactor), time, 0.02);
+      }
+    }
+    const subLevel = params.subOscEnabled ? params.subOscMix : 0;
+    this.subOscGain.gain.setTargetAtTime(subLevel, time, 0.005);
 
     const vco1Level = (1.0 - params.vcoMix) * params.mixerVco1;
     const vco2Level = params.vcoMix * params.mixerVco2;
@@ -200,6 +220,10 @@ class Voice {
     this.startTime = time;
     this.isReleasing = false;
     this.velocity = velocity;
+
+    // Vintage voice card tolerance variance/drift (±4 cents drift)
+    this.vco1Drift = (Math.random() - 0.5) * 0.04;
+    this.vco2Drift = (Math.random() - 0.5) * 0.04;
 
     const freq = 440 * Math.pow(2, (midiNote - 69) / 12);
 
@@ -300,6 +324,7 @@ class Voice {
 
     this.vco1 = this.ctx.createOscillator();
     this.vco2 = this.ctx.createOscillator();
+    this.subOsc = this.ctx.createOscillator();
     this.vco1Noise = this.ctx.createBufferSource();
     this.vco2Noise = this.ctx.createBufferSource();
     
@@ -312,12 +337,14 @@ class Voice {
 
     this.vco1.connect(this.vco1Gain);
     this.vco2.connect(this.vco2Gain);
+    this.subOsc.connect(this.subOscGain);
     this.vco1Noise.connect(this.vco1NoiseGain);
     this.vco2Noise.connect(this.vco2NoiseGain);
 
-    // Connect LFO Mod to VCOs
+    // Connect LFO Mod to VCOs and SubOsc
     this.vcoLfoMod.connect(this.vco1.frequency);
     this.vcoLfoMod.connect(this.vco2.frequency);
+    this.vcoLfoMod.connect(this.subOsc.frequency);
 
     // Cross modulation: VCO2 modulates VCO1 frequency
     if (this.vco2) this.vco2.connect(this.crossModGain);
@@ -336,15 +363,20 @@ class Voice {
 
     this.vco1.type = vco1Waveform === 'pulse' ? 'square' : vco1Waveform as OscillatorType;
     this.vco2.type = vco2Waveform === 'pulse' ? 'square' : vco2Waveform as OscillatorType;
+    this.subOsc.type = this.params.subOscWaveform;
 
     const range1 = 8 / vco1Range;
     const range2 = 8 / vco2Range;
 
-    const prevFreq1 = Math.max(1, lastFreq * range1 * Math.pow(2, vco1Freq / 12));
-    const prevFreq2 = Math.max(1, lastFreq * range2 * Math.pow(2, (vco2Freq + (vco2Detune / 100)) / 12));
+    const prevFreq1 = Math.max(1, lastFreq * range1 * Math.pow(2, (vco1Freq + this.vco1Drift) / 12));
+    const prevFreq2 = Math.max(1, lastFreq * range2 * Math.pow(2, (vco2Freq + (vco2Detune / 100) + this.vco2Drift) / 12));
 
-    const targetFreq1 = Math.max(1, freq * range1 * Math.pow(2, vco1Freq / 12));
-    const targetFreq2 = Math.max(1, freq * range2 * Math.pow(2, (vco2Freq + (vco2Detune / 100)) / 12));
+    const targetFreq1 = Math.max(1, freq * range1 * Math.pow(2, (vco1Freq + this.vco1Drift) / 12));
+    const targetFreq2 = Math.max(1, freq * range2 * Math.pow(2, (vco2Freq + (vco2Detune / 100) + this.vco2Drift) / 12));
+
+    const subFreqFactor = Math.pow(2, this.params.subOscOctave);
+    const prevSubFreq = Math.max(1, lastFreq * subFreqFactor);
+    const targetSubFreq = Math.max(1, freq * subFreqFactor);
 
     const useGlide = (portamentoMode === 'off' ? false : (portamentoMode === 'on' || (portamentoMode === 'auto' && isLegato))) && lastFreq > 0;
     const glideTime = useGlide ? Math.max(0.002, portamentoTime) : 0;
@@ -353,27 +385,35 @@ class Voice {
     const bendFactor = Math.pow(2, this.pitchBendOffset / 12);
     const finalFreq1 = targetFreq1 * bendFactor;
     const finalFreq2 = targetFreq2 * bendFactor;
+    const finalSubFreq = targetSubFreq * bendFactor;
 
     if (glideTime > 0.005) {
       this.vco1.frequency.cancelScheduledValues(time);
       this.vco2.frequency.cancelScheduledValues(time);
+      this.subOsc.frequency.cancelScheduledValues(time);
       
       this.vco1.frequency.setValueAtTime(prevFreq1, time);
       this.vco2.frequency.setValueAtTime(prevFreq2, time);
+      this.subOsc.frequency.setValueAtTime(prevSubFreq, time);
       
       this.vco1.frequency.setTargetAtTime(finalFreq1, time + 0.05, glideTime / 3);
       this.vco2.frequency.setTargetAtTime(finalFreq2, time + 0.05, glideTime / 3);
+      this.subOsc.frequency.setTargetAtTime(finalSubFreq, time + 0.05, glideTime / 3);
     } else {
       this.vco1.frequency.setValueAtTime(finalFreq1, time);
       this.vco2.frequency.setValueAtTime(finalFreq2, time);
+      this.subOsc.frequency.setValueAtTime(finalSubFreq, time);
     }
+
+    const subLevel = this.params.subOscEnabled ? this.params.subOscMix : 0;
+    this.subOscGain.gain.setValueAtTime(subLevel, time);
 
     // Velocity Scaling
     const velocityScale = 1.0 - (1.0 - velocity) * this.perfSettings.velocitySensitivity;
 
-    // VCA Envelope (Env 2)
+    // VCA Envelope (Env 2) - Reset to exactly 0 to prevent CLICK on voice card reuse
     this.vca.gain.cancelScheduledValues(time);
-    this.vca.gain.setValueAtTime(this.vca.gain.value, time); 
+    this.vca.gain.setValueAtTime(0, time); 
     this.vca.gain.linearRampToValueAtTime(velocityScale, time + Math.max(0.005, env2Attack));
     this.vca.gain.setTargetAtTime(Math.max(0.0001, env2Sustain * velocityScale), time + Math.max(0.005, env2Attack), Math.max(0.001, env2Decay));
 
@@ -382,9 +422,6 @@ class Voice {
     const envDecay = filterEnvSource === 'env1' ? env1Decay : env2Decay;
     const envSustain = filterEnvSource === 'env1' ? env1Sustain : env2Sustain;
 
-    this.filter.frequency.cancelScheduledValues(time);
-    this.filter.frequency.setValueAtTime(this.filter.frequency.value, time);
-    
     // Keyboard tracking
     const kbdMod = (midiNote - 64) * (this.params.filterKeyboardTrack * 100);
     
@@ -392,6 +429,10 @@ class Voice {
     const velCutoffMod = (velocity - 1) * this.perfSettings.velocitySensitivity * 5000;
     const baseCutoff = Math.max(20, filterCutoff + velCutoffMod + kbdMod);
     const targetCutoff = Math.min(20000, baseCutoff + filterEnvAmount * 10000);
+
+    // Reset filter frequency to baseCutoff to prevent jumping click
+    this.filter.frequency.cancelScheduledValues(time);
+    this.filter.frequency.setValueAtTime(baseCutoff, time);
     
     this.filter.frequency.linearRampToValueAtTime(targetCutoff, time + Math.max(0.001, envAttack));
     const sustainFilterFreq = baseCutoff + (targetCutoff - baseCutoff) * envSustain;
@@ -399,6 +440,7 @@ class Voice {
 
     this.vco1.start(time);
     this.vco2.start(time);
+    this.subOsc.start(time);
     this.vco1Noise.start(time);
     this.vco2Noise.start(time);
   }
@@ -429,6 +471,12 @@ class Voice {
 
         this.vco1.frequency.setTargetAtTime(targetFreq1, time, 0.02);
         this.vco2.frequency.setTargetAtTime(targetFreq2, time, 0.02);
+
+        if (this.subOsc) {
+          const subFreqFactor = Math.pow(2, this.params.subOscOctave);
+          const targetSubFreq = freq * subFreqFactor * bendFactor;
+          this.subOsc.frequency.setTargetAtTime(targetSubFreq, time, 0.02);
+        }
       }
     }
   }
@@ -438,6 +486,11 @@ class Voice {
       try { this.vco1.stop(time); } catch(e) {}
       this.vco1.disconnect();
       this.vco1 = null;
+    }
+    if (this.subOsc) {
+      try { this.subOsc.stop(time); } catch(e) {}
+      this.subOsc.disconnect();
+      this.subOsc = null;
     }
     if (this.vco2) {
       try { this.vco2.stop(time); } catch(e) {}
@@ -549,6 +602,22 @@ export class JupiterEngine {
   private chorusLFO: OscillatorNode | null = null;
   private chorusLfoGain: GainNode | null = null;
   private chorusGain: GainNode | null = null;
+
+  // Multi-phase vintage chorus ensemble extension
+  private chorus2: DelayNode | null = null;
+  private chorus3: DelayNode | null = null;
+  private chorus2Gain: GainNode | null = null;
+  private chorus3Gain: GainNode | null = null;
+  private chorus2LFO: OscillatorNode | null = null;
+  private chorus2LfoGain: GainNode | null = null;
+  private chorus3LFO: OscillatorNode | null = null;
+  private chorus3LfoGain: GainNode | null = null;
+  private chorusFastLFO: OscillatorNode | null = null;
+  private chorusFastLfoGain: GainNode | null = null;
+  private chorus2FastLFO: OscillatorNode | null = null;
+  private chorus2FastLfoGain: GainNode | null = null;
+  private chorus3FastLFO: OscillatorNode | null = null;
+  private chorus3FastLfoGain: GainNode | null = null;
   
   private delay: DelayNode | null = null;
   private delayFeedback: GainNode | null = null;
@@ -710,17 +779,76 @@ export class JupiterEngine {
   private setupFX() {
     if (!this.ctx || !this.mainGain) return;
 
-    // Chorus (Very simple single delay line with modulation)
+    // Chorus Delays (3 parallel delay lines for maximum vintage thickness)
     this.chorus = this.ctx.createDelay(0.1);
+    this.chorus2 = this.ctx.createDelay(0.1);
+    this.chorus3 = this.ctx.createDelay(0.1);
+
     this.chorusGain = this.ctx.createGain();
+    this.chorus2Gain = this.ctx.createGain();
+    this.chorus3Gain = this.ctx.createGain();
+
+    // Set default base delay times mimicking classic bucket brigade delays (BBDs)
+    this.chorus.delayTime.setValueAtTime(0.025, this.ctx.currentTime);
+    this.chorus2.delayTime.setValueAtTime(0.028, this.ctx.currentTime);
+    this.chorus3.delayTime.setValueAtTime(0.022, this.ctx.currentTime);
+
+    // Initialize slow LFOs for each line
     this.chorusLFO = this.ctx.createOscillator();
     this.chorusLfoGain = this.ctx.createGain();
-    
+    this.chorus2LFO = this.ctx.createOscillator();
+    this.chorus2LfoGain = this.ctx.createGain();
+    this.chorus3LFO = this.ctx.createOscillator();
+    this.chorus3LfoGain = this.ctx.createGain();
+
+    // Initialize fast LFOs for vintage multi-phase Solina Triple Ensemble modulation
+    this.chorusFastLFO = this.ctx.createOscillator();
+    this.chorusFastLfoGain = this.ctx.createGain();
+    this.chorus2FastLFO = this.ctx.createOscillator();
+    this.chorus2FastLfoGain = this.ctx.createGain();
+    this.chorus3FastLFO = this.ctx.createOscillator();
+    this.chorus3FastLfoGain = this.ctx.createGain();
+
+    // Set default values helper
     this.chorusLFO.frequency.value = 0.5;
     this.chorusLfoGain.gain.value = 0.002;
+    this.chorus2LFO.frequency.value = 0.55;
+    this.chorus2LfoGain.gain.value = 0.0;
+    this.chorus3LFO.frequency.value = 0.61;
+    this.chorus3LfoGain.gain.value = 0.0;
+
+    this.chorusFastLFO.frequency.value = 5.8;
+    this.chorusFastLfoGain.gain.value = 0.0;
+    this.chorus2FastLFO.frequency.value = 6.2;
+    this.chorus2FastLfoGain.gain.value = 0.0;
+    this.chorus3FastLFO.frequency.value = 5.3;
+    this.chorus3FastLfoGain.gain.value = 0.0;
+
+    // Start all chorus LFOs
+    this.chorusLFO.start();
+    this.chorus2LFO.start();
+    this.chorus3LFO.start();
+    this.chorusFastLFO.start();
+    this.chorus2FastLFO.start();
+    this.chorus3FastLFO.start();
+
+    // Connect Slow + Fast LFO Modulations to Delay Line 1
     this.chorusLFO.connect(this.chorusLfoGain);
     this.chorusLfoGain.connect(this.chorus.delayTime);
-    this.chorusLFO.start();
+    this.chorusFastLFO.connect(this.chorusFastLfoGain);
+    this.chorusFastLfoGain.connect(this.chorus.delayTime);
+
+    // Connect Slow + Fast LFO Modulations to Delay Line 2
+    this.chorus2LFO.connect(this.chorus2LfoGain);
+    this.chorus2LfoGain.connect(this.chorus2.delayTime);
+    this.chorus2FastLFO.connect(this.chorus2FastLfoGain);
+    this.chorus2FastLfoGain.connect(this.chorus2.delayTime);
+
+    // Connect Slow + Fast LFO Modulations to Delay Line 3
+    this.chorus3LFO.connect(this.chorus3LfoGain);
+    this.chorus3LfoGain.connect(this.chorus3.delayTime);
+    this.chorus3FastLFO.connect(this.chorus3FastLfoGain);
+    this.chorus3FastLfoGain.connect(this.chorus3.delayTime);
 
     // Delay
     this.delay = this.ctx.createDelay(2.0);
@@ -738,12 +866,24 @@ export class JupiterEngine {
 
     // Routing
     // Voices -> MainGain
-    // MainGain -> Chorus -> Output
+    // MainGain -> 3 Parallel Chorus Delays -> masterBus
     // MainGain -> Delay -> Output
     // MainGain -> Reverb -> Output
     this.mainGain.connect(this.chorus!);
     this.chorus!.connect(this.chorusGain);
     this.chorusGain.connect(this.masterBus!);
+
+    if (this.chorus2 && this.chorus2Gain) {
+      this.mainGain.connect(this.chorus2);
+      this.chorus2.connect(this.chorus2Gain);
+      this.chorus2Gain.connect(this.masterBus!);
+    }
+
+    if (this.chorus3 && this.chorus3Gain) {
+      this.mainGain.connect(this.chorus3);
+      this.chorus3.connect(this.chorus3Gain);
+      this.chorus3Gain.connect(this.masterBus!);
+    }
 
     this.mainGain.connect(this.delay!);
     this.delayGain.connect(this.masterBus!);
@@ -946,24 +1086,82 @@ export class JupiterEngine {
       setParam(this.mainLFO.frequency, rate, 0.05);
     }
 
-    // Chorus
-    if (this.chorusLFO && this.chorusLfoGain) {
-      let rate = 0.5;
-      let depth = 0.002;
-      
-      if (this.params.chorusMode === 2) {
-        rate = 0.8;
-        depth = 0.004;
+    // Chorus & Vintage Ensemble (Dynamic multi-tap routing)
+    if (this.chorusLFO && this.chorusLfoGain && this.chorusGain) {
+      if (this.params.chorusMode === 1) {
+        // Mode 1: Standard single-voice chorus
+        setParam(this.chorusLFO.frequency, 0.5, 0.05);
+        setParam(this.chorusLfoGain.gain, 0.002, 0.05);
+        
+        // Disable fast LFO on line 1
+        if (this.chorusFastLfoGain) setParam(this.chorusFastLfoGain.gain, 0, 0.05);
+        
+        // Connect and activate Tap 1 wet, mute Tap 2 & Tap 3 wet
+        setParam(this.chorusGain.gain, this.params.chorusMix, 0.05);
+        if (this.chorus2Gain) setParam(this.chorus2Gain.gain, 0, 0.05);
+        if (this.chorus3Gain) setParam(this.chorus3Gain.gain, 0, 0.05);
+        
+        // Zero outer LFO gains
+        if (this.chorus2LfoGain) setParam(this.chorus2LfoGain.gain, 0, 0.05);
+        if (this.chorus2FastLfoGain) setParam(this.chorus2FastLfoGain.gain, 0, 0.05);
+        if (this.chorus3LfoGain) setParam(this.chorus3LfoGain.gain, 0, 0.05);
+        if (this.chorus3FastLfoGain) setParam(this.chorus3FastLfoGain.gain, 0, 0.05);
+      } else if (this.params.chorusMode === 2) {
+        // Mode 2: Thick Dual Analog Chorus
+        setParam(this.chorusLFO.frequency, 0.8, 0.05);
+        setParam(this.chorusLfoGain.gain, 0.0035, 0.05);
+        if (this.chorusFastLfoGain) setParam(this.chorusFastLfoGain.gain, 0, 0.05);
+        
+        if (this.chorus2LFO && this.chorus2LfoGain) {
+          setParam(this.chorus2LFO.frequency, 0.55, 0.05);
+          setParam(this.chorus2LfoGain.gain, 0.0045, 0.05);
+        }
+        if (this.chorus2FastLfoGain) setParam(this.chorus2FastLfoGain.gain, 0, 0.05);
+        
+        // Mute Tap 3 modulations & output
+        if (this.chorus3LfoGain) setParam(this.chorus3LfoGain.gain, 0, 0.05);
+        if (this.chorus3FastLfoGain) setParam(this.chorus3FastLfoGain.gain, 0, 0.05);
+        
+        // Activate Tap 1 & Tap 2 wet, mute Tap 3 wet
+        setParam(this.chorusGain.gain, this.params.chorusMix, 0.05);
+        if (this.chorus2Gain) setParam(this.chorus2Gain.gain, this.params.chorusMix, 0.05);
+        if (this.chorus3Gain) setParam(this.chorus3Gain.gain, 0, 0.05);
       } else if (this.params.chorusMode === 3) {
-        rate = 1.5;
-        depth = 0.006;
+        // Mode 3: Vintage Solina Ensemble (Triple asynchronous BBD delay lines, 6 LFO modulators)
+        // Delay Line 1 (Slow A: 0.6 Hz, depth 0.003s & Fast A: 5.8 Hz, depth 0.001s)
+        setParam(this.chorusLFO.frequency, 0.6, 0.05);
+        setParam(this.chorusLfoGain.gain, 0.003, 0.05);
+        if (this.chorusFastLFO && this.chorusFastLfoGain) {
+          setParam(this.chorusFastLFO.frequency, 5.8, 0.05);
+          setParam(this.chorusFastLfoGain.gain, 0.001, 0.05);
+        }
+        
+        // Delay Line 2 (Slow B: 0.48 Hz, depth 0.0035s & Fast B: 6.2 Hz, depth 0.0008s)
+        if (this.chorus2LFO && this.chorus2LfoGain) {
+          setParam(this.chorus2LFO.frequency, 0.48, 0.05);
+          setParam(this.chorus2LfoGain.gain, 0.0035, 0.05);
+        }
+        if (this.chorus2FastLFO && this.chorus2FastLfoGain) {
+          setParam(this.chorus2FastLFO.frequency, 6.2, 0.05);
+          setParam(this.chorus2FastLfoGain.gain, 0.0008, 0.05);
+        }
+        
+        // Delay Line 3 (Slow C: 0.68 Hz, depth 0.0027s & Fast C: 5.3 Hz, depth 0.0011s)
+        if (this.chorus3LFO && this.chorus3LfoGain) {
+          setParam(this.chorus3LFO.frequency, 0.68, 0.05);
+          setParam(this.chorus3LfoGain.gain, 0.0027, 0.05);
+        }
+        if (this.chorus3FastLFO && this.chorus3FastLfoGain) {
+          setParam(this.chorus3FastLFO.frequency, 5.3, 0.05);
+          setParam(this.chorus3FastLfoGain.gain, 0.0011, 0.05);
+        }
+        
+        // Activate all three taps at full mix volume for a massive stereo-widening choir
+        setParam(this.chorusGain.gain, this.params.chorusMix, 0.05);
+        if (this.chorus2Gain) setParam(this.chorus2Gain.gain, this.params.chorusMix, 0.05);
+        if (this.chorus3Gain) setParam(this.chorus3Gain.gain, this.params.chorusMix, 0.05);
       }
-      
-      setParam(this.chorusLFO.frequency, rate, 0.05);
-      setParam(this.chorusLfoGain.gain, depth, 0.05);
     }
-
-    if (this.chorusGain) setParam(this.chorusGain.gain, this.params.chorusMix, 0.05);
     
     if (this.delay) setParam(this.delay.delayTime, this.params.delayTime, 0.05);
     if (this.delayFeedback) setParam(this.delayFeedback.gain, this.params.delayFeedback, 0.05);

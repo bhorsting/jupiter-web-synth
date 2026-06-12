@@ -127,6 +127,12 @@ export interface VoiceParams {
   hammondPercussionDecay: 'fast' | 'slow';
   hammondPercussionVolume: 'soft' | 'normal';
   hammondKeyClick: number; // key click level 0 to 1
+
+  // Sub Oscillator
+  subOscEnabled: boolean;
+  subOscMix: number; // level 0 to 1
+  subOscWaveform: 'sine' | 'triangle' | 'square';
+  subOscOctave: -1 | -2; // octaves down
 }
 
 export interface MidiMapping {
@@ -257,6 +263,12 @@ export const DEFAULT_PARAMS: VoiceParams = {
   hammondPercussionDecay: 'fast',
   hammondPercussionVolume: 'normal',
   hammondKeyClick: 0.5,
+  
+  // Sub Oscillator defaults
+  subOscEnabled: false,
+  subOscMix: 0,
+  subOscWaveform: 'square',
+  subOscOctave: -1,
 };
 
 export interface PerformanceSettings {

@@ -425,6 +425,72 @@ export const MixerSection = React.memo<{
   </Section>
 ));
 
+interface SubOscSectionProps {
+  subOscEnabled: boolean;
+  subOscMix: number;
+  subOscWaveform: 'sine' | 'triangle' | 'square';
+  subOscOctave: -1 | -2;
+  updateParam: (key: keyof VoiceParams, val: any) => void;
+  isMidiMappingMode: boolean;
+  handleMapClick: (param: keyof VoiceParams) => void;
+  getMappedCC: (param: keyof VoiceParams) => string | undefined;
+  selectedMapParam: string | null;
+}
+
+export const SubOscSection = React.memo<SubOscSectionProps>(({
+  subOscEnabled,
+  subOscMix,
+  subOscWaveform,
+  subOscOctave,
+  updateParam,
+  isMidiMappingMode,
+  handleMapClick,
+  getMappedCC,
+  selectedMapParam,
+}) => (
+  <Section title="SUB OSC">
+    <div className="flex flex-col gap-2 items-center justify-center p-1">
+      <JupiterToggle 
+        label="On/Off" 
+        active={subOscEnabled} 
+        onChange={(v) => updateParam('subOscEnabled', v)} 
+        color="bg-orange-600"
+      />
+    </div>
+    <JupiterSlider 
+      label="Sub level" 
+      value={subOscMix} 
+      min={0} max={1} 
+      onChange={(v) => updateParam('subOscMix', v)} 
+      color="bg-orange-500"
+      isMapMode={isMidiMappingMode}
+      onMapClick={() => handleMapClick('subOscMix')}
+      mappedCC={getMappedCC('subOscMix')}
+      isSelected={selectedMapParam === 'subOscMix'}
+    />
+    <JupiterSelector 
+      label="Waveform" 
+      options={['sine', 'triangle', 'square']} 
+      value={subOscWaveform} 
+      onChange={(v) => updateParam('subOscWaveform', v)} 
+      isMapMode={isMidiMappingMode}
+      onMapClick={() => handleMapClick('subOscWaveform')}
+      mappedCC={getMappedCC('subOscWaveform')}
+      isSelected={selectedMapParam === 'subOscWaveform'}
+    />
+    <JupiterSelector 
+      label="Octave" 
+      options={['-1', '-2']} 
+      value={subOscOctave.toString()} 
+      onChange={(v) => updateParam('subOscOctave', parseInt(v))} 
+      isMapMode={isMidiMappingMode}
+      onMapClick={() => handleMapClick('subOscOctave')}
+      mappedCC={getMappedCC('subOscOctave')}
+      isSelected={selectedMapParam === 'subOscOctave'}
+    />
+  </Section>
+));
+
 export const VCASection = React.memo<{
   vcaLevel: number;
   vcaLfoAmount: number;
