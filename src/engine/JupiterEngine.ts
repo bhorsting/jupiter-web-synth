@@ -411,11 +411,26 @@ class Voice {
     // Velocity Scaling
     const velocityScale = 1.0 - (1.0 - velocity) * this.perfSettings.velocitySensitivity;
 
-    // VCA Envelope (Env 2) - Reset to exactly 0 to prevent CLICK on voice card reuse
+    // VCA Envelope (Env 2) - Upgraded scheduler to completely prevent clicks and irregular fades
     this.vca.gain.cancelScheduledValues(time);
-    this.vca.gain.setValueAtTime(0, time); 
-    this.vca.gain.linearRampToValueAtTime(velocityScale, time + Math.max(0.005, env2Attack));
-    this.vca.gain.setTargetAtTime(Math.max(0.0001, env2Sustain * velocityScale), time + Math.max(0.005, env2Attack), Math.max(0.001, env2Decay));
+    const prevGain = this.vca.gain.value;
+    
+    if (prevGain > 0.001) {
+      // Smooth micro-fadeout of existing signal before opening the attack ramp
+      this.vca.gain.setValueAtTime(prevGain, time);
+      this.vca.gain.linearRampToValueAtTime(0.0001, time + 0.002);
+      this.vca.gain.setValueAtTime(0.0001, time + 0.002);
+      this.vca.gain.exponentialRampToValueAtTime(velocityScale, time + 0.002 + Math.max(0.005, env2Attack));
+      
+      const sustainLevel = Math.max(0.0001, env2Sustain * velocityScale);
+      this.vca.gain.setTargetAtTime(sustainLevel, time + 0.002 + Math.max(0.005, env2Attack), Math.max(0.01, env2Decay));
+    } else {
+      this.vca.gain.setValueAtTime(0.0001, time);
+      this.vca.gain.exponentialRampToValueAtTime(velocityScale, time + Math.max(0.005, env2Attack));
+      
+      const sustainLevel = Math.max(0.0001, env2Sustain * velocityScale);
+      this.vca.gain.setTargetAtTime(sustainLevel, time + Math.max(0.005, env2Attack), Math.max(0.01, env2Decay));
+    }
 
     // Filter Envelope
     const envAttack = filterEnvSource === 'env1' ? env1Attack : env2Attack;
@@ -434,9 +449,10 @@ class Voice {
     this.filter.frequency.cancelScheduledValues(time);
     this.filter.frequency.setValueAtTime(baseCutoff, time);
     
-    this.filter.frequency.linearRampToValueAtTime(targetCutoff, time + Math.max(0.001, envAttack));
-    const sustainFilterFreq = baseCutoff + (targetCutoff - baseCutoff) * envSustain;
-    this.filter.frequency.setTargetAtTime(Math.max(20, sustainFilterFreq), time + Math.max(0.001, envAttack), Math.max(0.001, envDecay));
+    // Use exponential sweeps for filter cutoff sweeps to sound warm and analog-lush
+    this.filter.frequency.exponentialRampToValueAtTime(Math.max(20, targetCutoff), time + Math.max(0.005, envAttack));
+    const sustainFilterFreq = Math.max(20, baseCutoff + (targetCutoff - baseCutoff) * envSustain);
+    this.filter.frequency.setTargetAtTime(sustainFilterFreq, time + Math.max(0.005, envAttack), Math.max(0.01, envDecay));
 
     this.vco1.start(time);
     this.vco2.start(time);
@@ -668,6 +684,15 @@ export class JupiterEngine {
   private volumeGain: GainNode | null = null;
   private analyser: AnalyserNode | null = null;
 
+  // Metronome & Recorder State
+  private metronomeGain: GainNode | null = null;
+  private metronomeTimer: number | null = null;
+  private metronomeBeatCount: number = 0;
+  private recordingDestination: MediaStreamAudioDestinationNode | null = null;
+  private mediaRecorder: MediaRecorder | null = null;
+  private recordingChunks: Blob[] = [];
+  private isRecording: boolean = false;
+
   constructor(params: VoiceParams, perfSettings: PerformanceSettings) {
     this.params = params;
     this.perfSettings = perfSettings;
@@ -774,6 +799,19 @@ export class JupiterEngine {
     this.limiter.connect(this.volumeGain!);
     this.volumeGain!.connect(this.analyser);
     this.analyser.connect(this.ctx.destination);
+
+    // Dedicated clean sound path for metronome, bypassing all FX/compressor/master volumes
+    this.metronomeGain = this.ctx.createGain();
+    this.metronomeGain.gain.setValueAtTime(this.params.metronomeVolume, this.ctx.currentTime);
+    this.metronomeGain.connect(this.ctx.destination);
+
+    // Audio stream capture destination for clean synth output (excluding metronome)
+    this.recordingDestination = this.ctx.createMediaStreamDestination();
+    this.volumeGain!.connect(this.recordingDestination);
+
+    if (this.params.metronomeEnabled) {
+      this.startMetronome();
+    }
   }
 
   private setupFX() {
@@ -1351,6 +1389,22 @@ export class JupiterEngine {
       this.stopArpeggiator();
       this.startArpeggiator();
     }
+
+    // Reactive Metronome state propagation
+    const timeSigChanged = oldParams.timeSignature !== params.timeSignature;
+    const metronomeEnabledChanged = oldParams.metronomeEnabled !== params.metronomeEnabled;
+
+    if (params.metronomeEnabled) {
+      if (metronomeEnabledChanged || bpmChanged || timeSigChanged) {
+        this.startMetronome();
+      }
+    } else if (metronomeEnabledChanged) {
+      this.stopMetronome();
+    }
+
+    if (this.metronomeGain) {
+      this.metronomeGain.gain.setValueAtTime(params.metronomeVolume, this.ctx ? this.ctx.currentTime : 0);
+    }
   }
 
   setPerformanceSettings(settings: PerformanceSettings) {
@@ -1393,12 +1447,168 @@ export class JupiterEngine {
   }
 
   private restart() {
+    this.stopMetronome();
+    if (this.isRecording && this.mediaRecorder) {
+      try {
+        this.mediaRecorder.stop();
+      } catch (e) {}
+    }
+    this.isRecording = false;
+    this.recordingChunks = [];
+    this.mediaRecorder = null;
+
     if (!this.ctx) return;
     const oldCtx = this.ctx;
     this.ctx = null;
     this.voices = [];
     oldCtx.close().then(() => {
       this.init();
+    });
+  }
+
+  private getBeatsPerBar(): number {
+    const parts = this.params.timeSignature.split('/');
+    if (parts.length > 0) {
+      const beats = parseInt(parts[0], 10);
+      if (!isNaN(beats)) return beats;
+    }
+    return 4;
+  }
+
+  private getBeatInterval(): number {
+    const bpm = this.params.bpm || 120;
+    return 60000 / bpm;
+  }
+
+  private startMetronome() {
+    this.stopMetronome();
+    if (!this.ctx) return;
+    
+    this.metronomeBeatCount = 0;
+    
+    // Play first beat immediately
+    const firstBeatDown = (this.metronomeBeatCount % this.getBeatsPerBar()) === 0;
+    this.playMetronomeClick(firstBeatDown);
+    this.metronomeBeatCount++;
+    
+    const interval = this.getBeatInterval();
+    this.metronomeTimer = window.setInterval(() => {
+      const beatsPerBar = this.getBeatsPerBar();
+      const isDownbeat = (this.metronomeBeatCount % beatsPerBar) === 0;
+      this.playMetronomeClick(isDownbeat);
+      this.metronomeBeatCount++;
+    }, interval);
+  }
+
+  private stopMetronome() {
+    if (this.metronomeTimer) {
+      clearInterval(this.metronomeTimer);
+      this.metronomeTimer = null;
+    }
+  }
+
+  private playMetronomeClick(isDownbeat: boolean) {
+    if (!this.ctx || !this.metronomeGain) return;
+    
+    const time = this.ctx.currentTime;
+    
+    const osc = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+    
+    osc.connect(gain);
+    gain.connect(this.metronomeGain);
+    
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(isDownbeat ? 1200 : 800, time);
+    
+    gain.gain.setValueAtTime(0, time);
+    gain.gain.linearRampToValueAtTime(1.0, time + 0.002);
+    gain.gain.exponentialRampToValueAtTime(0.0001, time + 0.06);
+    
+    osc.start(time);
+    osc.stop(time + 0.08);
+  }
+
+  // --- Recording Interface ---
+  public getRecordingState(): boolean {
+    return this.isRecording;
+  }
+
+  public startRecording() {
+    if (this.isRecording) return;
+    this.isRecording = true;
+    this.recordingChunks = [];
+
+    if (!this.ctx) this.init();
+    if (!this.ctx) return;
+
+    if (!this.recordingDestination) {
+      this.recordingDestination = this.ctx.createMediaStreamDestination();
+      this.volumeGain!.connect(this.recordingDestination);
+    }
+
+    try {
+      let mimeType = 'audio/webm';
+      if (!MediaRecorder.isTypeSupported(mimeType)) {
+        mimeType = 'audio/ogg';
+      }
+      if (!MediaRecorder.isTypeSupported(mimeType)) {
+        mimeType = 'audio/mp4';
+      }
+      if (!MediaRecorder.isTypeSupported(mimeType)) {
+        mimeType = '';
+      }
+
+      const options = mimeType ? { mimeType } : undefined;
+      this.mediaRecorder = new MediaRecorder(this.recordingDestination.stream, options);
+
+      this.mediaRecorder.ondataavailable = (event) => {
+        if (event.data && event.data.size > 0) {
+          this.recordingChunks.push(event.data);
+        }
+      };
+
+      this.mediaRecorder.start(100);
+    } catch (err) {
+      console.error('Failed to start MediaRecorder:', err);
+      this.isRecording = false;
+    }
+  }
+
+  public stopRecording(): Promise<Blob | null> {
+    return new Promise((resolve) => {
+      if (!this.isRecording || !this.mediaRecorder) {
+        this.isRecording = false;
+        resolve(null);
+        return;
+      }
+
+      this.mediaRecorder.onstop = async () => {
+        this.isRecording = false;
+        try {
+          const recordedBlob = new Blob(this.recordingChunks, { type: this.mediaRecorder?.mimeType || 'audio/webm' });
+          const arrayBuffer = await recordedBlob.arrayBuffer();
+          
+          if (!this.ctx) {
+            resolve(recordedBlob);
+            return;
+          }
+          
+          const audioBuffer = await this.ctx.decodeAudioData(arrayBuffer);
+          const { encodeMp3 } = await import('../utils/mp3Encoder');
+          const mp3Blob = encodeMp3(audioBuffer, 192);
+          resolve(mp3Blob);
+        } catch (err) {
+          console.error('Error finalising MP3 recording:', err);
+          const fallbackBlob = new Blob(this.recordingChunks, { type: this.mediaRecorder?.mimeType || 'audio/webm' });
+          resolve(fallbackBlob);
+        } finally {
+          this.mediaRecorder = null;
+          this.recordingChunks = [];
+        }
+      };
+
+      this.mediaRecorder.stop();
     });
   }
 

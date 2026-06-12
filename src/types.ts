@@ -133,6 +133,10 @@ export interface VoiceParams {
   subOscMix: number; // level 0 to 1
   subOscWaveform: 'sine' | 'triangle' | 'square';
   subOscOctave: -1 | -2; // octaves down
+
+  // Metronome
+  metronomeEnabled: boolean;
+  metronomeVolume: number; // level 0 to 1
 }
 
 export interface MidiMapping {
@@ -269,6 +273,10 @@ export const DEFAULT_PARAMS: VoiceParams = {
   subOscMix: 0,
   subOscWaveform: 'square',
   subOscOctave: -1,
+
+  // Metronome defaults
+  metronomeEnabled: false,
+  metronomeVolume: 0.4,
 };
 
 export interface PerformanceSettings {

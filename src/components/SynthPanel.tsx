@@ -26,13 +26,28 @@ interface GlobalSectionProps {
   timeSignature: string;
   synthEngine: 'jupiter' | 'hammond';
   updateParam: (key: keyof VoiceParams, val: any) => void;
+  isRecording?: boolean;
+  isEncoding?: boolean;
+  onStartRecording?: () => void;
+  onStopRecording?: () => void;
+  metronomeEnabled?: boolean;
 }
 
-export const GlobalSection = React.memo<GlobalSectionProps>(({ bpm, timeSignature, synthEngine, updateParam }) => {
+export const GlobalSection = React.memo<GlobalSectionProps>(({ 
+  bpm, 
+  timeSignature, 
+  synthEngine, 
+  updateParam,
+  isRecording = false,
+  isEncoding = false,
+  onStartRecording,
+  onStopRecording,
+  metronomeEnabled = false
+}) => {
   const [isKeypadOpen, setIsKeypadOpen] = React.useState(false);
 
   return (
-    <div className="flex border-b border-synth-border p-4 gap-8 items-start bg-zinc-950/50 backdrop-blur-sm">
+    <div className="flex border-b border-synth-border p-4 gap-8 items-start bg-zinc-950/50 backdrop-blur-sm w-full">
       <div className="flex flex-col gap-3">
         {/* Master Tempo */}
         <div className="flex flex-col gap-1">
@@ -71,6 +86,58 @@ export const GlobalSection = React.memo<GlobalSectionProps>(({ bpm, timeSignatur
             >
               B3 Organ
             </button>
+          </div>
+        </div>
+
+        {/* Tape Recorder & Metronome Row */}
+        <div className="flex gap-2 w-full">
+          {/* Tape Recorder */}
+          <div className="flex flex-col gap-1 w-[84px]">
+            <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-[0.15em]">Tape</span>
+            <div className="flex bg-black/50 p-0.5 shadow-inner">
+              {isRecording ? (
+                <button
+                  onClick={onStopRecording}
+                  className="w-full text-center px-1.5 py-1 text-[9px] uppercase font-mono font-bold tracking-wider bg-red-650 hover:bg-red-605 text-white transition-all cursor-pointer outline-none focus:outline-none flex items-center justify-center gap-1 select-none"
+                >
+                  <span className="relative flex h-1.5 w-1.5 shrink-0">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-300 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-white"></span>
+                  </span>
+                  Stop
+                </button>
+              ) : isEncoding ? (
+                <div className="w-full text-center px-1.5 py-1 text-[9px] uppercase font-mono font-bold tracking-wider text-orange-400 flex items-center justify-center gap-1">
+                  <div className="animate-spin h-1.5 w-1.5 border border-orange-500 border-t-transparent rounded-full"></div>
+                  Enc...
+                </div>
+              ) : (
+                <button
+                  onClick={onStartRecording}
+                  className="w-full text-center px-1.5 py-1 text-[9px] uppercase font-mono font-bold tracking-wider text-zinc-500 hover:text-zinc-300 transition-all cursor-pointer outline-none focus:outline-none flex items-center justify-center gap-1 select-none"
+                >
+                  <div className="h-1.5 w-1.5 rounded-full bg-red-600 shrink-0"></div>
+                  Rec
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Metronome */}
+          <div className="flex flex-col gap-1 w-[84px]">
+            <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-[0.15em]">Metronome</span>
+            <div className="flex bg-black/50 p-0.5 shadow-inner">
+              <button
+                onClick={() => updateParam('metronomeEnabled', !metronomeEnabled)}
+                className={`w-full text-center px-1.5 py-1 text-[9px] uppercase font-mono font-bold tracking-wider transition-all cursor-pointer outline-none focus:outline-none select-none ${
+                  metronomeEnabled 
+                    ? 'bg-orange-600 text-white shadow shadow-orange-600/20' 
+                    : 'text-zinc-500 hover:text-zinc-300'
+                }`}
+              >
+                {metronomeEnabled ? 'On' : 'Off'}
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -487,6 +554,48 @@ export const SubOscSection = React.memo<SubOscSectionProps>(({
       onMapClick={() => handleMapClick('subOscOctave')}
       mappedCC={getMappedCC('subOscOctave')}
       isSelected={selectedMapParam === 'subOscOctave'}
+    />
+  </Section>
+));
+
+interface MetronomeSectionProps {
+  metronomeEnabled: boolean;
+  metronomeVolume: number;
+  updateParam: (key: keyof VoiceParams, val: any) => void;
+  isMidiMappingMode: boolean;
+  handleMapClick: (param: keyof VoiceParams) => void;
+  getMappedCC: (param: keyof VoiceParams) => string | undefined;
+  selectedMapParam: string | null;
+}
+
+export const MetronomeSection = React.memo<MetronomeSectionProps>(({
+  metronomeEnabled,
+  metronomeVolume,
+  updateParam,
+  isMidiMappingMode,
+  handleMapClick,
+  getMappedCC,
+  selectedMapParam,
+}) => (
+  <Section title="METRONOME">
+    <div className="flex flex-col gap-2 items-center justify-center p-1">
+      <JupiterToggle 
+        label="On/Off" 
+        active={metronomeEnabled} 
+        onChange={(v) => updateParam('metronomeEnabled', v)} 
+        color="bg-zinc-700"
+      />
+    </div>
+    <JupiterSlider 
+      label="Volume" 
+      value={metronomeVolume} 
+      min={0} max={1} 
+      onChange={(v) => updateParam('metronomeVolume', v)} 
+      color="bg-zinc-600"
+      isMapMode={isMidiMappingMode}
+      onMapClick={() => handleMapClick('metronomeVolume')}
+      mappedCC={getMappedCC('metronomeVolume')}
+      isSelected={selectedMapParam === 'metronomeVolume'}
     />
   </Section>
 ));

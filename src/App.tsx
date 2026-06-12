@@ -15,6 +15,7 @@ import {
   VCO2Section, 
   MixerSection, 
   SubOscSection,
+  MetronomeSection,
   VCFSection, 
   VCASection, 
   EnvelopeSection, 
@@ -83,6 +84,8 @@ function App() {
   const [patches, setPatches] = useState<Patch[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [isRestored, setIsRestored] = useState(false);
+  const [isRecording, setIsRecording] = useState(false);
+  const [isEncoding, setIsEncoding] = useState(false);
 
   useEffect(() => {
     const handleFsChange = () => setIsFullscreen(!!document.fullscreenElement);
@@ -247,6 +250,35 @@ function App() {
   const engineRef = useRef<JupiterEngine | null>(null);
   const midiRef = useRef<MIDIService | null>(null);
 
+  const startRecording = React.useCallback(() => {
+    if (!engineRef.current) return;
+    engineRef.current.startRecording();
+    setIsRecording(true);
+  }, []);
+
+  const stopRecording = React.useCallback(async () => {
+    if (!engineRef.current) return;
+    setIsRecording(false);
+    setIsEncoding(true);
+    try {
+      const mp3Blob = await engineRef.current.stopRecording();
+      if (mp3Blob) {
+        const url = URL.createObjectURL(mp3Blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `synth_recording_${Date.now()}.mp3`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      }
+    } catch (e) {
+      console.error('Recording stop or encoding failed:', e);
+    } finally {
+      setIsEncoding(false);
+    }
+  }, []);
+
   const updateParam = React.useCallback((key: keyof VoiceParams, val: any) => {
     setParams(prev => ({ ...prev, [key]: val }));
   }, []);
@@ -254,7 +286,7 @@ function App() {
   const updateParamFromCC = React.useCallback((key: keyof VoiceParams, ccValue: number) => {
     // 1. Support boolean toggles
     const toggles: Set<string> = new Set([
-      'vco2Sync', 'arpEnabled', 'arpSync', 'lfoSync', 'hammondPercussionEnabled', 'subOscEnabled'
+      'vco2Sync', 'arpEnabled', 'arpSync', 'lfoSync', 'hammondPercussionEnabled', 'subOscEnabled', 'metronomeEnabled'
     ]);
     if (toggles.has(key)) {
       updateParam(key, ccValue >= 64);
@@ -323,6 +355,7 @@ function App() {
       distortionFeedbackAmount: [0, 1], distortionFeedbackFreq: [100, 5000],
       eqBand1: [-12, 12], eqBand2: [-12, 12], eqBand3: [-12, 12], eqBand4: [-12, 12], eqBand5: [-12, 12],
       masterVolume: [0, 1],
+      metronomeVolume: [0, 1],
       // Hammond Drawbars
       hammondDb16: [0, 8],
       hammondDb513: [0, 8],
@@ -670,6 +703,11 @@ function App() {
         timeSignature={params.timeSignature}
         synthEngine={params.synthEngine}
         updateParam={updateParam}
+        isRecording={isRecording}
+        isEncoding={isEncoding}
+        onStartRecording={startRecording}
+        onStopRecording={stopRecording}
+        metronomeEnabled={params.metronomeEnabled}
       />
 
       {params.synthEngine === 'hammond' ? (
@@ -775,6 +813,16 @@ function App() {
             selectedMapParam={selectedMapParam}
           />
 
+          <MetronomeSection
+            metronomeEnabled={params.metronomeEnabled}
+            metronomeVolume={params.metronomeVolume}
+            updateParam={updateParam}
+            isMidiMappingMode={isMidiMappingMode}
+            handleMapClick={handleMapClick}
+            getMappedCC={getMappedCC}
+            selectedMapParam={selectedMapParam}
+          />
+
           <VCFSection 
             filterCutoff={params.filterCutoff}
             filterResonance={params.filterResonance}
@@ -847,6 +895,11 @@ function App() {
         timeSignature={params.timeSignature}
         synthEngine={params.synthEngine}
         updateParam={updateParam}
+        isRecording={isRecording}
+        isEncoding={isEncoding}
+        onStartRecording={startRecording}
+        onStopRecording={stopRecording}
+        metronomeEnabled={params.metronomeEnabled}
       />
       <ArpSection 
         enabled={params.arpEnabled}
@@ -873,6 +926,11 @@ function App() {
         timeSignature={params.timeSignature}
         synthEngine={params.synthEngine}
         updateParam={updateParam}
+        isRecording={isRecording}
+        isEncoding={isEncoding}
+        onStartRecording={startRecording}
+        onStopRecording={stopRecording}
+        metronomeEnabled={params.metronomeEnabled}
       />
       <FXSection 
         label="Chorus"
