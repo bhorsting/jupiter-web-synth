@@ -749,6 +749,7 @@ function App() {
             lfoRate={params.lfoRate}
             lfoSync={params.lfoSync}
             lfoSyncDivision={params.lfoSyncDivision}
+            lfoDelay={params.lfoDelay}
             updateParam={updateParam}
             isMidiMappingMode={isMidiMappingMode}
             handleMapClick={handleMapClick}
@@ -760,6 +761,7 @@ function App() {
             portamentoTime={params.portamentoTime}
             portamentoMode={params.portamentoMode}
             vcoLfoAmount={params.vcoLfoAmount}
+            vcoLfoSelect={params.vcoLfoSelect}
             updateParam={updateParam}
             isMidiMappingMode={isMidiMappingMode}
             handleMapClick={handleMapClick}
@@ -772,6 +774,7 @@ function App() {
             crossMod={params.crossMod}
             vco1PulseWidth={params.vco1PulseWidth}
             vco1Waveform={params.vco1Waveform}
+            vco1PwmMode={params.vco1PwmMode}
             updateParam={updateParam}
             isMidiMappingMode={isMidiMappingMode}
             handleMapClick={handleMapClick}
@@ -785,6 +788,7 @@ function App() {
             vco2Detune={params.vco2Detune}
             vco2Waveform={params.vco2Waveform}
             vco2Sync={params.vco2Sync}
+            vco2PwmMode={params.vco2PwmMode}
             updateParam={updateParam}
             isMidiMappingMode={isMidiMappingMode}
             handleMapClick={handleMapClick}
@@ -840,6 +844,7 @@ function App() {
           <VCASection 
             vcaLevel={params.vcaLevel}
             vcaLfoAmount={params.vcaLfoAmount}
+            vcaSource={params.vcaSource}
             updateParam={updateParam}
             isMidiMappingMode={isMidiMappingMode}
             handleMapClick={handleMapClick}

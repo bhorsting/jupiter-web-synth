@@ -176,6 +176,7 @@ interface LFOSectionProps {
   lfoRate: number;
   lfoSync: boolean;
   lfoSyncDivision: string;
+  lfoDelay: number;
   updateParam: (key: keyof VoiceParams, val: any) => void;
   isMidiMappingMode: boolean;
   handleMapClick: (param: keyof VoiceParams) => void;
@@ -186,7 +187,7 @@ interface LFOSectionProps {
 const DIVISIONS = ['1/1', '1/2', '1/2t', '1/4', '1/4t', '1/8', '1/8t', '1/16', '1/16t', '1/32'];
 
 export const LFOSection = React.memo<LFOSectionProps>(({
-  lfoWaveform, lfoRate, lfoSync, lfoSyncDivision, updateParam, isMidiMappingMode, handleMapClick, getMappedCC, selectedMapParam
+  lfoWaveform, lfoRate, lfoSync, lfoSyncDivision, lfoDelay, updateParam, isMidiMappingMode, handleMapClick, getMappedCC, selectedMapParam
 }) => (
   <Section title="LFO">
     <JupiterSelector 
@@ -207,6 +208,19 @@ export const LFOSection = React.memo<LFOSectionProps>(({
       mappedCC={getMappedCC('lfoRate')}
       isSelected={selectedMapParam === 'lfoRate'}
       disabled={lfoSync}
+    />
+    <JupiterSlider 
+      label="Delay Time" 
+      value={lfoDelay} 
+      min={0} 
+      max={4} 
+      step={0.01}
+      onChange={(v) => updateParam('lfoDelay', v)} 
+      color="bg-synth-lfo"
+      isMapMode={isMidiMappingMode}
+      onMapClick={() => handleMapClick('lfoDelay')}
+      mappedCC={getMappedCC('lfoDelay')}
+      isSelected={selectedMapParam === 'lfoDelay'}
     />
     <div className="flex flex-col gap-2 items-center justify-center p-1">
       <JupiterToggle 
@@ -232,6 +246,7 @@ interface VCO1SectionProps {
   crossMod: number;
   vco1PulseWidth: number;
   vco1Waveform: string;
+  vco1PwmMode: string;
   updateParam: (key: keyof VoiceParams, val: any) => void;
   isMidiMappingMode: boolean;
   handleMapClick: (param: keyof VoiceParams) => void;
@@ -240,7 +255,7 @@ interface VCO1SectionProps {
 }
 
 export const VCO1Section = React.memo<VCO1SectionProps>(({
-  vco1Range, crossMod, vco1PulseWidth, vco1Waveform, updateParam, isMidiMappingMode, handleMapClick, getMappedCC, selectedMapParam
+  vco1Range, crossMod, vco1PulseWidth, vco1Waveform, vco1PwmMode, updateParam, isMidiMappingMode, handleMapClick, getMappedCC, selectedMapParam
 }) => (
   <Section title="VCO-1">
     <JupiterSelector 
@@ -275,6 +290,18 @@ export const VCO1Section = React.memo<VCO1SectionProps>(({
       mappedCC={getMappedCC('vco1PulseWidth')}
       isSelected={selectedMapParam === 'vco1PulseWidth'}
     />
+    {vco1Waveform === 'pulse' && (
+      <JupiterSelector 
+        label="PWM Source" 
+        options={['manual', 'lfo']} 
+        value={vco1PwmMode} 
+        onChange={(v) => updateParam('vco1PwmMode', v)} 
+        isMapMode={isMidiMappingMode}
+        onMapClick={() => handleMapClick('vco1PwmMode')}
+        mappedCC={getMappedCC('vco1PwmMode')}
+        isSelected={selectedMapParam === 'vco1PwmMode'}
+      />
+    )}
     <JupiterSelector 
       label="Waveform" 
       options={['sawtooth', 'square', 'pulse', 'triangle', 'sine', 'noise']} 
@@ -294,6 +321,7 @@ interface VCO2SectionProps {
   vco2Detune: number;
   vco2Waveform: string;
   vco2Sync: boolean;
+  vco2PwmMode: string;
   updateParam: (key: keyof VoiceParams, val: any) => void;
   isMidiMappingMode: boolean;
   handleMapClick: (param: keyof VoiceParams) => void;
@@ -302,7 +330,7 @@ interface VCO2SectionProps {
 }
 
 export const VCO2Section = React.memo<VCO2SectionProps>(({
-  vco2Range, vco2Freq, vco2Detune, vco2Waveform, vco2Sync, updateParam, isMidiMappingMode, handleMapClick, getMappedCC, selectedMapParam
+  vco2Range, vco2Freq, vco2Detune, vco2Waveform, vco2Sync, vco2PwmMode, updateParam, isMidiMappingMode, handleMapClick, getMappedCC, selectedMapParam
 }) => (
   <Section title="VCO-2">
     <JupiterSelector 
@@ -337,6 +365,18 @@ export const VCO2Section = React.memo<VCO2SectionProps>(({
       mappedCC={getMappedCC('vco2Detune')}
       isSelected={selectedMapParam === 'vco2Detune'}
     />
+    {vco2Waveform === 'pulse' && (
+      <JupiterSelector 
+        label="PWM Source" 
+        options={['manual', 'lfo']} 
+        value={vco2PwmMode} 
+        onChange={(v) => updateParam('vco2PwmMode', v)} 
+        isMapMode={isMidiMappingMode}
+        onMapClick={() => handleMapClick('vco2PwmMode')}
+        mappedCC={getMappedCC('vco2PwmMode')}
+        isSelected={selectedMapParam === 'vco2PwmMode'}
+      />
+    )}
     <JupiterSelector 
       label="Waveform" 
       options={['sawtooth', 'square', 'pulse', 'triangle', 'sine', 'noise']} 
@@ -603,13 +643,24 @@ export const MetronomeSection = React.memo<MetronomeSectionProps>(({
 export const VCASection = React.memo<{
   vcaLevel: number;
   vcaLfoAmount: number;
+  vcaSource: string;
   updateParam: (key: keyof VoiceParams, val: any) => void;
   isMidiMappingMode: boolean;
   handleMapClick: (param: keyof VoiceParams) => void;
   getMappedCC: (param: keyof VoiceParams) => string | undefined;
   selectedMapParam: string | null;
-}>(({ vcaLevel, vcaLfoAmount, updateParam, isMidiMappingMode, handleMapClick, getMappedCC, selectedMapParam }) => (
+}>(({ vcaLevel, vcaLfoAmount, vcaSource, updateParam, isMidiMappingMode, handleMapClick, getMappedCC, selectedMapParam }) => (
   <Section title="VCA">
+    <JupiterSelector 
+      label="Source" 
+      options={['env1', 'lfo', 'env2']} 
+      value={vcaSource} 
+      onChange={(v) => updateParam('vcaSource', v)} 
+      isMapMode={isMidiMappingMode}
+      onMapClick={() => handleMapClick('vcaSource')}
+      mappedCC={getMappedCC('vcaSource')}
+      isSelected={selectedMapParam === 'vcaSource'}
+    />
     <JupiterSlider 
       label="Level" 
       value={vcaLevel} 
@@ -660,12 +711,13 @@ export const VCOModSection = React.memo<{
   portamentoTime: number;
   portamentoMode: string;
   vcoLfoAmount: number;
+  vcoLfoSelect: string;
   updateParam: (key: keyof VoiceParams, val: any) => void;
   isMidiMappingMode: boolean;
   handleMapClick: (param: keyof VoiceParams) => void;
   getMappedCC: (param: keyof VoiceParams) => string | undefined;
   selectedMapParam: string | null;
-}>(({ portamentoTime, portamentoMode, vcoLfoAmount, updateParam, isMidiMappingMode, handleMapClick, getMappedCC, selectedMapParam }) => (
+}>(({ portamentoTime, portamentoMode, vcoLfoAmount, vcoLfoSelect, updateParam, isMidiMappingMode, handleMapClick, getMappedCC, selectedMapParam }) => (
   <Section title="VCO-MOD">
     <JupiterSlider 
       label="LFO" 
@@ -677,6 +729,16 @@ export const VCOModSection = React.memo<{
       onMapClick={() => handleMapClick('vcoLfoAmount')}
       mappedCC={getMappedCC('vcoLfoAmount')}
       isSelected={selectedMapParam === 'vcoLfoAmount'}
+    />
+    <JupiterSelector 
+      label="LFO Route" 
+      options={['vco1', 'vco2', 'both']} 
+      value={vcoLfoSelect} 
+      onChange={(v) => updateParam('vcoLfoSelect', v)} 
+      isMapMode={isMidiMappingMode}
+      onMapClick={() => handleMapClick('vcoLfoSelect')}
+      mappedCC={getMappedCC('vcoLfoSelect')}
+      isSelected={selectedMapParam === 'vcoLfoSelect'}
     />
     <JupiterSlider 
       label="Porta Time" 

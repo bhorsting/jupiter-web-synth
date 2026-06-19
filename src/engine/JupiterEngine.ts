@@ -33,6 +33,16 @@ class Voice {
   private percussionOsc: OscillatorNode | null = null;
   private percussionGain: GainNode | null = null;
 
+  // PWM nodes
+  private vco1PwmLfoGain: GainNode | null = null;
+  private vco1PwmSum: GainNode | null = null;
+  private vco1PwmOffset: ConstantSourceNode | null = null;
+  private vco1PwmShaper: WaveShaperNode | null = null;
+  private vco2PwmLfoGain: GainNode | null = null;
+  private vco2PwmSum: GainNode | null = null;
+  private vco2PwmOffset: ConstantSourceNode | null = null;
+  private vco2PwmShaper: WaveShaperNode | null = null;
+
   private params: VoiceParams;
   private perfSettings: PerformanceSettings;
   private pitchBendOffset: number = 0; // in semitones
@@ -47,12 +57,14 @@ class Voice {
   public startTime: number = 0;
   public isReleasing: boolean = false;
   private sharedNoiseBuffer: AudioBuffer | null;
+  private lfoModBusNode: AudioNode;
 
   constructor(ctx: AudioContext, destination: AudioNode, params: VoiceParams, settings: PerformanceSettings, lfoModBus: AudioNode, sharedNoiseBuffer: AudioBuffer | null) {
     this.ctx = ctx;
     this.params = params;
     this.perfSettings = settings;
     this.sharedNoiseBuffer = sharedNoiseBuffer;
+    this.lfoModBusNode = lfoModBus;
 
     this.vco1Gain = ctx.createGain();
     this.vco2Gain = ctx.createGain();
@@ -199,17 +211,49 @@ class Voice {
     // VCA Sustain and base Level real-time update
     if (!this.isReleasing) {
       const velocityScale = 1.0 - (1.0 - this.velocity) * this.perfSettings.velocitySensitivity;
-      this.vca.gain.setTargetAtTime(Math.max(0.0001, params.env2Sustain * velocityScale), time, 0.05);
+      let targetSustain = params.env2Sustain;
+      if (params.vcaSource === 'env1') {
+        targetSustain = params.env1Sustain;
+      } else if (params.vcaSource === 'lfo') {
+        targetSustain = 1.0;
+      }
+      this.vca.gain.setTargetAtTime(Math.max(0.0001, targetSustain * velocityScale), time, 0.05);
       
       // Incorporate vcaLevel as a constant offset/initial gain
       this.output.gain.setTargetAtTime(params.vcaLevel, time, 0.05);
     }
 
-    // LFO Modulations
-    this.filterLfoMod.gain.setTargetAtTime(params.filterLfoAmount * 5000, time, 0.05);
-    this.vcaLfoMod.gain.setTargetAtTime(params.vcaLfoAmount, time, 0.05);
-    this.vcoLfoMod.gain.setTargetAtTime(params.vcoLfoAmount * 100, time, 0.05); 
+    // LFO Modulations with Delay protection
+    const delay = params.lfoDelay || 0;
+    const isPastDelay = this.startTime === 0 || (time > this.startTime + delay);
+
+    const vcaLfoTarget = params.vcaSource === 'lfo' 
+      ? Math.max(0.3, params.vcaLfoAmount) 
+      : params.vcaLfoAmount;
+
+    if (isPastDelay) {
+      this.filterLfoMod.gain.setTargetAtTime(params.filterLfoAmount * 5000, time, 0.05);
+      this.vcaLfoMod.gain.setTargetAtTime(vcaLfoTarget, time, 0.05);
+      this.vcoLfoMod.gain.setTargetAtTime(params.vcoLfoAmount * 100, time, 0.05); 
+    }
     this.crossModGain.gain.setTargetAtTime(params.crossMod * 5000, time, 0.05);
+
+    // PWM updates
+    if (this.vco1PwmOffset) {
+      this.vco1PwmOffset.offset.setTargetAtTime((params.vco1PulseWidth - 0.5) * 1.8, time, 0.05);
+    }
+    if (this.vco1PwmLfoGain) {
+      const targetGain = params.vco1PwmMode === 'lfo' ? 0.4 : 0;
+      this.vco1PwmLfoGain.gain.setTargetAtTime(targetGain, time, 0.05);
+    }
+
+    if (this.vco2PwmOffset) {
+      this.vco2PwmOffset.offset.setTargetAtTime((params.vco2PulseWidth - 0.5) * 1.8, time, 0.05);
+    }
+    if (this.vco2PwmLfoGain) {
+      const targetGain = params.vco2PwmMode === 'lfo' ? 0.4 : 0;
+      this.vco2PwmLfoGain.gain.setTargetAtTime(targetGain, time, 0.05);
+    }
   }
 
   triggerAttack(midiNote: number, lastFreq: number, time: number, isLegato: boolean = false, velocity: number = 1) {
@@ -335,21 +379,10 @@ class Voice {
     this.vco1Noise.loop = true;
     this.vco2Noise.loop = true;
 
-    this.vco1.connect(this.vco1Gain);
-    this.vco2.connect(this.vco2Gain);
+    // Connect Noises and SubOsc
     this.subOsc.connect(this.subOscGain);
     this.vco1Noise.connect(this.vco1NoiseGain);
     this.vco2Noise.connect(this.vco2NoiseGain);
-
-    // Connect LFO Mod to VCOs and SubOsc
-    this.vcoLfoMod.connect(this.vco1.frequency);
-    this.vcoLfoMod.connect(this.vco2.frequency);
-    this.vcoLfoMod.connect(this.subOsc.frequency);
-
-    // Cross modulation: VCO2 modulates VCO1 frequency
-    if (this.vco2) this.vco2.connect(this.crossModGain);
-    if (this.vco2Noise) this.vco2Noise.connect(this.crossModGain);
-    this.crossModGain.connect(this.vco1!.frequency);
 
     const { 
       env1Attack, env1Decay, env1Sustain, 
@@ -361,8 +394,103 @@ class Voice {
       vco1Waveform, vco2Waveform
     } = this.params;
 
-    this.vco1.type = vco1Waveform === 'pulse' ? 'square' : vco1Waveform as OscillatorType;
-    this.vco2.type = vco2Waveform === 'pulse' ? 'square' : vco2Waveform as OscillatorType;
+    // Set up VCO 1 connection (standard vs pulse wave PWM)
+    if (vco1Waveform === 'pulse') {
+      this.vco1.type = 'sawtooth';
+
+      const shaper = this.ctx.createWaveShaper();
+      const curve = new Float32Array(2);
+      curve[0] = -1;
+      curve[1] = 1;
+      shaper.curve = curve;
+      this.vco1PwmShaper = shaper;
+
+      const sum = this.ctx.createGain();
+      this.vco1PwmSum = sum;
+
+      const offset = this.ctx.createConstantSource();
+      offset.start(time);
+      this.vco1PwmOffset = offset;
+
+      const lfoGain = this.ctx.createGain();
+      this.vco1PwmLfoGain = lfoGain;
+
+      this.lfoModBusNode.connect(lfoGain);
+      lfoGain.connect(offset.offset);
+
+      this.vco1.connect(sum);
+      offset.connect(sum);
+      sum.connect(shaper);
+      shaper.connect(this.vco1Gain);
+
+      if (this.params.vco1PwmMode === 'lfo') {
+        lfoGain.gain.setValueAtTime(0.4, time);
+      } else {
+        lfoGain.gain.setValueAtTime(0, time);
+      }
+      offset.offset.setValueAtTime((this.params.vco1PulseWidth - 0.5) * 1.8, time);
+    } else {
+      this.vco1.type = vco1Waveform as OscillatorType;
+      this.vco1.connect(this.vco1Gain);
+    }
+
+    // Set up VCO 2 connection (standard vs pulse wave PWM)
+    if (vco2Waveform === 'pulse') {
+      this.vco2.type = 'sawtooth';
+
+      const shaper = this.ctx.createWaveShaper();
+      const curve = new Float32Array(2);
+      curve[0] = -1;
+      curve[1] = 1;
+      shaper.curve = curve;
+      this.vco2PwmShaper = shaper;
+
+      const sum = this.ctx.createGain();
+      this.vco2PwmSum = sum;
+
+      const offset = this.ctx.createConstantSource();
+      offset.start(time);
+      this.vco2PwmOffset = offset;
+
+      const lfoGain = this.ctx.createGain();
+      this.vco2PwmLfoGain = lfoGain;
+
+      this.lfoModBusNode.connect(lfoGain);
+      lfoGain.connect(offset.offset);
+
+      this.vco2.connect(sum);
+      offset.connect(sum);
+      sum.connect(shaper);
+      shaper.connect(this.vco2Gain);
+
+      if (this.params.vco2PwmMode === 'lfo') {
+        lfoGain.gain.setValueAtTime(0.4, time);
+      } else {
+        lfoGain.gain.setValueAtTime(0, time);
+      }
+      offset.offset.setValueAtTime((this.params.vco2PulseWidth - 0.5) * 1.8, time);
+    } else {
+      this.vco2.type = vco2Waveform as OscillatorType;
+      this.vco2.connect(this.vco2Gain);
+    }
+
+    // Connect LFO Mod conditionally based on params.vcoLfoSelect
+    this.vcoLfoMod.disconnect();
+    if (this.params.vcoLfoSelect === 'vco1' || this.params.vcoLfoSelect === 'both') {
+      this.vcoLfoMod.connect(this.vco1.frequency);
+    }
+    if (this.params.vcoLfoSelect === 'vco2' || this.params.vcoLfoSelect === 'both') {
+      this.vcoLfoMod.connect(this.vco2.frequency);
+    }
+    if (this.params.vcoLfoSelect === 'both' && this.subOsc) {
+      this.vcoLfoMod.connect(this.subOsc.frequency);
+    }
+
+    // Cross modulation: VCO2 modulates VCO1 frequency
+    if (this.vco2) this.vco2.connect(this.crossModGain);
+    if (this.vco2Noise) this.vco2Noise.connect(this.crossModGain);
+    this.crossModGain.connect(this.vco1!.frequency);
+
     this.subOsc.type = this.params.subOscWaveform;
 
     const range1 = 8 / vco1Range;
@@ -411,7 +539,25 @@ class Voice {
     // Velocity Scaling
     const velocityScale = 1.0 - (1.0 - velocity) * this.perfSettings.velocitySensitivity;
 
-    // VCA Envelope (Env 2) - Upgraded scheduler to completely prevent clicks and irregular fades
+    // Determine active VCA envelope parameters based on 3-way toggle
+    let vcaAttack = 0.01;
+    let vcaDecay = 0.5;
+    let vcaSustain = 0.5;
+    if (this.params.vcaSource === 'env1') {
+      vcaAttack = env1Attack;
+      vcaDecay = env1Decay;
+      vcaSustain = env1Sustain;
+    } else if (this.params.vcaSource === 'env2') {
+      vcaAttack = env2Attack;
+      vcaDecay = env2Decay;
+      vcaSustain = env2Sustain;
+    } else if (this.params.vcaSource === 'lfo') {
+      vcaAttack = 0.003;
+      vcaDecay = 0.005;
+      vcaSustain = 1.0;
+    }
+
+    // VCA Envelope - Upgraded scheduler to completely prevent clicks and irregular fades
     this.vca.gain.cancelScheduledValues(time);
     const prevGain = this.vca.gain.value;
     
@@ -420,16 +566,47 @@ class Voice {
       this.vca.gain.setValueAtTime(prevGain, time);
       this.vca.gain.linearRampToValueAtTime(0.0001, time + 0.002);
       this.vca.gain.setValueAtTime(0.0001, time + 0.002);
-      this.vca.gain.linearRampToValueAtTime(velocityScale, time + 0.002 + Math.max(0.005, env2Attack));
+      this.vca.gain.linearRampToValueAtTime(velocityScale, time + 0.002 + Math.max(0.005, vcaAttack));
       
-      const sustainLevel = Math.max(0.0001, env2Sustain * velocityScale);
-      this.vca.gain.setTargetAtTime(sustainLevel, time + 0.002 + Math.max(0.005, env2Attack), Math.max(0.01, env2Decay));
+      const sustainLevel = Math.max(0.0001, vcaSustain * velocityScale);
+      this.vca.gain.setTargetAtTime(sustainLevel, time + 0.002 + Math.max(0.005, vcaAttack), Math.max(0.01, vcaDecay));
     } else {
       this.vca.gain.setValueAtTime(0.0001, time);
-      this.vca.gain.linearRampToValueAtTime(velocityScale, time + Math.max(0.005, env2Attack));
+      this.vca.gain.linearRampToValueAtTime(velocityScale, time + Math.max(0.005, vcaAttack));
       
-      const sustainLevel = Math.max(0.0001, env2Sustain * velocityScale);
-      this.vca.gain.setTargetAtTime(sustainLevel, time + Math.max(0.005, env2Attack), Math.max(0.01, env2Decay));
+      const sustainLevel = Math.max(0.0001, vcaSustain * velocityScale);
+      this.vca.gain.setTargetAtTime(sustainLevel, time + Math.max(0.005, vcaAttack), Math.max(0.01, vcaDecay));
+    }
+
+    // LFO Modulation Gain Scheduling (Delay and Fade-In)
+    const delay = this.params.lfoDelay || 0;
+    const filterLfoTarget = this.params.filterLfoAmount * 5000;
+    const vcoLfoTarget = this.params.vcoLfoAmount * 100;
+    const vcaLfoTarget = this.params.vcaSource === 'lfo' 
+      ? Math.max(0.3, this.params.vcaLfoAmount) 
+      : this.params.vcaLfoAmount;
+
+    this.filterLfoMod.gain.cancelScheduledValues(time);
+    this.vcaLfoMod.gain.cancelScheduledValues(time);
+    this.vcoLfoMod.gain.cancelScheduledValues(time);
+
+    if (delay > 0) {
+      this.filterLfoMod.gain.setValueAtTime(0, time);
+      this.vcaLfoMod.gain.setValueAtTime(0, time);
+      this.vcoLfoMod.gain.setValueAtTime(0, time);
+      
+      this.filterLfoMod.gain.setValueAtTime(0, time + delay);
+      this.vcaLfoMod.gain.setValueAtTime(0, time + delay);
+      this.vcoLfoMod.gain.setValueAtTime(0, time + delay);
+
+      const fadeTime = 0.8;
+      this.filterLfoMod.gain.linearRampToValueAtTime(filterLfoTarget, time + delay + fadeTime);
+      this.vcaLfoMod.gain.linearRampToValueAtTime(vcaLfoTarget, time + delay + fadeTime);
+      this.vcoLfoMod.gain.linearRampToValueAtTime(vcoLfoTarget, time + delay + fadeTime);
+    } else {
+      this.filterLfoMod.gain.setValueAtTime(filterLfoTarget, time);
+      this.vcaLfoMod.gain.setValueAtTime(vcaLfoTarget, time);
+      this.vcoLfoMod.gain.setValueAtTime(vcoLfoTarget, time);
     }
 
     // Filter Envelope
@@ -543,6 +720,42 @@ class Voice {
       this.percussionGain.disconnect();
       this.percussionGain = null;
     }
+
+    // Clean up PWM nodes
+    if (this.vco1PwmOffset) {
+      try { this.vco1PwmOffset.stop(time); } catch(e) {}
+      this.vco1PwmOffset.disconnect();
+      this.vco1PwmOffset = null;
+    }
+    if (this.vco1PwmLfoGain) {
+      this.vco1PwmLfoGain.disconnect();
+      this.vco1PwmLfoGain = null;
+    }
+    if (this.vco1PwmSum) {
+      this.vco1PwmSum.disconnect();
+      this.vco1PwmSum = null;
+    }
+    if (this.vco1PwmShaper) {
+      this.vco1PwmShaper.disconnect();
+      this.vco1PwmShaper = null;
+    }
+
+    if (this.vco2PwmOffset) {
+      try { this.vco2PwmOffset.stop(time); } catch(e) {}
+      this.vco2PwmOffset = null;
+    }
+    if (this.vco2PwmLfoGain) {
+      this.vco2PwmLfoGain.disconnect();
+      this.vco2PwmLfoGain = null;
+    }
+    if (this.vco2PwmSum) {
+      this.vco2PwmSum.disconnect();
+      this.vco2PwmSum = null;
+    }
+    if (this.vco2PwmShaper) {
+      this.vco2PwmShaper.disconnect();
+      this.vco2PwmShaper = null;
+    }
   }
 
   triggerRelease(time: number) {
@@ -566,9 +779,16 @@ class Voice {
       const { env1Release, env2Release, filterEnvSource } = this.params;
       const envRelease = filterEnvSource === 'env1' ? env1Release : env2Release;
       
+      let vcaRelease = env2Release;
+      if (this.params.vcaSource === 'env1') {
+        vcaRelease = env1Release;
+      } else if (this.params.vcaSource === 'lfo') {
+        vcaRelease = 0.05; // Quick snappy release on gating LFO
+      }
+
       this.vca.gain.cancelScheduledValues(time);
       this.vca.gain.setValueAtTime(this.vca.gain.value, time);
-      this.vca.gain.setTargetAtTime(0, time, Math.max(0.001, env2Release / 3));
+      this.vca.gain.setTargetAtTime(0, time, Math.max(0.001, vcaRelease / 3));
       
       this.filter.frequency.cancelScheduledValues(time);
       this.filter.frequency.setValueAtTime(this.filter.frequency.value, time);

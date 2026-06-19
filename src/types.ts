@@ -6,16 +6,19 @@
 export interface VoiceParams {
   lfoRate: number;
   lfoWaveform: 'sine' | 'sawtooth' | 'square' | 'random';
+  lfoDelay: number;
   
   vco1Freq: number;
   vco1Range: 2 | 4 | 8 | 16;
   vco1Waveform: 'sawtooth' | 'square' | 'pulse' | 'triangle' | 'sine' | 'noise';
   vco1PulseWidth: number;
+  vco1PwmMode: 'manual' | 'lfo';
   
   vco2Freq: number;
   vco2Range: 2 | 4 | 8 | 16;
   vco2Waveform: 'sawtooth' | 'square' | 'pulse' | 'triangle' | 'sine' | 'noise';
   vco2PulseWidth: number;
+  vco2PwmMode: 'manual' | 'lfo';
   vco2Detune: number;
   vco2Sync: boolean;
   
@@ -52,6 +55,8 @@ export interface VoiceParams {
   vcaEnvAmount: number;
   vcaLfoAmount: number;
   vcoLfoAmount: number;
+  vcoLfoSelect: 'vco1' | 'vco2' | 'both';
+  vcaSource: 'env1' | 'lfo' | 'env2';
   masterVolume: number;
   
   env1Attack: number;
@@ -155,16 +160,19 @@ export interface Patch {
 export const DEFAULT_PARAMS: VoiceParams = {
   lfoRate: 5,
   lfoWaveform: 'sine',
+  lfoDelay: 0,
   
   vco1Freq: 0,
   vco1Range: 8,
   vco1Waveform: 'sawtooth',
   vco1PulseWidth: 0.5,
+  vco1PwmMode: 'manual',
   
   vco2Freq: 0,
   vco2Range: 8,
   vco2Waveform: 'sawtooth',
   vco2PulseWidth: 0.5,
+  vco2PwmMode: 'manual',
   vco2Detune: 0,
   vco2Sync: false,
   
@@ -199,6 +207,8 @@ export const DEFAULT_PARAMS: VoiceParams = {
   vcaEnvAmount: 1,
   vcaLfoAmount: 0,
   vcoLfoAmount: 0,
+  vcoLfoSelect: 'both',
+  vcaSource: 'env2',
   masterVolume: 0.8,
   
   env1Attack: 0.01,
