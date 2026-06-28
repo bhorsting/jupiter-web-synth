@@ -547,6 +547,35 @@ export const PRESET_PATCHES: Patch[] = [
     }
   },
   {
+    id: "brass-dancing",
+    name: "Dancing In The Dark",
+    params: {
+      ...DEFAULT_PARAMS,
+      vco1Waveform: "sawtooth",
+      vco2Waveform: "sawtooth",
+      vco2Range: 8,
+      vco2Detune: 0.15,
+      vcoMix: 0.5,
+      mixerVco1: 1.0,
+      mixerVco2: 1.0,
+      filterCutoff: 1050,
+      filterResonance: 0.1,
+      filterEnvAmount: 0.65,
+      filterKeyboardTrack: 0.75,
+      env1Attack: 0.04,
+      env1Decay: 0.8,
+      env1Sustain: 0.35,
+      env1Release: 0.4,
+      env2Attack: 0.02,
+      env2Decay: 0.9,
+      env2Sustain: 0.7,
+      env2Release: 0.45,
+      chorusMix: 0.65,
+      reverbMix: 0.3,
+      reverbTime: 3.0,
+    }
+  },
+  {
     id: "strings-1",
     name: "Solina Strings",
     params: {

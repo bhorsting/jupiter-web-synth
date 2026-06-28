@@ -1109,7 +1109,7 @@ export class JupiterEngine {
     this.chorus3FastLfoGain.connect(this.chorus3.delayTime);
 
     // Delay
-    this.delay = this.ctx.createDelay(2.0);
+    this.delay = this.ctx.createDelay(5.0);
     this.delayFeedback = this.ctx.createGain();
     this.delayGain = this.ctx.createGain();
     

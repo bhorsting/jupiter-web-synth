@@ -346,7 +346,7 @@ function App() {
       vco2PulseWidth: [0, 1], crossMod: [0, 1],
       mixerVco1: [0, 1], mixerVco2: [0, 1],
       // FX
-      chorusMix: [0, 1], delayMix: [0, 1], delayTime: [0.01, 1], delayFeedback: [0, 0.9],
+      chorusMix: [0, 1], delayMix: [0, 1], delayTime: [0, 4], delayFeedback: [0, 0.9],
       reverbMix: [0, 1], reverbTime: [0.1, 10], reverbDecay: [0.1, 10], reverbDamping: [0, 0.99],
       compThreshold: [-60, 0], compRatio: [1, 20], compAttack: [0.001, 0.5], compRelease: [0.01, 1], compMix: [0, 1],
       leslieMix: [0, 1], leslieRate: [0.1, 15], leslieDepth: [0, 1],
@@ -984,7 +984,7 @@ function App() {
         label="Delay"
         mix={params.delayMix}
         params={[
-          { label: 'Time', key: 'delayTime', value: params.delayTime, min: 0.01, max: 1 },
+          { label: 'Time', key: 'delayTime', value: params.delayTime, min: 0, max: 4 },
           { label: 'Feedbk', key: 'delayFeedback', value: params.delayFeedback, min: 0, max: 0.9 },
         ]}
         updateParam={updateParam}
