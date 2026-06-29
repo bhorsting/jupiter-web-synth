@@ -177,6 +177,7 @@ interface LFOSectionProps {
   lfoSync: boolean;
   lfoSyncDivision: string;
   lfoDelay: number;
+  lfoVelocitySensitivity: number;
   updateParam: (key: keyof VoiceParams, val: any) => void;
   isMidiMappingMode: boolean;
   handleMapClick: (param: keyof VoiceParams) => void;
@@ -187,7 +188,7 @@ interface LFOSectionProps {
 const DIVISIONS = ['1/1', '1/2', '1/2t', '1/4', '1/4t', '1/8', '1/8t', '1/16', '1/16t', '1/32'];
 
 export const LFOSection = React.memo<LFOSectionProps>(({
-  lfoWaveform, lfoRate, lfoSync, lfoSyncDivision, lfoDelay, updateParam, isMidiMappingMode, handleMapClick, getMappedCC, selectedMapParam
+  lfoWaveform, lfoRate, lfoSync, lfoSyncDivision, lfoDelay, lfoVelocitySensitivity, updateParam, isMidiMappingMode, handleMapClick, getMappedCC, selectedMapParam
 }) => (
   <Section title="LFO">
     <JupiterSelector 
@@ -221,6 +222,19 @@ export const LFOSection = React.memo<LFOSectionProps>(({
       onMapClick={() => handleMapClick('lfoDelay')}
       mappedCC={getMappedCC('lfoDelay')}
       isSelected={selectedMapParam === 'lfoDelay'}
+    />
+    <JupiterSlider 
+      label="VEL" 
+      value={lfoVelocitySensitivity} 
+      min={0} 
+      max={1} 
+      step={0.01}
+      onChange={(v) => updateParam('lfoVelocitySensitivity', v)} 
+      color="bg-synth-lfo"
+      isMapMode={isMidiMappingMode}
+      onMapClick={() => handleMapClick('lfoVelocitySensitivity')}
+      mappedCC={getMappedCC('lfoVelocitySensitivity')}
+      isSelected={selectedMapParam === 'lfoVelocitySensitivity'}
     />
     <div className="flex flex-col gap-2 items-center justify-center p-1">
       <JupiterToggle 
@@ -409,6 +423,8 @@ interface VCFSectionProps {
   filterEnvSource: 'env1' | 'env2';
   filterSlope: number;
   filterLfoAmount: number;
+  filterKeyboardTrack: number;
+  filterVelocitySensitivity: number;
   updateParam: (key: keyof VoiceParams, val: any) => void;
   isMidiMappingMode: boolean;
   handleMapClick: (param: keyof VoiceParams) => void;
@@ -417,7 +433,7 @@ interface VCFSectionProps {
 }
 
 export const VCFSection = React.memo<VCFSectionProps>(({
-  filterCutoff, filterResonance, filterEnvAmount, filterEnvSource, filterSlope, filterLfoAmount, updateParam, isMidiMappingMode, handleMapClick, getMappedCC, selectedMapParam
+  filterCutoff, filterResonance, filterEnvAmount, filterEnvSource, filterSlope, filterLfoAmount, filterKeyboardTrack, filterVelocitySensitivity, updateParam, isMidiMappingMode, handleMapClick, getMappedCC, selectedMapParam
 }) => (
   <Section title="VCF">
     <JupiterSlider 
@@ -491,6 +507,28 @@ export const VCFSection = React.memo<VCFSectionProps>(({
       onMapClick={() => handleMapClick('filterLfoAmount')}
       mappedCC={getMappedCC('filterLfoAmount')}
       isSelected={selectedMapParam === 'filterLfoAmount'}
+    />
+    <JupiterSlider 
+      label="VEL" 
+      value={filterVelocitySensitivity} 
+      min={0} max={1} 
+      step={0.01}
+      onChange={(v) => updateParam('filterVelocitySensitivity', v)} 
+      color="bg-synth-vcf"
+      isMapMode={isMidiMappingMode}
+      onMapClick={() => handleMapClick('filterVelocitySensitivity')}
+      mappedCC={getMappedCC('filterVelocitySensitivity')}
+      isSelected={selectedMapParam === 'filterVelocitySensitivity'}
+    />
+    <JupiterSelector 
+      label="KYBD Follow" 
+      options={['off', 'half', 'full']} 
+      value={filterKeyboardTrack === 0 ? 'off' : filterKeyboardTrack === 0.5 ? 'half' : 'full'} 
+      onChange={(v) => updateParam('filterKeyboardTrack', v === 'off' ? 0 : v === 'half' ? 0.5 : 1)} 
+      isMapMode={isMidiMappingMode}
+      onMapClick={() => handleMapClick('filterKeyboardTrack')}
+      mappedCC={getMappedCC('filterKeyboardTrack')}
+      isSelected={selectedMapParam === 'filterKeyboardTrack'}
     />
   </Section>
 ));

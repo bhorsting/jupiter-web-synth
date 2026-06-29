@@ -48,6 +48,8 @@ export interface VoiceParams {
   filterEnvAmount: number;
   filterLfoAmount: number;
   filterKeyboardTrack: number;
+  filterVelocitySensitivity: number;
+  lfoVelocitySensitivity: number;
   lfoSync: boolean;
   lfoSyncDivision: string;
   
@@ -200,6 +202,8 @@ export const DEFAULT_PARAMS: VoiceParams = {
   filterEnvAmount: 0,
   filterLfoAmount: 0,
   filterKeyboardTrack: 0.5,
+  filterVelocitySensitivity: 0.5,
+  lfoVelocitySensitivity: 0.0,
   lfoSync: false,
   lfoSyncDivision: '1/4',
   

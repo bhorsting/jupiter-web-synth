@@ -750,6 +750,7 @@ function App() {
             lfoSync={params.lfoSync}
             lfoSyncDivision={params.lfoSyncDivision}
             lfoDelay={params.lfoDelay}
+            lfoVelocitySensitivity={params.lfoVelocitySensitivity}
             updateParam={updateParam}
             isMidiMappingMode={isMidiMappingMode}
             handleMapClick={handleMapClick}
@@ -834,6 +835,8 @@ function App() {
             filterEnvSource={params.filterEnvSource}
             filterSlope={params.filterSlope}
             filterLfoAmount={params.filterLfoAmount}
+            filterKeyboardTrack={params.filterKeyboardTrack}
+            filterVelocitySensitivity={params.filterVelocitySensitivity}
             updateParam={updateParam}
             isMidiMappingMode={isMidiMappingMode}
             handleMapClick={handleMapClick}

@@ -56,6 +56,7 @@ class Voice {
   public midiNote: number | null = null;
   public startTime: number = 0;
   public isReleasing: boolean = false;
+  private stopTimer: number | null = null;
   private sharedNoiseBuffer: AudioBuffer | null;
   private lfoModBusNode: AudioNode;
 
@@ -223,18 +224,20 @@ class Voice {
       this.output.gain.setTargetAtTime(params.vcaLevel, time, 0.05);
     }
 
-    // LFO Modulations with Delay protection
+    // LFO Modulations with Delay protection (with velocity scaling)
     const delay = params.lfoDelay || 0;
     const isPastDelay = this.startTime === 0 || (time > this.startTime + delay);
 
-    const vcaLfoTarget = params.vcaSource === 'lfo' 
+    const lfoVelScale = 1.0 - (1.0 - this.velocity) * params.lfoVelocitySensitivity;
+
+    const vcaLfoTarget = (params.vcaSource === 'lfo' 
       ? Math.max(0.3, params.vcaLfoAmount) 
-      : params.vcaLfoAmount;
+      : params.vcaLfoAmount) * lfoVelScale;
 
     if (isPastDelay) {
-      this.filterLfoMod.gain.setTargetAtTime(params.filterLfoAmount * 5000, time, 0.05);
+      this.filterLfoMod.gain.setTargetAtTime(params.filterLfoAmount * 5000 * lfoVelScale, time, 0.05);
       this.vcaLfoMod.gain.setTargetAtTime(vcaLfoTarget, time, 0.05);
-      this.vcoLfoMod.gain.setTargetAtTime(params.vcoLfoAmount * 100, time, 0.05); 
+      this.vcoLfoMod.gain.setTargetAtTime(params.vcoLfoAmount * 100 * lfoVelScale, time, 0.05); 
     }
     this.crossModGain.gain.setTargetAtTime(params.crossMod * 5000, time, 0.05);
 
@@ -557,34 +560,24 @@ class Voice {
       vcaSustain = 1.0;
     }
 
-    // VCA Envelope - Upgraded scheduler to completely prevent clicks and irregular fades
+    // VCA Envelope - Smooth analog-style non-zero-resetting attack to prevent clicks and gasps
     this.vca.gain.cancelScheduledValues(time);
-    const prevGain = this.vca.gain.value;
+    const prevGain = Math.max(0.0001, this.vca.gain.value);
     
-    if (prevGain > 0.001) {
-      // Smooth micro-fadeout of existing signal before opening the attack ramp
-      this.vca.gain.setValueAtTime(prevGain, time);
-      this.vca.gain.linearRampToValueAtTime(0.0001, time + 0.002);
-      this.vca.gain.setValueAtTime(0.0001, time + 0.002);
-      this.vca.gain.linearRampToValueAtTime(velocityScale, time + 0.002 + Math.max(0.005, vcaAttack));
-      
-      const sustainLevel = Math.max(0.0001, vcaSustain * velocityScale);
-      this.vca.gain.setTargetAtTime(sustainLevel, time + 0.002 + Math.max(0.005, vcaAttack), Math.max(0.01, vcaDecay));
-    } else {
-      this.vca.gain.setValueAtTime(0.0001, time);
-      this.vca.gain.linearRampToValueAtTime(velocityScale, time + Math.max(0.005, vcaAttack));
-      
-      const sustainLevel = Math.max(0.0001, vcaSustain * velocityScale);
-      this.vca.gain.setTargetAtTime(sustainLevel, time + Math.max(0.005, vcaAttack), Math.max(0.01, vcaDecay));
-    }
+    this.vca.gain.setValueAtTime(prevGain, time);
+    this.vca.gain.linearRampToValueAtTime(velocityScale, time + Math.max(0.003, vcaAttack));
+    
+    const sustainLevel = Math.max(0.0001, vcaSustain * velocityScale);
+    this.vca.gain.setTargetAtTime(sustainLevel, time + Math.max(0.003, vcaAttack), Math.max(0.01, vcaDecay));
 
-    // LFO Modulation Gain Scheduling (Delay and Fade-In)
+    // LFO Modulation Gain Scheduling (Delay and Fade-In, scaled by LFO velocity sensitivity)
+    const lfoVelScale = 1.0 - (1.0 - velocity) * this.params.lfoVelocitySensitivity;
     const delay = this.params.lfoDelay || 0;
-    const filterLfoTarget = this.params.filterLfoAmount * 5000;
-    const vcoLfoTarget = this.params.vcoLfoAmount * 100;
-    const vcaLfoTarget = this.params.vcaSource === 'lfo' 
+    const filterLfoTarget = this.params.filterLfoAmount * 5000 * lfoVelScale;
+    const vcoLfoTarget = this.params.vcoLfoAmount * 100 * lfoVelScale;
+    const vcaLfoTarget = (this.params.vcaSource === 'lfo' 
       ? Math.max(0.3, this.params.vcaLfoAmount) 
-      : this.params.vcaLfoAmount;
+      : this.params.vcaLfoAmount) * lfoVelScale;
 
     this.filterLfoMod.gain.cancelScheduledValues(time);
     this.vcaLfoMod.gain.cancelScheduledValues(time);
@@ -617,17 +610,18 @@ class Voice {
     // Keyboard tracking
     const kbdMod = (midiNote - 64) * (this.params.filterKeyboardTrack * 100);
     
-    // Velocity also scales filter cutoff for more expression
-    const velCutoffMod = (velocity - 1) * this.perfSettings.velocitySensitivity * 5000;
+    // Velocity also scales filter cutoff for more expression, using our dedicated filterVelocitySensitivity parameter
+    const velCutoffMod = (velocity - 1) * this.params.filterVelocitySensitivity * 5000;
     const baseCutoff = Math.max(20, filterCutoff + velCutoffMod + kbdMod);
     const targetCutoff = Math.min(20000, baseCutoff + filterEnvAmount * 10000);
 
-    // Reset filter frequency to baseCutoff to prevent jumping click
+    // Smooth VCF attack sweep starting from the current filter frequency to prevent jumping clicks/resets
     this.filter.frequency.cancelScheduledValues(time);
-    this.filter.frequency.setValueAtTime(baseCutoff, time);
+    const currentFreq = Math.max(20, this.filter.frequency.value || baseCutoff);
+    this.filter.frequency.setValueAtTime(currentFreq, time);
     
-    // Use exponential sweeps for filter cutoff sweeps to sound warm and analog-lush
-    this.filter.frequency.exponentialRampToValueAtTime(Math.max(20, targetCutoff), time + Math.max(0.005, envAttack));
+    // Ramps cleanly from currentFreq to targetCutoff using highly compatible linear sweeps
+    this.filter.frequency.linearRampToValueAtTime(Math.max(20, targetCutoff), time + Math.max(0.005, envAttack));
     const sustainFilterFreq = Math.max(20, baseCutoff + (targetCutoff - baseCutoff) * envSustain);
     this.filter.frequency.setTargetAtTime(sustainFilterFreq, time + Math.max(0.005, envAttack), Math.max(0.01, envDecay));
 
@@ -760,8 +754,11 @@ class Voice {
 
   triggerRelease(time: number) {
     this.isReleasing = true;
+    let releaseDuration = 0.05;
+    
     if (this.params.synthEngine === 'hammond') {
       const organRelease = 0.04; // snappy organ release
+      releaseDuration = organRelease;
       this.vca.gain.cancelScheduledValues(time);
       this.vca.gain.setValueAtTime(this.vca.gain.value, time);
       this.vca.gain.setTargetAtTime(0, time, organRelease / 3);
@@ -785,6 +782,7 @@ class Voice {
       } else if (this.params.vcaSource === 'lfo') {
         vcaRelease = 0.05; // Quick snappy release on gating LFO
       }
+      releaseDuration = vcaRelease;
 
       this.vca.gain.cancelScheduledValues(time);
       this.vca.gain.setValueAtTime(this.vca.gain.value, time);
@@ -794,9 +792,20 @@ class Voice {
       this.filter.frequency.setValueAtTime(this.filter.frequency.value, time);
       this.filter.frequency.setTargetAtTime(this.params.filterCutoff, time, Math.max(0.001, envRelease / 3));
     }
+
+    if (this.stopTimer) {
+      clearTimeout(this.stopTimer);
+    }
+    this.stopTimer = window.setTimeout(() => {
+      this.stop();
+    }, Math.max(0.05, releaseDuration) * 1000);
   }
   
   stop() {
+    if (this.stopTimer) {
+      clearTimeout(this.stopTimer);
+      this.stopTimer = null;
+    }
     this.killTransientNodes(this.ctx.currentTime);
     this.midiNote = null;
     this.isReleasing = false;
@@ -1862,23 +1871,28 @@ export class JupiterEngine {
     const activeVoices = this.voices.filter(v => v.midiNote !== null && !v.isReleasing);
     const isLegatoContext = activeVoices.length > 0 || (this.ctx.currentTime - this.lastReleaseTime < 0.7);
 
-    // Find if note already exists
-    let voice = this.voices.find(v => v.midiNote === midiNote);
+    // Find if note already exists and is NOT releasing (to sustain/legato it)
+    let voice = this.voices.find(v => v.midiNote === midiNote && !v.isReleasing);
     
     if (!voice) {
-      // Find a free voice
+      // Find a completely free voice
       voice = this.voices.find(v => v.midiNote === null);
       
       if (!voice) {
-        // Voice stealing: find the voice that has been active the longest (including ones in release)
-        const releasingVoices = this.voices.filter(v => v.isReleasing);
-        if (releasingVoices.length > 0) {
-            voice = releasingVoices.sort((a, b) => a.startTime - b.startTime)[0];
-        } else {
-            voice = this.voices.sort((a, b) => a.startTime - b.startTime)[0];
+        // If no completely free voice, find a voice that is currently releasing the same midiNote
+        voice = this.voices.find(v => v.midiNote === midiNote && v.isReleasing);
+        
+        if (!voice) {
+          // Voice stealing: find the voice that has been active the longest (including ones in release)
+          const releasingVoices = this.voices.filter(v => v.isReleasing);
+          if (releasingVoices.length > 0) {
+              voice = releasingVoices.sort((a, b) => a.startTime - b.startTime)[0];
+          } else {
+              voice = this.voices.sort((a, b) => a.startTime - b.startTime)[0];
+          }
+          // Hard-stop voice to prevent stuck tail or duplicate state
+          voice.stop();
         }
-        // Hard-stop voice to prevent stuck tail or duplicate state
-        voice.stop();
       }
     }
 
