@@ -13,6 +13,7 @@ export interface VoiceParams {
   vco1Waveform: 'sawtooth' | 'square' | 'pulse' | 'triangle' | 'sine' | 'noise';
   vco1PulseWidth: number;
   vco1PwmMode: 'manual' | 'lfo';
+  vco1VelocitySensitivity: number;
   
   vco2Freq: number;
   vco2Range: 2 | 4 | 8 | 16;
@@ -21,6 +22,7 @@ export interface VoiceParams {
   vco2PwmMode: 'manual' | 'lfo';
   vco2Detune: number;
   vco2Sync: boolean;
+  vco2VelocitySensitivity: number;
   
   crossMod: number;
   vcoMix: number;
@@ -169,6 +171,7 @@ export const DEFAULT_PARAMS: VoiceParams = {
   vco1Waveform: 'sawtooth',
   vco1PulseWidth: 0.5,
   vco1PwmMode: 'manual',
+  vco1VelocitySensitivity: 0,
   
   vco2Freq: 0,
   vco2Range: 8,
@@ -177,6 +180,7 @@ export const DEFAULT_PARAMS: VoiceParams = {
   vco2PwmMode: 'manual',
   vco2Detune: 0,
   vco2Sync: false,
+  vco2VelocitySensitivity: 0,
   
   crossMod: 0,
   vcoMix: 0.5,

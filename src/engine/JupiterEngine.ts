@@ -190,8 +190,14 @@ class Voice {
     const subLevel = params.subOscEnabled ? params.subOscMix : 0;
     this.subOscGain.gain.setTargetAtTime(subLevel, time, 0.005);
 
-    const vco1Level = (1.0 - params.vcoMix) * params.mixerVco1;
-    const vco2Level = params.vcoMix * params.mixerVco2;
+    // Scale VCO levels by velocity sensitivity
+    const vco1VelSens = params.vco1VelocitySensitivity !== undefined ? params.vco1VelocitySensitivity : 0;
+    const vco2VelSens = params.vco2VelocitySensitivity !== undefined ? params.vco2VelocitySensitivity : 0;
+    const vco1VelocityScale = 1.0 - (1.0 - this.velocity) * vco1VelSens;
+    const vco2VelocityScale = 1.0 - (1.0 - this.velocity) * vco2VelSens;
+
+    const vco1Level = (1.0 - params.vcoMix) * params.mixerVco1 * vco1VelocityScale;
+    const vco2Level = params.vcoMix * params.mixerVco2 * vco2VelocityScale;
 
     this.vco1Gain.gain.setTargetAtTime(isVco1Noise ? 0 : vco1Level, time, 0.005);
     this.vco1NoiseGain.gain.setTargetAtTime(isVco1Noise ? vco1Level : 0, time, 0.005);
@@ -624,6 +630,27 @@ class Voice {
     this.filter.frequency.linearRampToValueAtTime(Math.max(20, targetCutoff), time + Math.max(0.005, envAttack));
     const sustainFilterFreq = Math.max(20, baseCutoff + (targetCutoff - baseCutoff) * envSustain);
     this.filter.frequency.setTargetAtTime(sustainFilterFreq, time + Math.max(0.005, envAttack), Math.max(0.01, envDecay));
+
+    // Set initial levels for VCOs scaled by velocity sensitivity
+    const vco1VelSens = this.params.vco1VelocitySensitivity !== undefined ? this.params.vco1VelocitySensitivity : 0;
+    const vco2VelSens = this.params.vco2VelocitySensitivity !== undefined ? this.params.vco2VelocitySensitivity : 0;
+    const vco1VelocityScale = 1.0 - (1.0 - velocity) * vco1VelSens;
+    const vco2VelocityScale = 1.0 - (1.0 - velocity) * vco2VelSens;
+
+    const vco1Level = (1.0 - this.params.vcoMix) * this.params.mixerVco1 * vco1VelocityScale;
+    const vco2Level = this.params.vcoMix * this.params.mixerVco2 * vco2VelocityScale;
+    const isVco1Noise = vco1Waveform === 'noise';
+    const isVco2Noise = vco2Waveform === 'noise';
+
+    this.vco1Gain.gain.cancelScheduledValues(time);
+    this.vco2Gain.gain.cancelScheduledValues(time);
+    this.vco1NoiseGain.gain.cancelScheduledValues(time);
+    this.vco2NoiseGain.gain.cancelScheduledValues(time);
+
+    this.vco1Gain.gain.setValueAtTime(isVco1Noise ? 0 : vco1Level, time);
+    this.vco1NoiseGain.gain.setValueAtTime(isVco1Noise ? vco1Level : 0, time);
+    this.vco2Gain.gain.setValueAtTime(isVco2Noise ? 0 : vco2Level, time);
+    this.vco2NoiseGain.gain.setValueAtTime(isVco2Noise ? vco2Level : 0, time);
 
     this.vco1.start(time);
     this.vco2.start(time);

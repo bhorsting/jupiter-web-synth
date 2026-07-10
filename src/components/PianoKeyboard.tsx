@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 
 interface PianoKeyboardProps {
-  onNoteOn: (note: number) => void;
+  onNoteOn: (note: number, velocity: number) => void;
   onNoteOff: (note: number) => void;
 }
 
@@ -22,10 +22,10 @@ export const PianoKeyboard: React.FC<PianoKeyboardProps> = React.memo(({ onNoteO
     };
   }, [onNoteOff]);
 
-  const handlePointerDown = useCallback((note: number) => {
+  const handlePointerDown = useCallback((note: number, velocity: number = 0.8) => {
     if (activeNotesRef.current.has(note)) return;
     activeNotesRef.current.add(note);
-    onNoteOn(note);
+    onNoteOn(note, velocity);
     setActiveNotes(new Set(activeNotesRef.current));
   }, [onNoteOn]);
 
@@ -66,9 +66,20 @@ export const PianoKeyboard: React.FC<PianoKeyboardProps> = React.memo(({ onNoteO
 
   return (
     <div 
-      className="w-full bg-[#111] border-t border-synth-border p-2 sm:p-4 h-40 sm:h-52 flex flex-col select-none touch-none shadow-[0_-15px_40px_rgba(0,0,0,0.6)]"
+      className="w-full bg-[#111] border-t border-synth-border p-2 sm:p-4 h-44 sm:h-56 flex flex-col select-none touch-none shadow-[0_-15px_40px_rgba(0,0,0,0.6)]"
       onContextMenu={(e) => e.preventDefault()}
     >
+      {/* Keyboard Settings / Tips Bar */}
+      <div className="w-full max-w-6xl mx-auto flex items-center justify-between px-2 pb-1.5 text-[9px] uppercase tracking-wider font-bold text-zinc-500">
+        <div className="flex items-center gap-2">
+          <span className="text-orange-500 font-mono">■</span>
+          <span>Virtual Keyboard</span>
+        </div>
+        <div className="hidden sm:flex items-center gap-4 text-zinc-600 font-mono">
+          <span>↕ Click keys lower for higher velocity (dynamic range)</span>
+        </div>
+      </div>
+
       <div className="flex-1 relative w-full max-w-6xl mx-auto h-full group">
         {/* White Keys */}
         <div className="flex w-full h-full">
@@ -84,7 +95,11 @@ export const PianoKeyboard: React.FC<PianoKeyboardProps> = React.memo(({ onNoteO
                 }`}
                 onPointerDown={(e) => {
                   e.preventDefault();
-                  handlePointerDown(noteNumber);
+                  const rect = e.currentTarget.getBoundingClientRect();
+                  const clickY = e.clientY - rect.top;
+                  const ratio = clickY / rect.height; // 0 (top) to 1 (bottom)
+                  const velocity = Math.min(1.0, Math.max(0.15, 0.2 + ratio * 0.8));
+                  handlePointerDown(noteNumber, velocity);
                 }}
                 onPointerUp={(e) => {
                   e.preventDefault();
@@ -97,7 +112,13 @@ export const PianoKeyboard: React.FC<PianoKeyboardProps> = React.memo(({ onNoteO
                 onPointerEnter={(e) => {
                   e.preventDefault();
                   if (e.pointerType === 'touch') return;
-                  if (e.buttons === 1) handlePointerDown(noteNumber);
+                  if (e.buttons === 1) {
+                    const rect = e.currentTarget.getBoundingClientRect();
+                    const clickY = e.clientY - rect.top;
+                    const ratio = clickY / rect.height;
+                    const velocity = Math.min(1.0, Math.max(0.15, 0.2 + ratio * 0.8));
+                    handlePointerDown(noteNumber, velocity);
+                  }
                 }}
                 onPointerLeave={(e) => {
                   e.preventDefault();
@@ -132,7 +153,11 @@ export const PianoKeyboard: React.FC<PianoKeyboardProps> = React.memo(({ onNoteO
               }}
               onPointerDown={(e) => {
                 e.preventDefault();
-                handlePointerDown(noteNumber);
+                const rect = e.currentTarget.getBoundingClientRect();
+                const clickY = e.clientY - rect.top;
+                const ratio = clickY / rect.height; // 0 (top) to 1 (bottom)
+                const velocity = Math.min(1.0, Math.max(0.15, 0.2 + ratio * 0.8));
+                handlePointerDown(noteNumber, velocity);
               }}
               onPointerUp={(e) => {
                 e.preventDefault();
@@ -145,7 +170,13 @@ export const PianoKeyboard: React.FC<PianoKeyboardProps> = React.memo(({ onNoteO
               onPointerEnter={(e) => {
                 e.preventDefault();
                 if (e.pointerType === 'touch') return;
-                if (e.buttons === 1) handlePointerDown(noteNumber);
+                if (e.buttons === 1) {
+                  const rect = e.currentTarget.getBoundingClientRect();
+                  const clickY = e.clientY - rect.top;
+                  const ratio = clickY / rect.height;
+                  const velocity = Math.min(1.0, Math.max(0.15, 0.2 + ratio * 0.8));
+                  handlePointerDown(noteNumber, velocity);
+                }
               }}
               onPointerLeave={(e) => {
                 e.preventDefault();

@@ -261,6 +261,7 @@ interface VCO1SectionProps {
   vco1PulseWidth: number;
   vco1Waveform: string;
   vco1PwmMode: string;
+  vco1VelocitySensitivity: number;
   updateParam: (key: keyof VoiceParams, val: any) => void;
   isMidiMappingMode: boolean;
   handleMapClick: (param: keyof VoiceParams) => void;
@@ -269,7 +270,7 @@ interface VCO1SectionProps {
 }
 
 export const VCO1Section = React.memo<VCO1SectionProps>(({
-  vco1Range, crossMod, vco1PulseWidth, vco1Waveform, vco1PwmMode, updateParam, isMidiMappingMode, handleMapClick, getMappedCC, selectedMapParam
+  vco1Range, crossMod, vco1PulseWidth, vco1Waveform, vco1PwmMode, vco1VelocitySensitivity, updateParam, isMidiMappingMode, handleMapClick, getMappedCC, selectedMapParam
 }) => (
   <Section title="VCO-1">
     <JupiterSelector 
@@ -292,6 +293,17 @@ export const VCO1Section = React.memo<VCO1SectionProps>(({
       onMapClick={() => handleMapClick('crossMod')}
       mappedCC={getMappedCC('crossMod')}
       isSelected={selectedMapParam === 'crossMod'}
+    />
+    <JupiterSlider 
+      label="Velocity" 
+      value={vco1VelocitySensitivity} 
+      min={0} max={1} 
+      onChange={(v) => updateParam('vco1VelocitySensitivity', v)} 
+      color="bg-synth-vco"
+      isMapMode={isMidiMappingMode}
+      onMapClick={() => handleMapClick('vco1VelocitySensitivity')}
+      mappedCC={getMappedCC('vco1VelocitySensitivity')}
+      isSelected={selectedMapParam === 'vco1VelocitySensitivity'}
     />
     <JupiterSlider 
       label="PW" 
@@ -336,6 +348,7 @@ interface VCO2SectionProps {
   vco2Waveform: string;
   vco2Sync: boolean;
   vco2PwmMode: string;
+  vco2VelocitySensitivity: number;
   updateParam: (key: keyof VoiceParams, val: any) => void;
   isMidiMappingMode: boolean;
   handleMapClick: (param: keyof VoiceParams) => void;
@@ -344,7 +357,7 @@ interface VCO2SectionProps {
 }
 
 export const VCO2Section = React.memo<VCO2SectionProps>(({
-  vco2Range, vco2Freq, vco2Detune, vco2Waveform, vco2Sync, vco2PwmMode, updateParam, isMidiMappingMode, handleMapClick, getMappedCC, selectedMapParam
+  vco2Range, vco2Freq, vco2Detune, vco2Waveform, vco2Sync, vco2PwmMode, vco2VelocitySensitivity, updateParam, isMidiMappingMode, handleMapClick, getMappedCC, selectedMapParam
 }) => (
   <Section title="VCO-2">
     <JupiterSelector 
@@ -378,6 +391,17 @@ export const VCO2Section = React.memo<VCO2SectionProps>(({
       onMapClick={() => handleMapClick('vco2Detune')}
       mappedCC={getMappedCC('vco2Detune')}
       isSelected={selectedMapParam === 'vco2Detune'}
+    />
+    <JupiterSlider 
+      label="Velocity" 
+      value={vco2VelocitySensitivity} 
+      min={0} max={1} 
+      onChange={(v) => updateParam('vco2VelocitySensitivity', v)} 
+      color="bg-synth-vco"
+      isMapMode={isMidiMappingMode}
+      onMapClick={() => handleMapClick('vco2VelocitySensitivity')}
+      mappedCC={getMappedCC('vco2VelocitySensitivity')}
+      isSelected={selectedMapParam === 'vco2VelocitySensitivity'}
     />
     {vco2Waveform === 'pulse' && (
       <JupiterSelector 

@@ -33,6 +33,7 @@ import React from 'react';
 import Keyboard from 'react-simple-keyboard';
 import { PianoKeyboard } from './components/PianoKeyboard';
 import { SettingsModal } from './components/SettingsModal';
+import { MidiDebugger, MidiDebugEvent } from './components/MidiDebugger';
 import { SettingsProvider, useSettings } from './contexts/SettingsContext';
 import { googleSheetsService } from './services/GoogleSheetsService';
 import { indexedDBService } from './services/IndexedDBService';
@@ -80,6 +81,8 @@ function App() {
   const [midiMappings, setMidiMappings] = useState<MidiMapping[]>([]);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isMidiLogVisible, setIsMidiLogVisible] = useState(false);
+  const [midiDebugEvents, setMidiDebugEvents] = useState<MidiDebugEvent[]>([]);
+  const [isMidiDebuggerOpen, setIsMidiDebuggerOpen] = useState(false);
 
   const [patches, setPatches] = useState<Patch[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
@@ -427,20 +430,49 @@ function App() {
     }
   }, [isMidiMappingMode, selectedMapParam, activePatchId, midiMappings]);
 
+  const addMidiDebugEvent = React.useCallback((
+    type: 'Note On' | 'Note Off' | 'CC' | 'Pitch Bend' | 'Panic',
+    channel: number | string,
+    noteOrCC: string,
+    numValue: number,
+    velocityOrVal: string | number
+  ) => {
+    const timeStr = new Date().toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' }) + '.' + String(Date.now() % 1000).padStart(3, '0');
+    const newEvent: MidiDebugEvent = {
+      id: `${Date.now()}-${Math.random()}`,
+      timestamp: timeStr,
+      type,
+      channel: typeof channel === 'number' ? `Ch ${channel + 1}` : channel,
+      noteOrCC,
+      numValue,
+      velocityOrVal
+    };
+    setMidiDebugEvents(prev => [newEvent, ...prev].slice(0, 50));
+  }, []);
+
   const handlePanic = React.useCallback(() => {
     engineRef.current?.panic();
     setActiveNotes([]);
-  }, []);
+    addMidiDebugEvent('Panic', 'All', 'Panic/Reset', 0, 0);
+  }, [addMidiDebugEvent]);
 
   const handleNoteOn = React.useCallback((note: number, velocity: number = 0.8) => {
     engineRef.current?.noteOn(note, velocity);
     setActiveNotes(prev => [...prev.filter(n => n !== note), note]);
-  }, []);
+    
+    const noteNames = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+    const name = noteNames[note % 12] + (Math.floor(note / 12) - 1);
+    addMidiDebugEvent('Note On', 'V-Keys', `${name} (${note})`, note, Math.round(velocity * 127));
+  }, [addMidiDebugEvent]);
 
   const handleNoteOff = React.useCallback((note: number) => {
     engineRef.current?.noteOff(note);
     setActiveNotes(prev => prev.filter(n => n !== note));
-  }, []);
+
+    const noteNames = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+    const name = noteNames[note % 12] + (Math.floor(note / 12) - 1);
+    addMidiDebugEvent('Note Off', 'V-Keys', `${name} (${note})`, note, 0);
+  }, [addMidiDebugEvent]);
 
   const handlePitchBend = React.useCallback((value: number) => {
     engineRef.current?.setPitchBend(value);
@@ -454,6 +486,7 @@ function App() {
   const handlePanicRef = useRef<() => void>(() => {});
   const isMidiLogVisibleRef = useRef<boolean>(false);
   const addMidiLogRef = useRef<(data: Uint8Array) => void>(() => {});
+  const addMidiDebugRef = useRef<(type: 'Note On' | 'Note Off' | 'CC' | 'Pitch Bend' | 'Panic', channel: number | string, noteOrCC: string, numValue: number, velocityOrVal: string | number) => void>(() => {});
 
   // Synchronously update Callback Refs on every render cycle to prevent any lag or stale closures
   useEffect(() => {
@@ -464,6 +497,7 @@ function App() {
     handlePanicRef.current = handlePanic;
     addMidiLogRef.current = addMidiLog;
     isMidiLogVisibleRef.current = isMidiLogVisible;
+    addMidiDebugRef.current = addMidiDebugEvent;
   });
 
   useEffect(() => {
@@ -601,12 +635,31 @@ function App() {
       
       if (!midiRef.current) {
         midiRef.current = new MIDIService(
-          (note, velocity) => midiNoteOnRef.current(note, velocity / 127),
-          (note) => midiNoteOffRef.current(note),
-          (cc, value, channel) => midiCCRef.current(cc, value, channel),
+          (note, velocity) => {
+            const noteNames = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+            const name = noteNames[note % 12] + (Math.floor(note / 12) - 1);
+            addMidiDebugRef.current('Note On', settings.midiChannel || 'Omni', `${name} (${note})`, note, velocity);
+            midiNoteOnRef.current(note, velocity / 127);
+          },
+          (note) => {
+            const noteNames = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+            const name = noteNames[note % 12] + (Math.floor(note / 12) - 1);
+            addMidiDebugRef.current('Note Off', settings.midiChannel || 'Omni', `${name} (${note})`, note, 0);
+            midiNoteOffRef.current(note);
+          },
+          (cc, value, channel) => {
+            addMidiDebugRef.current('CC', channel, `CC ${cc}`, cc, value);
+            midiCCRef.current(cc, value, channel);
+          },
           (data) => addMidiLogRef.current(data),
-          (value) => midiPitchBendRef.current(value),
-          () => handlePanicRef.current()
+          (value) => {
+            addMidiDebugRef.current('Pitch Bend', 'Any', 'Bend', value, value - 8192);
+            midiPitchBendRef.current(value);
+          },
+          () => {
+            addMidiDebugRef.current('Panic', 'All', 'Panic', 0, 0);
+            handlePanicRef.current();
+          }
         );
         midiRef.current.init().then(() => {
           midiRef.current?.setFilter(settings.midiInputId, settings.midiChannel);
@@ -776,6 +829,7 @@ function App() {
             vco1PulseWidth={params.vco1PulseWidth}
             vco1Waveform={params.vco1Waveform}
             vco1PwmMode={params.vco1PwmMode}
+            vco1VelocitySensitivity={params.vco1VelocitySensitivity}
             updateParam={updateParam}
             isMidiMappingMode={isMidiMappingMode}
             handleMapClick={handleMapClick}
@@ -790,6 +844,7 @@ function App() {
             vco2Waveform={params.vco2Waveform}
             vco2Sync={params.vco2Sync}
             vco2PwmMode={params.vco2PwmMode}
+            vco2VelocitySensitivity={params.vco2VelocitySensitivity}
             updateParam={updateParam}
             isMidiMappingMode={isMidiMappingMode}
             handleMapClick={handleMapClick}
@@ -1202,6 +1257,16 @@ function App() {
           </button>
 
           <button 
+            onClick={() => setIsMidiDebuggerOpen(!isMidiDebuggerOpen)}
+            className={`flex items-center gap-1.5 px-2 sm:px-3 h-full border-l border-synth-border transition-all uppercase text-[9px] font-bold tracking-widest ${
+              isMidiDebuggerOpen ? 'bg-orange-600 text-white' : 'text-zinc-500 hover:bg-white/5'
+            }`}
+          >
+            <Activity size={10} />
+            <span className="hidden lg:inline">MIDI DEBUG</span>
+          </button>
+
+          <button 
             onClick={handlePanic}
             className="flex items-center gap-1.5 px-2 sm:px-3 h-full border-l border-synth-border transition-all uppercase text-[9px] font-bold tracking-widest text-red-500 hover:bg-red-500/10"
           >
@@ -1507,6 +1572,16 @@ function App() {
         )}
 
         <SettingsModal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} />
+
+        <MidiDebugger 
+          isOpen={isMidiDebuggerOpen}
+          onClose={() => setIsMidiDebuggerOpen(false)}
+          events={midiDebugEvents}
+          onClear={() => setMidiDebugEvents([])}
+          onSimulateNoteOn={handleNoteOn}
+          onSimulateNoteOff={handleNoteOff}
+          onSimulateCC={handleMidiCC}
+        />
       </div>
     );
   }
