@@ -123,6 +123,7 @@ interface SliderProps {
   mappedCC?: string | number;
   isSelected?: boolean;
   onMapClick?: () => void;
+  logarithmic?: boolean;
 }
 
 export const JupiterSlider: React.FC<SliderProps> = React.memo(({ 
@@ -137,18 +138,40 @@ export const JupiterSlider: React.FC<SliderProps> = React.memo(({
   isMapMode = false,
   mappedCC,
   isSelected = false,
-  onMapClick
+  onMapClick,
+  logarithmic = false
 }) => {
   const [isDragging, setIsDragging] = React.useState(false);
-  const percentage = ((value - min) / (max - min)) * 100;
+  
+  const safeValue = value > 0 ? value : min;
+  const safeMin = min > 0 ? min : 0.01;
+  const percentage = logarithmic 
+    ? (Math.log(safeValue / safeMin) / Math.log(max / safeMin)) * 100
+    : ((value - min) / (max - min)) * 100;
 
   const handlePointer = (e: React.PointerEvent<HTMLDivElement>) => {
     if (isMapMode) return;
     const rect = e.currentTarget.getBoundingClientRect();
     if (rect.height === 0) return;
     const y = Math.max(0, Math.min(rect.height, e.clientY - rect.top));
-    const newVal = max - (y / rect.height) * (max - min);
-    onChange(newVal);
+    const p = 1 - (y / rect.height);
+    
+    let newVal;
+    if (logarithmic) {
+      newVal = safeMin * Math.pow(max / safeMin, p);
+    } else {
+      newVal = min + p * (max - min);
+    }
+
+    if (step && !logarithmic) {
+      const stepped = Math.round(newVal / step) * step;
+      onChange(Math.max(min, Math.min(max, stepped)));
+    } else if (logarithmic) {
+      const rounded = Math.round(newVal);
+      onChange(Math.max(min, Math.min(max, rounded)));
+    } else {
+      onChange(Math.max(min, Math.min(max, newVal)));
+    }
   };
 
   return (

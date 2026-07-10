@@ -463,9 +463,10 @@ export const VCFSection = React.memo<VCFSectionProps>(({
     <JupiterSlider 
       label="Freq" 
       value={filterCutoff} 
-      min={20} max={15000} 
+      min={20} max={20000} 
       onChange={(v) => updateParam('filterCutoff', v)} 
       color="bg-synth-vcf"
+      logarithmic={true}
       isMapMode={isMidiMappingMode}
       onMapClick={() => handleMapClick('filterCutoff')}
       mappedCC={getMappedCC('filterCutoff')}

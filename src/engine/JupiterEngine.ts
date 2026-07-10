@@ -22,7 +22,7 @@ class Voice {
   private filter: BiquadFilterNode;
   private vca: GainNode;
   private output: GainNode;
-  private filterLfoMod: GainNode;
+  public filterLfoMod: GainNode;
   private vcaLfoMod: GainNode;
   private vcoLfoMod: GainNode;
   private crossModGain: GainNode;
@@ -43,7 +43,7 @@ class Voice {
   private vco2PwmOffset: ConstantSourceNode | null = null;
   private vco2PwmShaper: WaveShaperNode | null = null;
 
-  private params: VoiceParams;
+  public params: VoiceParams;
   private perfSettings: PerformanceSettings;
   private pitchBendOffset: number = 0; // in semitones
   private velocity: number = 1;
@@ -241,7 +241,9 @@ class Voice {
       : params.vcaLfoAmount) * lfoVelScale;
 
     if (isPastDelay) {
-      this.filterLfoMod.gain.setTargetAtTime(params.filterLfoAmount * 5000 * lfoVelScale, time, 0.05);
+      const safeCutoff = Math.max(20, params.filterCutoff);
+      const scale = Math.max(0, Math.min(1, Math.log(safeCutoff / 20) / Math.log(20000 / 20)));
+      this.filterLfoMod.gain.setTargetAtTime(params.filterLfoAmount * 5000 * lfoVelScale * scale, time, 0.05);
       this.vcaLfoMod.gain.setTargetAtTime(vcaLfoTarget, time, 0.05);
       this.vcoLfoMod.gain.setTargetAtTime(params.vcoLfoAmount * 100 * lfoVelScale, time, 0.05); 
     }
@@ -576,10 +578,13 @@ class Voice {
     const sustainLevel = Math.max(0.0001, vcaSustain * velocityScale);
     this.vca.gain.setTargetAtTime(sustainLevel, time + Math.max(0.003, vcaAttack), Math.max(0.01, vcaDecay));
 
-    // LFO Modulation Gain Scheduling (Delay and Fade-In, scaled by LFO velocity sensitivity)
+    const safeCutoff = Math.max(20, filterCutoff);
+    const scale = Math.max(0, Math.min(1, Math.log(safeCutoff / 20) / Math.log(20000 / 20)));
+
+    // LFO Modulation Gain Scheduling (Delay and Fade-In, scaled by LFO velocity sensitivity and VCF scale)
     const lfoVelScale = 1.0 - (1.0 - velocity) * this.params.lfoVelocitySensitivity;
     const delay = this.params.lfoDelay || 0;
-    const filterLfoTarget = this.params.filterLfoAmount * 5000 * lfoVelScale;
+    const filterLfoTarget = this.params.filterLfoAmount * 5000 * lfoVelScale * scale;
     const vcoLfoTarget = this.params.vcoLfoAmount * 100 * lfoVelScale;
     const vcaLfoTarget = (this.params.vcaSource === 'lfo' 
       ? Math.max(0.3, this.params.vcaLfoAmount) 
@@ -596,7 +601,7 @@ class Voice {
       
       this.filterLfoMod.gain.setValueAtTime(0, time + delay);
       this.vcaLfoMod.gain.setValueAtTime(0, time + delay);
-      this.vcoLfoMod.gain.setValueAtTime(0, time + delay);
+      this.vcaLfoMod.gain.setValueAtTime(0, time + delay);
 
       const fadeTime = 0.8;
       this.filterLfoMod.gain.linearRampToValueAtTime(filterLfoTarget, time + delay + fadeTime);
@@ -613,13 +618,13 @@ class Voice {
     const envDecay = filterEnvSource === 'env1' ? env1Decay : env2Decay;
     const envSustain = filterEnvSource === 'env1' ? env1Sustain : env2Sustain;
 
-    // Keyboard tracking
-    const kbdMod = (midiNote - 64) * (this.params.filterKeyboardTrack * 100);
+    // Keyboard tracking scaled by VCF scale
+    const kbdMod = (midiNote - 64) * (this.params.filterKeyboardTrack * 100) * scale;
     
-    // Velocity also scales filter cutoff for more expression, using our dedicated filterVelocitySensitivity parameter
-    const velCutoffMod = (velocity - 1) * this.params.filterVelocitySensitivity * 5000;
+    // Velocity also scales filter cutoff, scaled by VCF scale
+    const velCutoffMod = (velocity - 1) * this.params.filterVelocitySensitivity * 5000 * scale;
     const baseCutoff = Math.max(20, filterCutoff + velCutoffMod + kbdMod);
-    const targetCutoff = Math.min(20000, baseCutoff + filterEnvAmount * 10000);
+    const targetCutoff = Math.min(20000, baseCutoff + filterEnvAmount * 10000 * scale);
 
     // Smooth VCF attack sweep starting from the current filter frequency to prevent jumping clicks/resets
     this.filter.frequency.cancelScheduledValues(time);
@@ -1975,8 +1980,9 @@ export class JupiterEngine {
         const time = this.ctx.currentTime;
         // The mod wheel adds to the filterLfoAmount
         const totalLfoAmount = this.params.filterLfoAmount + (this.currentModWheel * 0.5); 
-        // @ts-ignore - access private gain for quick implementation
-        v.filterLfoMod.gain.setTargetAtTime(totalLfoAmount * 5000, time, 0.05);
+        const safeCutoff = Math.max(20, v.params.filterCutoff);
+        const scale = Math.max(0, Math.min(1, Math.log(safeCutoff / 20) / Math.log(20000 / 20)));
+        v.filterLfoMod.gain.setTargetAtTime(totalLfoAmount * 5000 * scale, time, 0.05);
       }
     });
   }

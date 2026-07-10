@@ -329,7 +329,7 @@ function App() {
     // 3. Slider key value scaling ranges
     const ranges: Record<string, [number, number]> = {
       lfoRate: [0.1, 50],
-      filterCutoff: [20, 15000],
+      filterCutoff: [20, 20000],
       vco2Freq: [-12, 12],
       vco2Detune: [-100, 100],
       vcaLevel: [0, 1],
@@ -375,6 +375,10 @@ function App() {
     const [min, max] = ranges[key] || [0, 1];
     const normalizedValue = ccValue / 127;
     let mappedValue = min + normalizedValue * (max - min);
+
+    if (key === 'filterCutoff') {
+      mappedValue = min * Math.pow(max / min, normalizedValue);
+    }
 
     // Apply integer rounding to Hammond DRAWBAR sliders
     if (key.startsWith('hammondDb') && key !== 'hammondKeyClick') {
