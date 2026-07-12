@@ -170,6 +170,26 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                       </div>
                       <p className="text-[9px] text-zinc-600 uppercase font-bold tracking-tight">How much velocity affects volume/filter.</p>
                     </div>
+
+                    <div className="space-y-2 md:col-span-2 pt-2 border-t border-zinc-800/60">
+                      <label className="text-[10px] uppercase tracking-widest text-zinc-500 font-bold">microKONTROL Auto-Connect</label>
+                      <label className="flex items-center gap-3 cursor-pointer group">
+                        <div 
+                          onClick={() => updateSettings({ autoConnectMicroKontrol: !settings.autoConnectMicroKontrol })}
+                          className={`w-10 h-5 rounded-full transition-colors relative border ${
+                            settings.autoConnectMicroKontrol ? 'bg-orange-500 border-orange-400' : 'bg-zinc-800 border-zinc-700'
+                          }`}
+                        >
+                          <div className={`absolute top-1/2 -translate-y-1/2 w-3.5 h-3.5 bg-white rounded-full transition-all ${
+                            settings.autoConnectMicroKontrol ? 'left-[22px]' : 'left-[4px]'
+                          }`} />
+                        </div>
+                        <span className="text-xs text-zinc-400 group-hover:text-zinc-200 transition-colors">
+                          Auto-connect all ports containing "microKONTROL" (USB MIDI)
+                        </span>
+                      </label>
+                      <p className="text-[9px] text-zinc-600 uppercase font-bold tracking-tight">Automatically connects and listens to all microKONTROL ports in addition to the selected input device.</p>
+                    </div>
                   </div>
                 </section>
 

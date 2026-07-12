@@ -558,9 +558,9 @@ function App() {
 
   useEffect(() => {
     if (midiRef.current) {
-      midiRef.current.setFilter(settings.midiInputId, settings.midiChannel);
+      midiRef.current.setFilter(settings.midiInputId, settings.midiChannel, settings.autoConnectMicroKontrol);
     }
-  }, [settings.midiInputId, settings.midiChannel]);
+  }, [settings.midiInputId, settings.midiChannel, settings.autoConnectMicroKontrol]);
 
   useEffect(() => {
     if (patches.length > 0) {
@@ -666,7 +666,7 @@ function App() {
           }
         );
         midiRef.current.init().then(() => {
-          midiRef.current?.setFilter(settings.midiInputId, settings.midiChannel);
+          midiRef.current?.setFilter(settings.midiInputId, settings.midiChannel, settings.autoConnectMicroKontrol);
         });
       }
     }

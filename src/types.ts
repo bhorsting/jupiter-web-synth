@@ -309,6 +309,7 @@ export interface PerformanceSettings {
   pitchBendRange: number;
   velocitySensitivity: number;
   googleSheetUrl: string;
+  autoConnectMicroKontrol: boolean;
 }
 
 export const DEFAULT_PERFORMANCE_SETTINGS: PerformanceSettings = {
@@ -323,6 +324,7 @@ export const DEFAULT_PERFORMANCE_SETTINGS: PerformanceSettings = {
   pitchBendRange: 2,
   velocitySensitivity: 0.5,
   googleSheetUrl: '',
+  autoConnectMicroKontrol: true,
 };
 
 export function cleanVoiceParams(rawParams: any): VoiceParams {

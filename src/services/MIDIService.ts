@@ -20,6 +20,7 @@ export class MIDIService {
   private inputId: string = 'all';
   private channel: number = 0; // 0 for all
   private runningStatus: number = 0;
+  private autoConnectMicroKontrol: boolean = false;
 
   constructor(
     onNoteOn: MIDICallback, 
@@ -67,9 +68,10 @@ export class MIDIService {
     }
   }
 
-  setFilter(inputId: string, channel: number) {
+  setFilter(inputId: string, channel: number, autoConnectMicroKontrol: boolean = false) {
     this.inputId = inputId;
     this.channel = channel;
+    this.autoConnectMicroKontrol = autoConnectMicroKontrol;
     this.setupInputs();
   }
 
@@ -89,8 +91,16 @@ export class MIDIService {
       // Clear existing listeners
       input.onmidimessage = null;
 
-      // Attach listener if it matches filter or filter is 'all'
-      if (this.inputId === 'all' || this.inputId === input.id) {
+      const isMicroKontrol = !!(input.name && input.name.toLowerCase().includes('microkontrol'));
+
+      // Attach listener if it matches filter or filter is 'all',
+      // or if microKONTROL auto-connect is active and input name contains "microkontrol"
+      const shouldListen = 
+        this.inputId === 'all' || 
+        this.inputId === input.id || 
+        (this.autoConnectMicroKontrol && isMicroKontrol);
+
+      if (shouldListen) {
         input.onmidimessage = (event) => this.handleMIDIMessage(event, input.id);
       }
     });
@@ -100,8 +110,16 @@ export class MIDIService {
    * Directly process raw MIDI bytes from an external source
    */
   processRawMIDI(data: Uint8Array, sourceId: string = 'external') {
+    let isMicroKontrolSource = false;
+    if (this.access && this.autoConnectMicroKontrol && sourceId !== 'external' && sourceId !== 'capacitor-shell') {
+      const input = this.access.inputs.get(sourceId);
+      if (input && input.name && input.name.toLowerCase().includes('microkontrol')) {
+        isMicroKontrolSource = true;
+      }
+    }
+
     // If it's a specific device being tracked, check filter. Always allow 'capacitor-shell' to bypass the input filter.
-    if (sourceId !== 'capacitor-shell' && this.inputId !== 'all' && this.inputId !== sourceId) return;
+    if (sourceId !== 'capacitor-shell' && this.inputId !== 'all' && this.inputId !== sourceId && !isMicroKontrolSource) return;
 
     if (this.onMessage) this.onMessage(data);
     
