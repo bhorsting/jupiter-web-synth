@@ -302,7 +302,6 @@ export interface PerformanceSettings {
   sampleRate: number;
   audioBufferLength: 128 | 256 | 512 | 1024 | 2048;
   latencyHint: 'balanced' | 'interactive' | 'playback' | 0;
-  enableOscilloscope: boolean;
   theme: 'jupiter' | 'dark' | 'light';
   midiInputId: string;
   midiChannel: number; // 0 for all channels, 1-16 for specific
@@ -317,7 +316,6 @@ export const DEFAULT_PERFORMANCE_SETTINGS: PerformanceSettings = {
   sampleRate: 44100,
   audioBufferLength: 512,
   latencyHint: 'interactive',
-  enableOscilloscope: true,
   theme: 'jupiter',
   midiInputId: 'all',
   midiChannel: 0,

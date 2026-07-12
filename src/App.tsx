@@ -5,7 +5,6 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { JupiterSlider, JupiterToggle, JupiterSelector } from './components/Controls';
-import { Oscilloscope } from './components/Oscilloscope';
 import { JupiterEngine } from './engine/JupiterEngine';
 import { MIDIService } from './services/MIDIService';
 import { 
@@ -89,6 +88,22 @@ function App() {
   const [isRestored, setIsRestored] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [isEncoding, setIsEncoding] = useState(false);
+
+  const [midiLedActive, setMidiLedActive] = useState(false);
+  const midiLedTimeoutRef = useRef<number | null>(null);
+
+  const triggerMidiLedFlash = React.useCallback(() => {
+    setMidiLedActive(true);
+    if (midiLedTimeoutRef.current !== null) {
+      window.clearTimeout(midiLedTimeoutRef.current);
+    }
+    midiLedTimeoutRef.current = window.setTimeout(() => {
+      setMidiLedActive(false);
+      midiLedTimeoutRef.current = null;
+    }, 100);
+  }, []);
+
+  const triggerMidiLedFlashRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
     const handleFsChange = () => setIsFullscreen(!!document.fullscreenElement);
@@ -502,6 +517,7 @@ function App() {
     addMidiLogRef.current = addMidiLog;
     isMidiLogVisibleRef.current = isMidiLogVisible;
     addMidiDebugRef.current = addMidiDebugEvent;
+    triggerMidiLedFlashRef.current = triggerMidiLedFlash;
   });
 
   useEffect(() => {
@@ -655,7 +671,10 @@ function App() {
             addMidiDebugRef.current('CC', channel, `CC ${cc}`, cc, value);
             midiCCRef.current(cc, value, channel);
           },
-          (data) => addMidiLogRef.current(data),
+          (data) => {
+            addMidiLogRef.current(data);
+            triggerMidiLedFlashRef.current?.();
+          },
           (value) => {
             addMidiDebugRef.current('Pitch Bend', 'Any', 'Bend', value, value - 8192);
             midiPitchBendRef.current(value);
@@ -1207,19 +1226,14 @@ function App() {
 
         <div className="flex items-center gap-1 sm:gap-2 ml-2 h-full">
           <div className="flex items-center gap-1.5 h-full">
-            <div 
-              className="hidden sm:flex h-full items-center px-2 cursor-pointer hover:bg-white/5 transition-colors group relative"
-              onClick={() => updateSettings({ enableOscilloscope: !settings.enableOscilloscope })}
-              title={settings.enableOscilloscope ? "Click to disable visualizer (CPU Intensive)" : "Click to enable visualizer"}
-            >
-              {!settings.enableOscilloscope && (
-                <div className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity z-10 rounded">
-                  <span className="text-[6px] font-bold text-white uppercase tracking-widest">CPU SAVER ON</span>
-                </div>
-              )}
-              <Oscilloscope 
-                analyser={settings.enableOscilloscope ? (engineRef.current?.getAnalyser() || null) : null} 
-                isActive={engineReady && settings.enableOscilloscope} 
+            <div className="flex h-full items-center px-2 sm:px-3 border-l border-white/5 gap-2 select-none" title="MIDI Input Status Indicator">
+              <span className="text-[8px] sm:text-[9px] uppercase tracking-widest text-zinc-500 font-bold">MIDI IN</span>
+              <div 
+                className={`w-2 h-2 sm:w-2.5 sm:h-2.5 rounded-full transition-all duration-100 ${
+                  midiLedActive 
+                    ? 'bg-orange-500 shadow-[0_0_8px_#f97316] scale-110' 
+                    : 'bg-zinc-800 shadow-none scale-100'
+                }`}
               />
             </div>
             <button 
