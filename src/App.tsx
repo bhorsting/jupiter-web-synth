@@ -673,7 +673,12 @@ function App() {
           },
           (data) => {
             addMidiLogRef.current(data);
-            triggerMidiLedFlashRef.current?.();
+            // Check if this packet contains any non-realtime message
+            // Realtime messages are 0xF8 to 0xFF (Clock, Active Sensing, etc.)
+            const hasNonRealtime = Array.from(data).some(b => b < 0xF8);
+            if (hasNonRealtime) {
+              triggerMidiLedFlashRef.current?.();
+            }
           },
           (value) => {
             addMidiDebugRef.current('Pitch Bend', 'Any', 'Bend', value, value - 8192);
