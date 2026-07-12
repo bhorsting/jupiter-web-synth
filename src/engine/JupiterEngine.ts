@@ -914,6 +914,8 @@ export class JupiterEngine {
   private distortionFeedbackGain: GainNode | null = null;
   private distortionFeedbackFilter: BiquadFilterNode | null = null;
   private distortionFeedbackDelay: DelayNode | null = null;
+  private lastDistortionMode: string | null = null;
+  private lastDistortionAmount: number | null = null;
 
   // Leslie (Rotary)
   private leslieLFO: OscillatorNode | null = null;
@@ -1546,39 +1548,45 @@ export class JupiterEngine {
     if (this.distortion && this.distortionGain && this.distortionDry) {
       const mode = this.params.distortionMode || 'default';
       const amount = this.params.distortionAmount;
-      const n_samples = 44100;
-      const curve = new Float32Array(n_samples);
 
-      if (mode === 'tube') {
-        const kFactor = amount * 12 + 1;
-        for (let i = 0; i < n_samples; ++i) {
-          const x = (i * 2) / n_samples - 1;
-          if (x < 0) {
-            // Negative input: soft, smooth exponential saturation
-            curve[i] = - (1.0 - Math.exp(x * kFactor)) / (1.0 - Math.exp(-kFactor));
-          } else {
-            // Positive input: asymmetric, harder, richer exponential drive
-            curve[i] = (1.0 - Math.exp(-x * kFactor * 1.5)) / (1.0 - Math.exp(-kFactor * 1.5));
+      if (this.lastDistortionMode !== mode || this.lastDistortionAmount !== amount) {
+        const n_samples = 44100;
+        const curve = new Float32Array(n_samples);
+
+        if (mode === 'tube') {
+          const kFactor = amount * 12 + 1;
+          for (let i = 0; i < n_samples; ++i) {
+            const x = (i * 2) / n_samples - 1;
+            if (x < 0) {
+              // Negative input: soft, smooth exponential saturation
+              curve[i] = - (1.0 - Math.exp(x * kFactor)) / (1.0 - Math.exp(-kFactor));
+            } else {
+              // Positive input: asymmetric, harder, richer exponential drive
+              curve[i] = (1.0 - Math.exp(-x * kFactor * 1.5)) / (1.0 - Math.exp(-kFactor * 1.5));
+            }
+          }
+        } else if (mode === 'feedback') {
+          // High gain to stimulate feedback loop oscillation
+          const k = amount * 120 + 20;
+          for (let i = 0; i < n_samples; ++i) {
+            const x = (i * 2) / n_samples - 1;
+            curve[i] = (Math.PI + k) * x / (Math.PI + k * Math.abs(x));
+          }
+        } else {
+          // Default standard soft/hard sigmoid clipping
+          const k = amount * 100;
+          for (let i = 0; i < n_samples; ++i) {
+            const x = (i * 2) / n_samples - 1;
+            curve[i] = (Math.PI + k) * x / (Math.PI + k * Math.abs(x));
           }
         }
-      } else if (mode === 'feedback') {
-        // High gain to stimulate feedback loop oscillation
-        const k = amount * 120 + 20;
-        for (let i = 0; i < n_samples; ++i) {
-          const x = (i * 2) / n_samples - 1;
-          curve[i] = (Math.PI + k) * x / (Math.PI + k * Math.abs(x));
-        }
-      } else {
-        // Default standard soft/hard sigmoid clipping
-        const k = amount * 100;
-        for (let i = 0; i < n_samples; ++i) {
-          const x = (i * 2) / n_samples - 1;
-          curve[i] = (Math.PI + k) * x / (Math.PI + k * Math.abs(x));
-        }
-      }
 
-      this.distortion.curve = curve;
-      this.distortion.oversample = 'none';
+        this.distortion.curve = curve;
+        this.distortion.oversample = 'none';
+
+        this.lastDistortionMode = mode;
+        this.lastDistortionAmount = amount;
+      }
 
       // Updates for the Feedback Overdrive loop nodes
       if (this.distortionFeedbackFilter) {
