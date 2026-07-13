@@ -1294,6 +1294,17 @@ class SlotFXChain {
   }
 }
 
+interface ArpState {
+  heldNotes: number[];
+  playedNotes: number[];
+  arpTimer: number | null;
+  arpIndex: number;
+  arpDirection: 1 | -1;
+  slotIndex: number;
+  patchId: string | null;
+  patchParams: VoiceParams;
+}
+
 export class JupiterEngine {
   private ctx: AudioContext | null = null;
   private voices: Voice[] = [];
@@ -1351,13 +1362,8 @@ export class JupiterEngine {
   }
   
   // Arpeggiator State
-  private heldNotes: number[] = [];
-  private playedNotes: number[] = [];
+  private activeArps: Map<string, ArpState> = new Map();
   private lastReleaseTime: number = 0;
-  private arpTimer: number | null = null;
-  private arpIndex: number = 0;
-  private arpDirection: 1 | -1 = 1;
-  private activeArpNotes: Map<number, Voice> = new Map();
 
   private mainGain: GainNode | null = null;
   private masterBus: GainNode | null = null;
@@ -2178,9 +2184,47 @@ export class JupiterEngine {
     const divChanged = oldParams.arpSyncDivision !== params.arpSyncDivision;
     const bpmChanged = oldParams.bpm !== params.bpm;
 
-    if (this.arpTimer && (rateChanged || syncChanged || divChanged || bpmChanged)) {
-      this.stopArpeggiator();
-      this.startArpeggiator();
+    if (this.activeMulti && targetPatchId) {
+      this.activeMulti.slots.forEach((slot, index) => {
+        const key = `slot_${index}`;
+        const arp = this.activeArps.get(key);
+        if (arp && slot.patchId === targetPatchId) {
+          const oldArpParams = arp.patchParams;
+          arp.patchParams = params;
+
+          const slotRateChanged = oldArpParams.arpRate !== params.arpRate;
+          const slotSyncChanged = oldArpParams.arpSync !== params.arpSync;
+          const slotDivChanged = oldArpParams.arpSyncDivision !== params.arpSyncDivision;
+          const slotBpmChanged = oldArpParams.bpm !== params.bpm;
+
+          if (arp.arpTimer && (slotRateChanged || slotSyncChanged || slotDivChanged || slotBpmChanged)) {
+            clearInterval(arp.arpTimer);
+            arp.arpTimer = null;
+
+            const interval = params.arpSync
+              ? this.getIntervalFromBPM(params.bpm, params.arpSyncDivision)
+              : 60000 / (params.arpRate * 4);
+
+            arp.arpTimer = window.setInterval(() => this.tickArpInstance(key), interval);
+          }
+        }
+      });
+    } else {
+      const key = "single";
+      const arp = this.activeArps.get(key);
+      if (arp) {
+        arp.patchParams = params;
+        if (arp.arpTimer && (rateChanged || syncChanged || divChanged || bpmChanged)) {
+          clearInterval(arp.arpTimer);
+          arp.arpTimer = null;
+
+          const interval = params.arpSync
+            ? this.getIntervalFromBPM(params.bpm, params.arpSyncDivision)
+            : 60000 / (params.arpRate * 4);
+
+          arp.arpTimer = window.setInterval(() => this.tickArpInstance(key), interval);
+        }
+      }
     }
 
     // Reactive Metronome state propagation
@@ -2420,49 +2464,84 @@ export class JupiterEngine {
     
     if (this.activeMulti) {
       const incomingVel127 = Math.round(velocity * 127);
-      // Find all matching slots in the multi
-      const matchingSlots = this.activeMulti.slots.filter(slot => {
-        return (
+      
+      this.activeMulti.slots.forEach((slot, index) => {
+        if (
           midiNote >= slot.lowNote &&
           midiNote <= slot.highNote &&
           incomingVel127 >= slot.lowVelocity &&
           incomingVel127 <= slot.highVelocity
-        );
-      });
+        ) {
+          const patch = this.libraryPatches.find(p => p.id === slot.patchId);
+          if (!patch) return;
 
-      if (matchingSlots.length === 0) return;
+          if (patch.params.arpEnabled) {
+            const key = `slot_${index}`;
+            let arp = this.activeArps.get(key);
+            if (!arp) {
+              arp = {
+                heldNotes: [],
+                playedNotes: [],
+                arpTimer: null,
+                arpIndex: -1,
+                arpDirection: 1,
+                slotIndex: index,
+                patchId: slot.patchId,
+                patchParams: patch.params
+              };
+              this.activeArps.set(key, arp);
+            }
+            if (!arp.heldNotes.includes(midiNote)) {
+              arp.heldNotes.push(midiNote);
+              arp.heldNotes.sort((a, b) => a - b);
+              arp.playedNotes.push(midiNote);
+            }
+            this.startArpInstance(key, index, slot.patchId, patch.params);
+          } else {
+            // Calculate transposed note
+            const playedNote = midiNote + (slot.transposeOctave || 0) * 12 + (slot.transposeNote || 0);
+            if (playedNote < 0 || playedNote > 127) return;
 
-      matchingSlots.forEach(slot => {
-        const patch = this.libraryPatches.find(p => p.id === slot.patchId);
-        if (!patch) return;
+            // Map velocity
+            let mappedVelocity = velocity;
+            if (slot.highVelocity !== slot.lowVelocity) {
+              const t = (incomingVel127 - slot.lowVelocity) / (slot.highVelocity - slot.lowVelocity);
+              const mappedVel127 = slot.lowMapVelocity + t * (slot.highMapVelocity - slot.lowMapVelocity);
+              mappedVelocity = Math.max(0, Math.min(127, mappedVel127)) / 127;
+            } else {
+              mappedVelocity = slot.lowMapVelocity / 127;
+            }
 
-        // Calculate transposed note
-        const playedNote = midiNote + (slot.transposeOctave || 0) * 12 + (slot.transposeNote || 0);
-        if (playedNote < 0 || playedNote > 127) return;
-
-        // Map velocity
-        let mappedVelocity = velocity;
-        if (slot.highVelocity !== slot.lowVelocity) {
-          const t = (incomingVel127 - slot.lowVelocity) / (slot.highVelocity - slot.lowVelocity);
-          const mappedVel127 = slot.lowMapVelocity + t * (slot.highMapVelocity - slot.lowMapVelocity);
-          mappedVelocity = Math.max(0, Math.min(127, mappedVel127)) / 127;
-        } else {
-          mappedVelocity = slot.lowMapVelocity / 127;
+            // Trigger note internally with specific patch and transpose info
+            this.internalNoteOn(playedNote, mappedVelocity, slot.patchId, patch.params, midiNote);
+          }
         }
-
-        // Trigger note internally with specific patch and transpose info
-        this.internalNoteOn(playedNote, mappedVelocity, slot.patchId, patch.params, midiNote);
       });
       return;
     }
 
     if (this.params.arpEnabled) {
-      if (!this.heldNotes.includes(midiNote)) {
-        this.heldNotes.push(midiNote);
-        this.heldNotes.sort((a, b) => a - b);
-        this.playedNotes.push(midiNote);
+      const key = "single";
+      let arp = this.activeArps.get(key);
+      if (!arp) {
+        arp = {
+          heldNotes: [],
+          playedNotes: [],
+          arpTimer: null,
+          arpIndex: -1,
+          arpDirection: 1,
+          slotIndex: -1,
+          patchId: null,
+          patchParams: this.params
+        };
+        this.activeArps.set(key, arp);
       }
-      this.startArpeggiator();
+      if (!arp.heldNotes.includes(midiNote)) {
+        arp.heldNotes.push(midiNote);
+        arp.heldNotes.sort((a, b) => a - b);
+        arp.playedNotes.push(midiNote);
+      }
+      this.startArpInstance(key, -1, null, this.params);
       return;
     }
 
@@ -2555,8 +2634,34 @@ export class JupiterEngine {
 
   noteOff(midiNote: number) {
     if (this.activeMulti) {
+      this.activeMulti.slots.forEach((slot, index) => {
+        const key = `slot_${index}`;
+        const arp = this.activeArps.get(key);
+        if (arp) {
+          arp.heldNotes = arp.heldNotes.filter(n => n !== midiNote);
+          arp.playedNotes = arp.playedNotes.filter(n => n !== midiNote);
+          if (arp.heldNotes.length === 0) {
+            this.stopArpInstance(key);
+          }
+        }
+      });
+
       // Find all voices triggered by this original key note
-      const matchingVoices = this.voices.filter(v => v.originalMidiNote === midiNote);
+      // EXCEPT voices belonging to slot(s) where arpeggiator is active
+      const matchingVoices = this.voices.filter(v => {
+        if (v.originalMidiNote !== midiNote) return false;
+        if (v.currentPatchId && this.activeMulti) {
+          const slotIndex = this.activeMulti.slots.findIndex(s => s.patchId === v.currentPatchId);
+          if (slotIndex !== -1) {
+            const patch = this.libraryPatches.find(p => p.id === v.currentPatchId);
+            if (patch && patch.params.arpEnabled) {
+              return false; // let the arp handle its note-off
+            }
+          }
+        }
+        return true;
+      });
+
       if (matchingVoices.length > 0 && this.ctx) {
         matchingVoices.forEach(voice => {
           if (!voice.isReleasing) {
@@ -2568,11 +2673,12 @@ export class JupiterEngine {
       return;
     }
 
-    if (this.params.arpEnabled) {
-      this.heldNotes = this.heldNotes.filter(n => n !== midiNote);
-      this.playedNotes = this.playedNotes.filter(n => n !== midiNote);
-      if (this.heldNotes.length === 0) {
-        this.stopArpeggiator();
+    const singleArp = this.activeArps.get("single");
+    if (singleArp) {
+      singleArp.heldNotes = singleArp.heldNotes.filter(n => n !== midiNote);
+      singleArp.playedNotes = singleArp.playedNotes.filter(n => n !== midiNote);
+      if (singleArp.heldNotes.length === 0) {
+        this.stopArpInstance("single");
       }
       return;
     }
@@ -2612,77 +2718,122 @@ export class JupiterEngine {
     });
   }
 
-  private startArpeggiator() {
-    if (this.arpTimer) return;
-    this.arpIndex = -1;
-    this.arpDirection = 1;
-    this.tickArp();
-    
-    const interval = this.params.arpSync
-      ? this.getIntervalFromBPM(this.params.bpm, this.params.arpSyncDivision)
-      : 60000 / (this.params.arpRate * 4); // legacy fallback
-      
-    this.arpTimer = window.setInterval(() => this.tickArp(), interval);
-  }
-
-  private stopArpeggiator() {
-    if (this.arpTimer) {
-      clearInterval(this.arpTimer);
-      this.arpTimer = null;
+  private startArpInstance(key: string, slotIndex: number, patchId: string | null, patchParams: VoiceParams) {
+    let arp = this.activeArps.get(key);
+    if (!arp) {
+      arp = {
+        heldNotes: [],
+        playedNotes: [],
+        arpTimer: null,
+        arpIndex: -1,
+        arpDirection: 1,
+        slotIndex,
+        patchId,
+        patchParams
+      };
+      this.activeArps.set(key, arp);
+    } else {
+      arp.patchParams = patchParams;
     }
-    this.allNotesOff();
+
+    if (arp.arpTimer) return;
+    arp.arpIndex = -1;
+    arp.arpDirection = 1;
+
+    // Tick once immediately
+    this.tickArpInstance(key);
+
+    const interval = arp.patchParams.arpSync
+      ? this.getIntervalFromBPM(arp.patchParams.bpm, arp.patchParams.arpSyncDivision)
+      : 60000 / (arp.patchParams.arpRate * 4);
+
+    arp.arpTimer = window.setInterval(() => this.tickArpInstance(key), interval);
   }
 
-  private allNotesOff() {
+  private stopArpInstance(key: string) {
+    const arp = this.activeArps.get(key);
+    if (arp) {
+      if (arp.arpTimer) {
+        clearInterval(arp.arpTimer);
+        arp.arpTimer = null;
+      }
+      this.allNotesOffForSlot(arp.patchId);
+      this.activeArps.delete(key);
+    }
+  }
+
+  private allNotesOffForSlot(patchId: string | null) {
     this.voices.forEach(voice => {
       if (voice.midiNote !== null && !voice.isReleasing) {
-        voice.triggerRelease(this.ctx!.currentTime);
+        if (patchId === null || voice.currentPatchId === patchId) {
+          voice.triggerRelease(this.ctx!.currentTime);
+        }
       }
     });
   }
 
   panic() {
-    this.stopArpeggiator();
-    this.heldNotes = [];
+    Array.from(this.activeArps.keys()).forEach(key => {
+      this.stopArpInstance(key);
+    });
+    this.activeArps.clear();
     this.voices.forEach((voice) => {
       voice.stop();
     });
   }
 
-  private tickArp() {
-    if (!this.ctx || this.heldNotes.length === 0) return;
+  private tickArpInstance(key: string) {
+    if (!this.ctx) return;
+    const arp = this.activeArps.get(key);
+    if (!arp || arp.heldNotes.length === 0) return;
 
-    const notes = this.getArpNotes();
+    const notes = this.getArpNotesForInstance(arp);
     if (notes.length === 0) return;
 
-    const { arpMode } = this.params;
+    const { arpMode } = arp.patchParams;
     let notesToPlay: number[] = [];
 
     if (arpMode === 'chord') {
       notesToPlay = [...notes];
     } else {
-      // Step-based movement
-      this.advanceArpIndex(notes.length);
-      notesToPlay = [notes[this.arpIndex]];
+      this.advanceArpIndexForInstance(arp, notes.length);
+      notesToPlay = [notes[arp.arpIndex]];
     }
 
-    // Stop notes that are not being played in this tick (for non-poly modes, staccato feel)
     if (arpMode !== 'up-poly' && arpMode !== 'down-poly' && arpMode !== 'chord') {
-      this.allNotesOff();
+      this.allNotesOffForSlot(arp.patchId);
     }
 
-    const interval = this.params.arpSync
-      ? this.getIntervalFromBPM(this.params.bpm, this.params.arpSyncDivision)
-      : (60000 / (this.params.arpRate * 4));
+    const interval = arp.patchParams.arpSync
+      ? this.getIntervalFromBPM(arp.patchParams.bpm, arp.patchParams.arpSyncDivision)
+      : (60000 / (arp.patchParams.arpRate * 4));
 
-    // Trigger specified notes
     notesToPlay.forEach(midiNote => {
-      const voice = this.internalNoteOn(midiNote);
+      let playedNote = midiNote;
+      let mappedVelocity = 0.8;
+      
+      if (arp.slotIndex >= 0 && this.activeMulti) {
+        const slot = this.activeMulti.slots[arp.slotIndex];
+        if (slot) {
+          playedNote = midiNote + (slot.transposeOctave || 0) * 12 + (slot.transposeNote || 0);
+          const incomingVel127 = Math.round(0.8 * 127);
+          if (slot.highVelocity !== slot.lowVelocity) {
+            const t = (incomingVel127 - slot.lowVelocity) / (slot.highVelocity - slot.lowVelocity);
+            const mappedVel127 = slot.lowMapVelocity + t * (slot.highMapVelocity - slot.lowMapVelocity);
+            mappedVelocity = Math.max(0, Math.min(127, mappedVel127)) / 127;
+          } else {
+            mappedVelocity = slot.lowMapVelocity / 127;
+          }
+        }
+      }
+
+      if (playedNote < 0 || playedNote > 127) return;
+
+      const voice = this.internalNoteOn(playedNote, mappedVelocity, arp.patchId, arp.patchParams, midiNote);
       if (voice) {
-        // Auto-release for staccato feel
         const gateTime = interval * 0.8;
         setTimeout(() => {
-          if (voice.midiNote === midiNote) {
+          if (voice.midiNote === playedNote && !voice.isReleasing) {
             voice.triggerRelease(this.ctx!.currentTime);
           }
         }, gateTime);
@@ -2690,35 +2841,35 @@ export class JupiterEngine {
     });
   }
 
-  private advanceArpIndex(length: number) {
-    const { arpMode } = this.params;
+  private advanceArpIndexForInstance(arp: ArpState, length: number) {
+    const { arpMode } = arp.patchParams;
     
     if (arpMode === 'random') {
-      this.arpIndex = Math.floor(Math.random() * length);
+      arp.arpIndex = Math.floor(Math.random() * length);
     } else if (arpMode === 'up-down') {
-      this.arpIndex += this.arpDirection;
-      if (this.arpIndex >= length) {
-        this.arpIndex = Math.max(0, length - 2);
-        this.arpDirection = -1;
-      } else if (this.arpIndex < 0) {
-        this.arpIndex = Math.min(length - 1, 1);
-        this.arpDirection = 1;
+      arp.arpIndex += arp.arpDirection;
+      if (arp.arpIndex >= length) {
+        arp.arpIndex = Math.max(0, length - 2);
+        arp.arpDirection = -1;
+      } else if (arp.arpIndex < 0) {
+        arp.arpIndex = Math.min(length - 1, 1);
+        arp.arpDirection = 1;
       }
     } else if (arpMode === 'up' || arpMode === 'up-poly' || arpMode === 'as-played') {
-      this.arpIndex = (this.arpIndex + 1) % length;
+      arp.arpIndex = (arp.arpIndex + 1) % length;
     } else if (arpMode === 'down' || arpMode === 'down-poly') {
-      this.arpIndex = (this.arpIndex - 1 + length) % length;
-      if (this.arpIndex < 0) this.arpIndex = length - 1;
+      arp.arpIndex = (arp.arpIndex - 1 + length) % length;
+      if (arp.arpIndex < 0) arp.arpIndex = length - 1;
     }
   }
 
-  private getArpNotes(): number[] {
-    const isAsPlayed = this.params.arpMode === 'as-played';
-    const baseNotes = isAsPlayed ? [...this.playedNotes] : [...this.heldNotes];
+  private getArpNotesForInstance(arp: ArpState): number[] {
+    const isAsPlayed = arp.patchParams.arpMode === 'as-played';
+    const baseNotes = isAsPlayed ? [...arp.playedNotes] : [...arp.heldNotes];
     if (baseNotes.length === 0) return [];
 
     let allNotes: number[] = [];
-    for (let i = 0; i < this.params.arpRange; i++) {
+    for (let i = 0; i < arp.patchParams.arpRange; i++) {
       allNotes = allNotes.concat(baseNotes.map(n => n + i * 12));
     }
     
