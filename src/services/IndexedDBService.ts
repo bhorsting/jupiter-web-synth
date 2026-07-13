@@ -3,12 +3,13 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { Patch } from "../types";
+import { Patch, Multi } from "../types";
 
 const DB_NAME = "JupiterDB";
 const STORE_NAME = "patches";
+const MULTIS_STORE_NAME = "multis";
 const SETTINGS_STORE = "settings";
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 
 export class IndexedDBService {
   private db: IDBDatabase | null = null;
@@ -31,6 +32,9 @@ export class IndexedDBService {
         const db = event.target.result;
         if (!db.objectStoreNames.contains(STORE_NAME)) {
           db.createObjectStore(STORE_NAME, { keyPath: "id" });
+        }
+        if (!db.objectStoreNames.contains(MULTIS_STORE_NAME)) {
+          db.createObjectStore(MULTIS_STORE_NAME, { keyPath: "id" });
         }
         if (!db.objectStoreNames.contains(SETTINGS_STORE)) {
           db.createObjectStore(SETTINGS_STORE);
@@ -113,6 +117,49 @@ export class IndexedDBService {
     return new Promise((resolve, reject) => {
       const transaction = this.db!.transaction(STORE_NAME, "readwrite");
       const store = transaction.objectStore(STORE_NAME);
+      const request = store.delete(id);
+
+      request.onsuccess = () => resolve();
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  async getAllMultis(): Promise<Multi[]> {
+    if (!this.db) await this.init();
+    return new Promise((resolve, reject) => {
+      const transaction = this.db!.transaction(MULTIS_STORE_NAME, "readonly");
+      const store = transaction.objectStore(MULTIS_STORE_NAME);
+      const request = store.getAll();
+
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  async saveMultis(multis: Multi[]): Promise<void> {
+    if (!this.db) await this.init();
+    return new Promise((resolve, reject) => {
+      const transaction = this.db!.transaction(MULTIS_STORE_NAME, "readwrite");
+      const store = transaction.objectStore(MULTIS_STORE_NAME);
+      
+      const clearRequest = store.clear();
+      
+      clearRequest.onsuccess = () => {
+        multis.forEach(multi => {
+          store.add(multi);
+        });
+      };
+
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () => reject(transaction.error);
+    });
+  }
+
+  async deleteMulti(id: string): Promise<void> {
+    if (!this.db) await this.init();
+    return new Promise((resolve, reject) => {
+      const transaction = this.db!.transaction(MULTIS_STORE_NAME, "readwrite");
+      const store = transaction.objectStore(MULTIS_STORE_NAME);
       const request = store.delete(id);
 
       request.onsuccess = () => resolve();

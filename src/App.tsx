@@ -26,8 +26,8 @@ import {
   HammondPercussionSection,
   EQSection
 } from './components/SynthPanel';
-import { DEFAULT_PARAMS, VoiceParams, Patch, MidiMapping, cleanVoiceParams } from './types';
-import { Power, Save, FolderOpen, Sliders, Waves, Activity, Trash2, X, Keyboard as PianoIcon, Cloud, UploadCloud, DownloadCloud, Link, Maximize, Minimize, Settings2, Plus } from 'lucide-react';
+import { DEFAULT_PARAMS, VoiceParams, Patch, MidiMapping, cleanVoiceParams, Multi, MultiSlot } from './types';
+import { Power, Save, FolderOpen, Sliders, Waves, Activity, Trash2, X, Keyboard as PianoIcon, Cloud, UploadCloud, DownloadCloud, Link, Maximize, Minimize, Settings2, Plus, Layers, Edit2 } from 'lucide-react';
 import React from 'react';
 import Keyboard from 'react-simple-keyboard';
 import { PianoKeyboard } from './components/PianoKeyboard';
@@ -49,6 +49,13 @@ export default function AppWrapper() {
   );
 }
 
+const getNoteName = (midiNote: number): string => {
+  const notes = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+  const octave = Math.floor(midiNote / 12) - 1;
+  const noteName = notes[midiNote % 12];
+  return `${noteName}${octave}`;
+};
+
 function App() {
   const [params, setParams] = useState<VoiceParams>(DEFAULT_PARAMS);
   const { settings, updateSettings } = useSettings();
@@ -60,10 +67,11 @@ function App() {
   const [showKeyboard, setShowKeyboard] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   
-  // Patch naming state
+  // Patch and Multi naming state
   const [isNaming, setIsNaming] = useState(false);
   const [pendingName, setPendingName] = useState('');
-  const [namingMode, setNamingMode] = useState<'SAVE' | 'SAVE_AS'>('SAVE');
+  const [namingMode, setNamingMode] = useState<'SAVE' | 'SAVE_AS' | 'RENAME_PATCH' | 'RENAME_MULTI' | 'CREATE_MULTI'>('SAVE');
+  const [namingTargetId, setNamingTargetId] = useState<string | null>(null);
   const keyboardRef = useRef<any>(null);
   const initializedKeyboardRef = useRef(false);
 
@@ -84,6 +92,10 @@ function App() {
   const [isMidiDebuggerOpen, setIsMidiDebuggerOpen] = useState(false);
 
   const [patches, setPatches] = useState<Patch[]>([]);
+  const [multis, setMultis] = useState<Multi[]>([]);
+  const [activeMultiId, setActiveMultiId] = useState<string | null>(null);
+  const [selectedSlotIndex, setSelectedSlotIndex] = useState<number>(0);
+  const [libraryTab, setLibraryTab] = useState<'PATCHES' | 'MULTIS'>('PATCHES');
   const [searchQuery, setSearchQuery] = useState('');
   const [isRestored, setIsRestored] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
@@ -159,11 +171,49 @@ function App() {
       }));
       
       setPatches(migrated);
+
+      // Load multis
+      const storedMultis = await indexedDBService.getAllMultis();
+      let finalMultis = [...storedMultis];
+      if (finalMultis.length === 0) {
+        const defaultMulti: Multi = {
+          id: 'default-multi-split',
+          name: 'Default Synth Split',
+          slots: [
+            {
+              patchId: migrated[0]?.id || '1',
+              lowNote: 0,
+              highNote: 59,
+              lowVelocity: 0,
+              highVelocity: 127,
+              lowMapVelocity: 0,
+              highMapVelocity: 127,
+              transposeOctave: 0,
+              transposeNote: 0
+            },
+            {
+              patchId: migrated[1]?.id || migrated[0]?.id || '1',
+              lowNote: 60,
+              highNote: 127,
+              lowVelocity: 0,
+              highVelocity: 127,
+              lowMapVelocity: 0,
+              highMapVelocity: 127,
+              transposeOctave: 0,
+              transposeNote: 0
+            }
+          ]
+        };
+        await indexedDBService.saveMultis([defaultMulti]);
+        finalMultis = [defaultMulti];
+      }
+      setMultis(finalMultis);
       
       // Restore last selected patch and params if exists in appState
       const appState = await indexedDBService.getAppState();
       if (appState) {
         if (appState.activePatchId) setActivePatchId(appState.activePatchId);
+        if (appState.activeMultiId) setActiveMultiId(appState.activeMultiId);
         if (appState.params) setParams(cleanVoiceParams(appState.params));
         if (appState.midiMappings) setMidiMappings(appState.midiMappings);
         if (appState.currentScreen) setCurrentScreen(appState.currentScreen);
@@ -189,6 +239,7 @@ function App() {
     if (!isRestored) return;
     await indexedDBService.saveAppState({
       activePatchId,
+      activeMultiId,
       params,
       midiMappings,
       currentScreen,
@@ -202,7 +253,14 @@ function App() {
     } else {
       localStorage.removeItem('jupiter_last_patch_id');
     }
-  }, [activePatchId, params, midiMappings, currentScreen, showKeyboard, isMidiLogVisible, isRestored]);
+  }, [activePatchId, activeMultiId, params, midiMappings, currentScreen, showKeyboard, isMidiLogVisible, isRestored]);
+
+  // Save multis whenever they change
+  useEffect(() => {
+    if (multis.length > 0) {
+      indexedDBService.saveMultis(multis);
+    }
+  }, [multis]);
 
   // Save app state (params, active patch ID, mappings, and UI state) whenever they change
   useEffect(() => {
@@ -298,8 +356,26 @@ function App() {
   }, []);
 
   const updateParam = React.useCallback((key: keyof VoiceParams, val: any) => {
-    setParams(prev => ({ ...prev, [key]: val }));
-  }, []);
+    setParams(prev => {
+      const nextParams = { ...prev, [key]: val };
+      if (activeMultiId) {
+        const activeMulti = multis.find(m => m.id === activeMultiId);
+        if (activeMulti && activeMulti.slots && activeMulti.slots[selectedSlotIndex]) {
+          const slot = activeMulti.slots[selectedSlotIndex];
+          setPatches(prevPatches => {
+            const updated = prevPatches.map(p => p.id === slot.patchId ? { ...p, params: nextParams } : p);
+            return updated;
+          });
+        }
+      } else if (activePatchId) {
+        setPatches(prevPatches => {
+          const updated = prevPatches.map(p => p.id === activePatchId ? { ...p, params: nextParams } : p);
+          return updated;
+        });
+      }
+      return nextParams;
+    });
+  }, [activeMultiId, activePatchId, multis, selectedSlotIndex]);
 
   const updateParamFromCC = React.useCallback((key: keyof VoiceParams, ccValue: number) => {
     // 1. Support boolean toggles
@@ -524,11 +600,14 @@ function App() {
     const configUrl = settings.googleSheetUrl;
     if (configUrl && googleSheetsService.isConnected()) {
       // Try to pull on load if config exists and already connected
-      googleSheetsService.loadPatchesFromSheet(configUrl).then(remotePatches => {
-        if (remotePatches && remotePatches.length > 0) {
-          setPatches(remotePatches);
-          console.log('App: Auto-pulled patches from Google Sheets');
+      googleSheetsService.loadFromSheet(configUrl).then(result => {
+        if (result.patches.length > 0) {
+          setPatches(result.patches);
         }
+        if (result.multis.length > 0) {
+          setMultis(result.multis);
+        }
+        console.log('App: Auto-pulled patches & multis from Google Sheets');
       }).catch(e => {
         console.warn('App: Initial sync pull failed', e);
       });
@@ -568,9 +647,44 @@ function App() {
 
   useEffect(() => {
     if (engineRef.current) {
-      engineRef.current.setParams(params);
+      if (activeMultiId) {
+        const activeMulti = multis.find(m => m.id === activeMultiId);
+        if (activeMulti && activeMulti.slots && activeMulti.slots[selectedSlotIndex]) {
+          const patchId = activeMulti.slots[selectedSlotIndex].patchId;
+          engineRef.current.setParams(params, patchId);
+        }
+      } else {
+        engineRef.current.setParams(params);
+      }
     }
-  }, [params]);
+  }, [params, activeMultiId, multis, selectedSlotIndex]);
+
+  // Load selected slot's patch params into state when slot selection changes
+  useEffect(() => {
+    if (activeMultiId) {
+      const activeMulti = multis.find(m => m.id === activeMultiId);
+      if (activeMulti && activeMulti.slots && activeMulti.slots[selectedSlotIndex]) {
+        const slot = activeMulti.slots[selectedSlotIndex];
+        const patch = patches.find(p => p.id === slot.patchId);
+        if (patch) {
+          setParams(cleanVoiceParams(patch.params));
+          setMidiMappings(patch.midiMappings || []);
+        }
+      }
+    }
+  }, [activeMultiId, selectedSlotIndex]);
+
+  // Sync active multi to engine
+  useEffect(() => {
+    if (engineRef.current) {
+      if (activeMultiId) {
+        const activeMulti = multis.find(m => m.id === activeMultiId);
+        engineRef.current.setActiveMulti(activeMulti || null, patches);
+      } else {
+        engineRef.current.setActiveMulti(null, patches);
+      }
+    }
+  }, [activeMultiId, multis, patches]);
 
   useEffect(() => {
     if (midiRef.current) {
@@ -611,8 +725,8 @@ function App() {
     setIsSyncing(true);
     setSyncError(null);
     try {
-      await googleSheetsService.savePatchesToSheet(patches, settings.googleSheetUrl);
-      alert('Patches synced to Google Sheets successfully!');
+      await googleSheetsService.saveToSheet(patches, multis, settings.googleSheetUrl);
+      alert('Library (Patches & Multis) synced to Google Sheets successfully!');
     } catch (error: any) {
       console.error(error);
       setSyncError(error.message || 'Failed to sync');
@@ -623,17 +737,14 @@ function App() {
 
   const handlePullFromSheet = async () => {
     if (!settings.googleSheetUrl) return;
-    if (!confirm('This will overwrite local library with patches from Google Sheets. Continue?')) return;
+    if (!confirm('This will overwrite local library with patches and multis from Google Sheets. Continue?')) return;
     setIsSyncing(true);
     setSyncError(null);
     try {
-      const remotePatches = await googleSheetsService.loadPatchesFromSheet(settings.googleSheetUrl);
-      if (remotePatches.length > 0) {
-        setPatches(remotePatches);
-        alert('Library updated from Google Sheets!');
-      } else {
-        alert('No patches found in Google Sheets.');
-      }
+      const result = await googleSheetsService.loadFromSheet(settings.googleSheetUrl);
+      setPatches(result.patches);
+      setMultis(result.multis);
+      alert('Library (Patches & Multis) updated from Google Sheets!');
     } catch (error: any) {
       console.error(error);
       setSyncError(error.message || 'Failed to load');
@@ -725,26 +836,87 @@ function App() {
     setIsNaming(true);
   };
 
+  const startCreatePatch = () => {
+    setNamingTargetId(null);
+    setNamingMode('SAVE_AS');
+    setPendingName(`NEW PATCH ${patches.length + 1}`);
+    setIsNaming(true);
+  };
+
+  const startRenamePatch = (id: string, currentName: string) => {
+    setNamingTargetId(id);
+    setNamingMode('RENAME_PATCH');
+    setPendingName(currentName);
+    setIsNaming(true);
+  };
+
+  const startCreateMulti = () => {
+    setNamingTargetId(null);
+    setNamingMode('CREATE_MULTI');
+    setPendingName(`NEW MULTI ${multis.length + 1}`);
+    setIsNaming(true);
+  };
+
+  const startRenameMulti = (id: string, currentName: string) => {
+    setNamingTargetId(id);
+    setNamingMode('RENAME_MULTI');
+    setPendingName(currentName);
+    setIsNaming(true);
+  };
+
   const handleNameSubmit = async () => {
     if (!pendingName.trim()) return;
 
-    let updatedPatches: Patch[];
+    let updatedPatches = [...patches];
+    let updatedMultis = [...multis];
+
     if (namingMode === 'SAVE' && activePatchId) {
       updatedPatches = patches.map(p => p.id === activePatchId ? { ...p, name: pendingName.trim(), params, midiMappings } : p);
-    } else {
+      setPatches(updatedPatches);
+    } else if (namingMode === 'SAVE_AS') {
       const newPatch: Patch = { id: Date.now().toString(), name: pendingName.trim(), params, midiMappings };
       updatedPatches = [...patches, newPatch];
+      setPatches(updatedPatches);
       setActivePatchId(newPatch.id);
+      setActiveMultiId(null); // Switch to patch mode
+    } else if (namingMode === 'RENAME_PATCH' && namingTargetId) {
+      updatedPatches = patches.map(p => p.id === namingTargetId ? { ...p, name: pendingName.trim() } : p);
+      setPatches(updatedPatches);
+    } else if (namingMode === 'RENAME_MULTI' && namingTargetId) {
+      updatedMultis = multis.map(m => m.id === namingTargetId ? { ...m, name: pendingName.trim() } : m);
+      setMultis(updatedMultis);
+    } else if (namingMode === 'CREATE_MULTI') {
+      const newMulti: Multi = {
+        id: `multi-${Date.now()}`,
+        name: pendingName.trim(),
+        slots: [
+          {
+            patchId: patches[0]?.id || '1',
+            lowNote: 0,
+            highNote: 127,
+            lowVelocity: 0,
+            highVelocity: 127,
+            lowMapVelocity: 0,
+            highMapVelocity: 127,
+            transposeOctave: 0,
+            transposeNote: 0
+          }
+        ]
+      };
+      updatedMultis = [...multis, newMulti];
+      setMultis(updatedMultis);
+      setActiveMultiId(newMulti.id);
+      setActivePatchId(null);
+      setSelectedSlotIndex(0);
     }
     
-    setPatches(updatedPatches);
     setIsNaming(false);
 
     // Auto-sync to sheets if URL exists
     if (settings.googleSheetUrl && import.meta.env.VITE_GOOGLE_CLIENT_ID) {
       try {
-        await googleSheetsService.savePatchesToSheet(updatedPatches, settings.googleSheetUrl);
-        console.log('App: Auto-synced to Google Sheets after save');
+        await googleSheetsService.saveToSheet(updatedPatches, updatedMultis, settings.googleSheetUrl);
+        console.log('App: Auto-synced patches and multis to Google Sheets after save');
       } catch (error) {
         console.error('App: Auto-sync failed:', error);
       }
@@ -755,6 +927,7 @@ function App() {
     // Ensure all params exist by merging with defaults
     setParams(cleanVoiceParams(patch.params));
     setActivePatchId(patch.id);
+    setActiveMultiId(null); // Deactivate multi mode
     setMidiMappings(patch.midiMappings || []);
     setCurrentScreen('SYNTH');
   };
@@ -768,10 +941,171 @@ function App() {
       // Auto-sync to sheets if URL exists
       if (settings.googleSheetUrl && import.meta.env.VITE_GOOGLE_CLIENT_ID) {
         try {
-          await googleSheetsService.savePatchesToSheet(updatedPatches, settings.googleSheetUrl);
-          console.log('App: Auto-synced to Google Sheets after delete');
+          await googleSheetsService.saveToSheet(updatedPatches, multis, settings.googleSheetUrl);
+          console.log('App: Auto-synced patches and multis to Google Sheets after delete');
         } catch (error) {
           console.error('App: Auto-sync failed:', error);
+        }
+      }
+    }
+  };
+
+  const loadMulti = (multi: Multi) => {
+    setActiveMultiId(multi.id);
+    setActivePatchId(null); // Deactivate single patch mode
+    setSelectedSlotIndex(0);
+    // Load the first slot's patch into parameters so visual controls are aligned
+    if (multi.slots.length > 0) {
+      const firstSlot = multi.slots[0];
+      const patch = patches.find(p => p.id === firstSlot.patchId);
+      if (patch) {
+        setParams(cleanVoiceParams(patch.params));
+        setMidiMappings(patch.midiMappings || []);
+      }
+    }
+    setCurrentScreen('SYNTH');
+  };
+
+  const handleCreateMulti = async () => {
+    const newMulti: Multi = {
+      id: `multi-${Date.now()}`,
+      name: `NEW MULTI ${multis.length + 1}`,
+      slots: [
+        {
+          patchId: patches[0]?.id || '1',
+          lowNote: 0,
+          highNote: 127,
+          lowVelocity: 0,
+          highVelocity: 127,
+          lowMapVelocity: 0,
+          highMapVelocity: 127,
+          transposeOctave: 0,
+          transposeNote: 0
+        }
+      ]
+    };
+    const updatedMultis = [...multis, newMulti];
+    setMultis(updatedMultis);
+    setActiveMultiId(newMulti.id);
+    setActivePatchId(null);
+    setSelectedSlotIndex(0);
+
+    if (settings.googleSheetUrl && import.meta.env.VITE_GOOGLE_CLIENT_ID) {
+      try {
+        await googleSheetsService.saveToSheet(patches, updatedMultis, settings.googleSheetUrl);
+      } catch (e) {
+        console.error('Auto-sync multi creation failed:', e);
+      }
+    }
+  };
+
+  const handleRenameMulti = async (id: string, newName: string) => {
+    const updatedMultis = multis.map(m => m.id === id ? { ...m, name: newName } : m);
+    setMultis(updatedMultis);
+
+    if (settings.googleSheetUrl && import.meta.env.VITE_GOOGLE_CLIENT_ID) {
+      try {
+        await googleSheetsService.saveToSheet(patches, updatedMultis, settings.googleSheetUrl);
+      } catch (e) {
+        console.error('Failed to sync rename to sheet:', e);
+      }
+    }
+  };
+
+  const handleUpdateSlot = async (slotIndex: number, fields: Partial<MultiSlot>) => {
+    if (!activeMultiId) return;
+    const updatedMultis = multis.map(m => {
+      if (m.id !== activeMultiId) return m;
+      const updatedSlots = m.slots.map((slot, idx) => {
+        if (idx !== slotIndex) return slot;
+        return { ...slot, ...fields };
+      });
+      return { ...m, slots: updatedSlots };
+    });
+    setMultis(updatedMultis);
+
+    // If patch ID changed, we also want to load that patch's parameters so the knobs are in sync!
+    if (fields.patchId) {
+      const patch = patches.find(p => p.id === fields.patchId);
+      if (patch) {
+        setParams(cleanVoiceParams(patch.params));
+        setMidiMappings(patch.midiMappings || []);
+      }
+    }
+
+    if (settings.googleSheetUrl && import.meta.env.VITE_GOOGLE_CLIENT_ID) {
+      try {
+        await googleSheetsService.saveToSheet(patches, updatedMultis, settings.googleSheetUrl);
+      } catch (e) {
+        console.error('Failed to sync slot update to sheet:', e);
+      }
+    }
+  };
+
+  const handleAddSlot = async () => {
+    if (!activeMultiId) return;
+    const firstPatchId = patches[0]?.id || '1';
+    const updatedMultis = multis.map(m => {
+      if (m.id !== activeMultiId) return m;
+      const newSlot: MultiSlot = {
+        patchId: firstPatchId,
+        lowNote: 0,
+        highNote: 127,
+        lowVelocity: 0,
+        highVelocity: 127,
+        lowMapVelocity: 0,
+        highMapVelocity: 127,
+        transposeOctave: 0,
+        transposeNote: 0
+      };
+      return { ...m, slots: [...m.slots, newSlot] };
+    });
+    setMultis(updatedMultis);
+    const activeMulti = multis.find(m => m.id === activeMultiId);
+    if (activeMulti) {
+      setSelectedSlotIndex(activeMulti.slots.length);
+    }
+
+    if (settings.googleSheetUrl && import.meta.env.VITE_GOOGLE_CLIENT_ID) {
+      try {
+        await googleSheetsService.saveToSheet(patches, updatedMultis, settings.googleSheetUrl);
+      } catch (e) {
+        console.error('Failed to sync slot addition to sheet:', e);
+      }
+    }
+  };
+
+  const handleDeleteSlot = async (slotIndex: number) => {
+    if (!activeMultiId) return;
+    const updatedMultis = multis.map(m => {
+      if (m.id !== activeMultiId) return m;
+      const nextSlots = m.slots.filter((_, idx) => idx !== slotIndex);
+      return { ...m, slots: nextSlots };
+    });
+    setMultis(updatedMultis);
+    setSelectedSlotIndex(0);
+
+    if (settings.googleSheetUrl && import.meta.env.VITE_GOOGLE_CLIENT_ID) {
+      try {
+        await googleSheetsService.saveToSheet(patches, updatedMultis, settings.googleSheetUrl);
+      } catch (e) {
+        console.error('Failed to sync slot deletion to sheet:', e);
+      }
+    }
+  };
+
+  const handleDeleteMulti = async (id: string) => {
+    if (confirm('Delete this multi preset?')) {
+      const updatedMultis = multis.filter(m => m.id !== id);
+      setMultis(updatedMultis);
+      if (activeMultiId === id) setActiveMultiId(null);
+      await indexedDBService.deleteMulti(id);
+
+      if (settings.googleSheetUrl && import.meta.env.VITE_GOOGLE_CLIENT_ID) {
+        try {
+          await googleSheetsService.saveToSheet(patches, updatedMultis, settings.googleSheetUrl);
+        } catch (e) {
+          console.error('Failed to sync deletion to sheet:', e);
         }
       }
     }
@@ -1171,7 +1505,11 @@ function App() {
           <div className="flex items-center gap-2">
             <div className={`w-1.5 h-1.5 rounded-full ${engineReady ? 'bg-red-600 shadow-[0_0_8px_red]' : 'bg-zinc-800'}`} />
             <h1 className="text-[11px] font-bold tracking-wider text-white uppercase truncate max-w-[150px]">
-              {activePatchId ? patches.find(p => p.id === activePatchId)?.name : 'UNSAVED'}
+              {activeMultiId 
+                ? `MULTI: ${multis.find(m => m.id === activeMultiId)?.name || 'UNKNOWN'}`
+                : activePatchId 
+                  ? patches.find(p => p.id === activePatchId)?.name 
+                  : 'UNSAVED'}
             </h1>
             <span className="text-[7px] text-zinc-600 font-mono tracking-wider">v{APP_VERSION}</span>
           </div>
@@ -1190,7 +1528,11 @@ function App() {
                <div className={`w-1.5 h-1.5 sm:w-2 sm:h-2 ${engineReady ? 'bg-red-600 shadow-[0_0_8px_red]' : 'bg-zinc-800'}`} />
                <div className="flex flex-col gap-0.5 justify-center">
                  <h1 className="text-[10px] sm:text-xs font-bold tracking-tighter text-white uppercase truncate max-w-[80px] sm:max-w-[150px] leading-none">
-                   {activePatchId ? patches.find(p => p.id === activePatchId)?.name : 'UNSAVED'}
+                   {activeMultiId 
+                     ? `MULTI: ${multis.find(m => m.id === activeMultiId)?.name || 'UNKNOWN'}`
+                     : activePatchId 
+                       ? patches.find(p => p.id === activePatchId)?.name 
+                       : 'UNSAVED'}
                  </h1>
                  <span className="text-[7px] text-zinc-600 font-mono tracking-widest leading-none">v{APP_VERSION}</span>
                </div>
@@ -1318,22 +1660,100 @@ function App() {
 
       {/* Main Content Area */}
       <div className="flex-1 relative flex flex-col overflow-hidden">
+        {['SYNTH', 'ARP', 'FX'].includes(currentScreen) && (
+          <div className="bg-[#0b0b0c] border-b border-synth-border px-4 py-2 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shrink-0 select-none">
+            <div className="flex items-center gap-3">
+              <span className="text-[10px] font-mono font-bold tracking-widest uppercase text-zinc-500">Mode:</span>
+              <div className="flex gap-1.5">
+                <button
+                  onClick={() => {
+                    setActiveMultiId(null);
+                    if (patches.length > 0 && !activePatchId) {
+                      loadPatch(patches[0]);
+                    }
+                  }}
+                  className={`px-3 py-1 text-[10px] font-bold uppercase tracking-widest border transition-all ${
+                    !activeMultiId
+                      ? 'bg-orange-500/15 border-orange-500 text-orange-500 font-black shadow-[0_0_8px_rgba(249,115,22,0.15)]'
+                      : 'bg-zinc-900/40 border-zinc-800 text-zinc-500 hover:text-zinc-400 hover:border-zinc-700'
+                  }`}
+                >
+                  ● Single Patch Mode
+                </button>
+                <button
+                  onClick={() => {
+                    if (multis.length > 0) {
+                      loadMulti(multis[0]);
+                    } else {
+                      handleCreateMulti();
+                    }
+                  }}
+                  className={`px-3 py-1 text-[10px] font-bold uppercase tracking-widest border transition-all ${
+                    activeMultiId
+                      ? 'bg-orange-500/15 border-orange-500 text-orange-500 font-black shadow-[0_0_8px_rgba(249,115,22,0.15)]'
+                      : 'bg-zinc-900/40 border-zinc-800 text-zinc-500 hover:text-zinc-400 hover:border-zinc-700'
+                  }`}
+                >
+                  ● Multi-Layer Mode
+                </button>
+              </div>
+            </div>
+            
+            {activeMultiId ? (
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-[10px] font-mono text-zinc-400 uppercase tracking-widest">
+                  Active Multi: <span className="text-white font-bold font-sans">{multis.find(m => m.id === activeMultiId)?.name}</span>
+                </span>
+                <div className="flex flex-wrap gap-1.5">
+                  {(multis.find(m => m.id === activeMultiId)?.slots || []).map((slot, index) => {
+                    const slPatch = patches.find(p => p.id === slot.patchId);
+                    return (
+                      <button
+                        key={index}
+                        onClick={() => setSelectedSlotIndex(index)}
+                        className={`px-2 py-0.5 text-[9px] font-mono border transition-all ${
+                          selectedSlotIndex === index
+                            ? 'bg-orange-500 text-black border-orange-500 font-bold'
+                            : 'bg-zinc-900 text-zinc-400 border-zinc-800 hover:border-zinc-700'
+                        }`}
+                      >
+                        Part {index + 1}: {slPatch?.name || 'None'}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            ) : (
+              <div className="text-[10px] font-mono text-zinc-400 uppercase tracking-widest">
+                Active Patch: <span className="text-white font-bold font-sans">{patches.find(p => p.id === activePatchId)?.name || 'UNSAVED'}</span>
+              </div>
+            )}
+          </div>
+        )}
+
         <div className={`flex-1 relative overflow-y-auto lg:overflow-hidden transition-all duration-300`}>
           {currentScreen === 'SYNTH' && (
-            <div className="relative lg:absolute lg:inset-0 flex flex-col md:grid md:grid-cols-2 lg:flex lg:flex-row bg-synth-border/40 gap-[1px] min-h-fit lg:min-h-0 lg:h-full overflow-y-auto lg:overflow-y-hidden lg:overflow-x-auto">
-              {synthSections}
+            <div className="relative lg:absolute lg:inset-0 flex flex-col h-full w-full overflow-hidden">
+              {/* Main synth panel grid/flex list */}
+              <div className="flex-1 relative flex flex-col md:grid md:grid-cols-2 lg:flex lg:flex-row bg-synth-border/40 gap-[1px] min-h-fit lg:min-h-0 lg:h-full overflow-y-auto lg:overflow-y-hidden lg:overflow-x-auto">
+                {synthSections}
+              </div>
             </div>
           )}
-
+          
           {currentScreen === 'ARP' && (
-            <div className="relative lg:absolute lg:inset-0 flex flex-col md:grid md:grid-cols-2 lg:flex lg:flex-row bg-synth-border/40 gap-[1px] min-h-fit lg:min-h-0 lg:h-full overflow-y-auto lg:overflow-y-hidden lg:overflow-x-auto">
-              {arpSections}
+            <div className="relative lg:absolute lg:inset-0 flex flex-col h-full w-full overflow-hidden">
+              <div className="flex-1 relative flex flex-col md:grid md:grid-cols-2 lg:flex lg:flex-row bg-synth-border/40 gap-[1px] min-h-fit lg:min-h-0 lg:h-full overflow-y-auto lg:overflow-y-hidden lg:overflow-x-auto">
+                {arpSections}
+              </div>
             </div>
           )}
-
+          
           {currentScreen === 'FX' && (
-            <div className="relative lg:absolute lg:inset-0 flex flex-col md:grid md:grid-cols-2 lg:flex lg:flex-row bg-synth-border/40 gap-[1px] min-h-fit lg:min-h-0 lg:h-full overflow-y-auto lg:overflow-y-hidden lg:overflow-x-auto">
-              {fxSections}
+            <div className="relative lg:absolute lg:inset-0 flex flex-col h-full w-full overflow-hidden">
+              <div className="flex-1 relative flex flex-col md:grid md:grid-cols-2 lg:flex lg:flex-row bg-synth-border/40 gap-[1px] min-h-fit lg:min-h-0 lg:h-full overflow-y-auto lg:overflow-y-hidden lg:overflow-x-auto">
+                {fxSections}
+              </div>
             </div>
           )}
 
@@ -1342,30 +1762,42 @@ function App() {
               <div className="max-w-4xl mx-auto">
                 <div className="flex justify-between items-center mb-8 sm:mb-12 border-b border-synth-border pb-6">
                     <div className="flex items-center gap-4">
-                      <h2 className="text-xl sm:text-3xl font-bold tracking-tight uppercase">Patch Library</h2>
-                      <div className="flex items-center gap-2">
-                        {activePatchId && (
+                      <h2 className="text-xl sm:text-3xl font-bold tracking-tight uppercase">Synth Library</h2>
+                      {libraryTab === 'PATCHES' && (
+                        <div className="flex items-center gap-2">
+                          {activePatchId && (
+                            <button 
+                              onClick={savePatch}
+                              className="p-2 hover:bg-white/5 rounded-full text-blue-400 hover:text-white transition-colors"
+                              title="Update Current Patch"
+                            >
+                              <Save size={24} />
+                            </button>
+                          )}
                           <button 
-                            onClick={savePatch}
-                            className="p-2 hover:bg-white/5 rounded-full text-blue-400 hover:text-white transition-colors"
-                            title="Update Current Patch"
+                            onClick={saveAsNewPatch}
+                            className="p-2 hover:bg-white/5 rounded-full text-zinc-400 hover:text-white transition-colors"
+                            title="Save Current as New"
                           >
-                            <Save size={24} />
+                            <Plus size={24} />
                           </button>
-                        )}
+                        </div>
+                      )}
+                      {libraryTab === 'MULTIS' && (
                         <button 
-                          onClick={saveAsNewPatch}
-                          className="p-2 hover:bg-white/5 rounded-full text-zinc-400 hover:text-white transition-colors"
-                          title="Save Current as New"
+                          onClick={handleCreateMulti}
+                          className="p-2 hover:bg-white/5 rounded-full text-orange-500 hover:text-white transition-colors"
+                          title="Create New Multi"
                         >
                           <Plus size={24} />
                         </button>
-                      </div>
+                      )}
                     </div>
                     <button 
                       onClick={() => { 
                         setParams(DEFAULT_PARAMS); 
                         setActivePatchId(null); 
+                        setActiveMultiId(null);
                         setMidiMappings([]);
                         setCurrentScreen('SYNTH'); 
                       }}
@@ -1450,61 +1882,358 @@ function App() {
                   )}
                 </div>
 
-                <div className="mb-6 relative">
-                  <Activity size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" />
-                  <input 
-                    type="text" 
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    placeholder="Search patches..."
-                    className="w-full bg-zinc-900 border border-zinc-800 p-4 pl-10 text-sm font-bold uppercase tracking-widest text-white focus:border-orange-500 outline-none transition-all"
-                  />
-                  {searchQuery && (
-                    <button 
-                      onClick={() => setSearchQuery('')}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-white"
-                    >
-                      <X size={16} />
-                    </button>
-                  )}
+                <div className="flex gap-4 mb-6 border-b border-zinc-800">
+                  <button
+                    onClick={() => setLibraryTab('PATCHES')}
+                    className={`pb-2 text-sm font-bold uppercase tracking-widest border-b-2 transition-all ${
+                      libraryTab === 'PATCHES'
+                        ? 'text-orange-500 border-orange-500'
+                        : 'text-zinc-500 border-transparent hover:text-zinc-300'
+                    }`}
+                  >
+                    Patches
+                  </button>
+                  <button
+                    onClick={() => setLibraryTab('MULTIS')}
+                    className={`pb-2 text-sm font-bold uppercase tracking-widest border-b-2 transition-all ${
+                      libraryTab === 'MULTIS'
+                        ? 'text-orange-500 border-orange-500'
+                        : 'text-zinc-500 border-transparent hover:text-zinc-300'
+                    }`}
+                  >
+                    Multis
+                  </button>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {patches.filter(p => p.name.toLowerCase().includes(searchQuery.toLowerCase())).length === 0 ? (
-                    <div className="col-span-full py-12 text-center bg-zinc-900 border border-dashed border-zinc-800 text-zinc-500 uppercase tracking-widest text-[10px] font-bold">
-                      No matching patches found
-                    </div>
-                  ) : (
-                    patches
-                      .filter(p => p.name.toLowerCase().includes(searchQuery.toLowerCase()))
-                      .map(patch => (
-                      <div 
-                        key={patch.id}
-                        className={`p-6 border transition-all cursor-pointer flex flex-col gap-4 group ${
-                          activePatchId === patch.id 
-                            ? 'bg-orange-600/10 border-orange-500' 
-                            : 'bg-zinc-900/50 border-zinc-800 hover:border-zinc-600'
-                        }`}
-                        onClick={() => loadPatch(patch)}
+                <div className="flex flex-col sm:flex-row gap-4 mb-6">
+                  <div className="flex-1 relative">
+                    <Activity size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" />
+                    <input 
+                      type="text" 
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      placeholder={libraryTab === 'PATCHES' ? "Search patches..." : "Search multis..."}
+                      className="w-full bg-zinc-900 border border-zinc-800 p-4 pl-10 text-sm font-bold uppercase tracking-widest text-white focus:border-orange-500 outline-none transition-all"
+                    />
+                    {searchQuery && (
+                      <button 
+                        onClick={() => setSearchQuery('')}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-white"
                       >
-                        <div className="flex justify-between items-start">
-                          <span className="text-zinc-500 font-mono text-xs">P-{patch.id.slice(-4)}</span>
-                          <button 
-                            onClick={(e) => { e.stopPropagation(); deletePatch(patch.id); }}
-                            className="opacity-0 group-hover:opacity-100 p-2 hover:bg-red-500/20 text-red-500 rounded transition-all"
+                        <X size={16} />
+                      </button>
+                    )}
+                  </div>
+                  <button
+                    onClick={libraryTab === 'PATCHES' ? startCreatePatch : startCreateMulti}
+                    className="px-6 py-4 bg-orange-600 hover:bg-orange-500 text-white font-bold uppercase tracking-widest text-xs flex items-center justify-center gap-2 transition-all shrink-0 shadow-[0_0_12px_rgba(249,115,22,0.2)]"
+                  >
+                    <Plus size={16} />
+                    {libraryTab === 'PATCHES' ? 'Create New Patch' : 'Create New Multi'}
+                  </button>
+                </div>
+
+                {libraryTab === 'PATCHES' && (
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {patches.filter(p => p.name.toLowerCase().includes(searchQuery.toLowerCase())).length === 0 ? (
+                      <div className="col-span-full py-12 text-center bg-zinc-900 border border-dashed border-zinc-800 text-zinc-500 uppercase tracking-widest text-[10px] font-bold">
+                        No matching patches found
+                      </div>
+                    ) : (
+                      patches
+                        .filter(p => p.name.toLowerCase().includes(searchQuery.toLowerCase()))
+                        .map(patch => (
+                        <div 
+                          key={patch.id}
+                          className={`p-6 border transition-all cursor-pointer flex flex-col gap-4 group ${
+                            activePatchId === patch.id 
+                              ? 'bg-orange-600/10 border-orange-500' 
+                              : 'bg-zinc-900/50 border-zinc-800 hover:border-zinc-600'
+                          }`}
+                          onClick={() => loadPatch(patch)}
+                        >
+                          <div className="flex justify-between items-start">
+                            <span className="text-zinc-500 font-mono text-xs">P-{patch.id.slice(-4)}</span>
+                            <div className="flex gap-1">
+                              <button 
+                                onClick={(e) => { e.stopPropagation(); startRenamePatch(patch.id, patch.name); }}
+                                className="opacity-0 group-hover:opacity-100 p-2 hover:bg-white/10 text-zinc-400 hover:text-white rounded transition-all"
+                                title="Rename Patch"
+                              >
+                                <Edit2 size={14} />
+                              </button>
+                              <button 
+                                onClick={(e) => { e.stopPropagation(); deletePatch(patch.id); }}
+                                className="opacity-0 group-hover:opacity-100 p-2 hover:bg-red-500/20 text-red-500 rounded transition-all"
+                                title="Delete Patch"
+                              >
+                                <Trash2 size={14} />
+                              </button>
+                            </div>
+                          </div>
+                          <h3 className="text-xl font-bold uppercase truncate">{patch.name}</h3>
+                          <div className="flex gap-2">
+                             <div className={`w-1 h-4 ${patch.params.vco1Waveform === 'sawtooth' ? 'bg-orange-500' : 'bg-blue-500'}`} />
+                             <div className={`w-1 h-4 ${patch.params.filterCutoff > 5000 ? 'bg-zinc-300' : 'bg-zinc-700'}`} />
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                )}
+
+                {libraryTab === 'MULTIS' && (
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {multis.filter(m => m.name.toLowerCase().includes(searchQuery.toLowerCase())).length === 0 ? (
+                      <div className="col-span-full py-12 text-center bg-zinc-900 border border-dashed border-zinc-800 text-zinc-500 uppercase tracking-widest text-[10px] font-bold">
+                        No matching multis found
+                      </div>
+                    ) : (
+                      multis
+                        .filter(m => m.name.toLowerCase().includes(searchQuery.toLowerCase()))
+                        .map(multi => (
+                        <div 
+                          key={multi.id}
+                          className={`p-6 border transition-all cursor-pointer flex flex-col gap-4 group ${
+                            activeMultiId === multi.id 
+                              ? 'bg-orange-600/10 border-orange-500' 
+                              : 'bg-zinc-900/50 border-zinc-800 hover:border-zinc-600'
+                          }`}
+                          onClick={() => loadMulti(multi)}
+                        >
+                          <div className="flex justify-between items-start">
+                            <span className="text-zinc-500 font-mono text-xs">M-{multi.id.slice(-4)}</span>
+                            <div className="flex gap-1">
+                              <button 
+                                onClick={(e) => { e.stopPropagation(); startRenameMulti(multi.id, multi.name); }}
+                                className="opacity-0 group-hover:opacity-100 p-2 hover:bg-white/10 text-zinc-400 hover:text-white rounded transition-all"
+                                title="Rename Multi"
+                              >
+                                <Edit2 size={14} />
+                              </button>
+                              <button 
+                                onClick={(e) => { e.stopPropagation(); handleDeleteMulti(multi.id); }}
+                                className="opacity-0 group-hover:opacity-100 p-2 hover:bg-red-500/20 text-red-500 rounded transition-all"
+                                title="Delete Multi"
+                              >
+                                <Trash2 size={14} />
+                              </button>
+                            </div>
+                          </div>
+                          <h3 className="text-xl font-bold uppercase truncate">{multi.name}</h3>
+                          <div className="flex items-center gap-2 text-zinc-500 text-[9px] font-bold uppercase tracking-widest">
+                            <Layers size={10} />
+                            <span>{multi.slots.length} Part{multi.slots.length > 1 ? 's' : ''}</span>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                )}
+
+                {activeMultiId && (
+                  <div className="mt-8 bg-zinc-950 border border-zinc-800 p-6">
+                    <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6 border-b border-zinc-800 pb-4">
+                      <div>
+                        <span className="text-xs font-mono uppercase text-orange-500 tracking-wider font-bold">Currently Active Multi Settings</span>
+                        <div className="flex items-center gap-3 mt-1">
+                          <input
+                            type="text"
+                            value={multis.find(m => m.id === activeMultiId)?.name || ''}
+                            readOnly
+                            onClick={() => startRenameMulti(activeMultiId, multis.find(m => m.id === activeMultiId)?.name || '')}
+                            className="bg-transparent border-b border-zinc-800 text-xl font-bold uppercase tracking-wider text-white focus:border-orange-500 outline-none pb-1 cursor-pointer"
+                          />
+                          <button
+                            onClick={() => startRenameMulti(activeMultiId, multis.find(m => m.id === activeMultiId)?.name || '')}
+                            className="p-2 bg-zinc-900 border border-zinc-800 hover:border-zinc-700 text-zinc-400 hover:text-white transition-all flex items-center justify-center rounded"
+                            title="Rename Multi via Onscreen Keyboard"
                           >
-                            <Trash2 size={16} />
+                            <Edit2 size={14} />
                           </button>
                         </div>
-                        <h3 className="text-xl font-bold uppercase truncate">{patch.name}</h3>
-                        <div className="flex gap-2">
-                           <div className={`w-1 h-4 ${patch.params.vco1Waveform === 'sawtooth' ? 'bg-orange-500' : 'bg-blue-500'}`} />
-                           <div className={`w-1 h-4 ${patch.params.filterCutoff > 5000 ? 'bg-zinc-300' : 'bg-zinc-700'}`} />
-                        </div>
                       </div>
-                    ))
-                  )}
-                </div>
+                      
+                      <div className="flex gap-2">
+                        <button
+                          onClick={handleAddSlot}
+                          className="px-4 py-2 bg-zinc-900 border border-zinc-800 hover:border-zinc-600 text-white font-bold uppercase tracking-widest text-[9px] flex items-center gap-1.5"
+                        >
+                          <Plus size={12} /> Add Layer/Part
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="flex flex-col gap-4">
+                      {(multis.find(m => m.id === activeMultiId)?.slots || []).map((slot, index) => (
+                        <div 
+                          key={index} 
+                          className={`p-4 border transition-all cursor-pointer ${
+                            selectedSlotIndex === index 
+                              ? 'bg-orange-500/5 border-orange-500/50' 
+                              : 'bg-zinc-900/50 border-zinc-800 hover:border-zinc-700'
+                          }`}
+                          onClick={() => setSelectedSlotIndex(index)}
+                        >
+                          <div className="flex flex-col xl:flex-row gap-4 items-stretch xl:items-center justify-between">
+                            <div className="flex flex-wrap items-center gap-4">
+                              <div className="flex items-center gap-2">
+                                <span className={`w-6 h-6 rounded-full flex items-center justify-center font-bold text-xs ${
+                                  selectedSlotIndex === index ? 'bg-orange-500 text-black' : 'bg-zinc-800 text-zinc-400'
+                                }`}>
+                                  {index + 1}
+                                </span>
+                                <span className="text-[10px] font-bold uppercase text-zinc-400 tracking-widest">Part Patch</span>
+                              </div>
+                              <select
+                                value={slot.patchId}
+                                onChange={(e) => handleUpdateSlot(index, { patchId: e.target.value })}
+                                className="bg-black border border-zinc-800 text-white font-bold uppercase tracking-wider text-xs p-2 focus:border-orange-500 outline-none min-w-[180px]"
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                {patches.map(p => (
+                                  <option key={p.id} value={p.id}>{p.name}</option>
+                                ))}
+                              </select>
+                              
+                              {selectedSlotIndex === index && (
+                                <span className="text-[9px] font-bold uppercase text-orange-500 bg-orange-500/10 px-2 py-0.5 border border-orange-500/20 rounded-sm">
+                                  Editing Parameters Active
+                                </span>
+                              )}
+                            </div>
+
+                            <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 xl:flex gap-3 xl:gap-4 items-center">
+                              <div className="flex flex-col gap-1">
+                                <label className="text-[8px] font-bold uppercase tracking-widest text-zinc-500">Low Note</label>
+                                <div className="flex items-center gap-1">
+                                  <input
+                                    type="number"
+                                    min="0"
+                                    max="127"
+                                    value={slot.lowNote}
+                                    onChange={(e) => handleUpdateSlot(index, { lowNote: parseInt(e.target.value) || 0 })}
+                                    className="w-12 bg-black border border-zinc-800 p-1 text-[11px] font-mono text-white text-center"
+                                    onClick={(e) => e.stopPropagation()}
+                                  />
+                                  <span className="text-[10px] font-mono text-zinc-400 w-8 text-center">{getNoteName(slot.lowNote)}</span>
+                                </div>
+                              </div>
+
+                              <div className="flex flex-col gap-1">
+                                <label className="text-[8px] font-bold uppercase tracking-widest text-zinc-500">High Note</label>
+                                <div className="flex items-center gap-1">
+                                  <input
+                                    type="number"
+                                    min="0"
+                                    max="127"
+                                    value={slot.highNote}
+                                    onChange={(e) => handleUpdateSlot(index, { highNote: parseInt(e.target.value) || 0 })}
+                                    className="w-12 bg-black border border-zinc-800 p-1 text-[11px] font-mono text-white text-center"
+                                    onClick={(e) => e.stopPropagation()}
+                                  />
+                                  <span className="text-[10px] font-mono text-zinc-400 w-8 text-center">{getNoteName(slot.highNote)}</span>
+                                </div>
+                              </div>
+
+                              <div className="flex flex-col gap-1">
+                                <label className="text-[8px] font-bold uppercase tracking-widest text-zinc-500">Low Vel</label>
+                                <input
+                                  type="number"
+                                  min="0"
+                                  max="127"
+                                  value={slot.lowVelocity}
+                                  onChange={(e) => handleUpdateSlot(index, { lowVelocity: parseInt(e.target.value) || 0 })}
+                                  className="w-14 bg-black border border-zinc-800 p-1 text-[11px] font-mono text-white text-center"
+                                  onClick={(e) => e.stopPropagation()}
+                                />
+                              </div>
+
+                              <div className="flex flex-col gap-1">
+                                <label className="text-[8px] font-bold uppercase tracking-widest text-zinc-500">High Vel</label>
+                                <input
+                                  type="number"
+                                  min="0"
+                                  max="127"
+                                  value={slot.highVelocity}
+                                  onChange={(e) => handleUpdateSlot(index, { highVelocity: parseInt(e.target.value) || 0 })}
+                                  className="w-14 bg-black border border-zinc-800 p-1 text-[11px] font-mono text-white text-center"
+                                  onClick={(e) => e.stopPropagation()}
+                                />
+                              </div>
+
+                              <div className="flex flex-col gap-1">
+                                <label className="text-[8px] font-bold uppercase tracking-widest text-zinc-500">Map Low Vel</label>
+                                <input
+                                  type="number"
+                                  min="0"
+                                  max="127"
+                                  value={slot.lowMapVelocity}
+                                  onChange={(e) => handleUpdateSlot(index, { lowMapVelocity: parseInt(e.target.value) || 0 })}
+                                  className="w-14 bg-black border border-zinc-800 p-1 text-[11px] font-mono text-white text-center"
+                                  onClick={(e) => e.stopPropagation()}
+                                />
+                              </div>
+
+                              <div className="flex flex-col gap-1">
+                                <label className="text-[8px] font-bold uppercase tracking-widest text-zinc-500">Map High Vel</label>
+                                <input
+                                  type="number"
+                                  min="0"
+                                  max="127"
+                                  value={slot.highMapVelocity}
+                                  onChange={(e) => handleUpdateSlot(index, { highMapVelocity: parseInt(e.target.value) || 0 })}
+                                  className="w-14 bg-black border border-zinc-800 p-1 text-[11px] font-mono text-white text-center"
+                                  onClick={(e) => e.stopPropagation()}
+                                />
+                              </div>
+
+                              <div className="flex flex-col gap-1">
+                                <label className="text-[8px] font-bold uppercase tracking-widest text-zinc-500">Octave</label>
+                                <select
+                                  value={slot.transposeOctave}
+                                  onChange={(e) => handleUpdateSlot(index, { transposeOctave: parseInt(e.target.value) || 0 })}
+                                  className="bg-black border border-zinc-800 p-1 text-[11px] font-mono text-white text-center"
+                                  onClick={(e) => e.stopPropagation()}
+                                >
+                                  <option value="-3">-3</option>
+                                  <option value="-2">-2</option>
+                                  <option value="-1">-1</option>
+                                  <option value="0">0</option>
+                                  <option value="1">+1</option>
+                                  <option value="2">+2</option>
+                                  <option value="3">+3</option>
+                                </select>
+                              </div>
+
+                              <div className="flex flex-col gap-1">
+                                <label className="text-[8px] font-bold uppercase tracking-widest text-zinc-500">Semitone</label>
+                                <select
+                                  value={slot.transposeNote}
+                                  onChange={(e) => handleUpdateSlot(index, { transposeNote: parseInt(e.target.value) || 0 })}
+                                  className="bg-black border border-zinc-800 p-1 text-[11px] font-mono text-white text-center"
+                                  onClick={(e) => e.stopPropagation()}
+                                >
+                                  {Array.from({ length: 25 }, (_, i) => i - 12).map(val => (
+                                    <option key={val} value={val}>{val > 0 ? `+${val}` : val}</option>
+                                  ))}
+                                </select>
+                              </div>
+
+                              <button
+                                onClick={(e) => { e.stopPropagation(); handleDeleteSlot(index); }}
+                                className="p-2 hover:bg-red-500/10 text-red-500 hover:text-red-400 rounded transition-colors self-end md:self-auto xl:mt-3"
+                                title="Delete Part"
+                              >
+                                <Trash2 size={16} />
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           )}

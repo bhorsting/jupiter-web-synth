@@ -161,6 +161,24 @@ export interface Patch {
   midiMappings?: MidiMapping[];
 }
 
+export interface MultiSlot {
+  patchId: string;
+  lowNote: number;       // 0-127 (MIDI note number)
+  highNote: number;      // 0-127 (MIDI note number)
+  lowVelocity: number;   // 0-127 (MIDI velocity)
+  highVelocity: number;  // 0-127 (MIDI velocity)
+  lowMapVelocity: number;// 0-127 (Mapped velocity)
+  highMapVelocity: number;// 0-127 (Mapped velocity)
+  transposeOctave: number;// -3 to +3
+  transposeNote: number;  // -12 to +12 semitones
+}
+
+export interface Multi {
+  id: string;
+  name: string;
+  slots: MultiSlot[];
+}
+
 export const DEFAULT_PARAMS: VoiceParams = {
   lfoRate: 5,
   lfoWaveform: 'sine',
