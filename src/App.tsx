@@ -26,7 +26,7 @@ import {
   HammondPercussionSection,
   EQSection
 } from './components/SynthPanel';
-import { DEFAULT_PARAMS, VoiceParams, Patch, MidiMapping, cleanVoiceParams, Multi, MultiSlot } from './types';
+import { DEFAULT_PARAMS, VoiceParams, Patch, MidiMapping, cleanVoiceParams, Multi, MultiSlot, Song, Setlist } from './types';
 import { Power, Save, FolderOpen, Sliders, Waves, Activity, Trash2, X, Keyboard as PianoIcon, Cloud, UploadCloud, DownloadCloud, Link, Maximize, Minimize, Settings2, Plus, Layers, Edit2 } from 'lucide-react';
 import React from 'react';
 import Keyboard from 'react-simple-keyboard';
@@ -93,13 +93,74 @@ function App() {
 
   const [patches, setPatches] = useState<Patch[]>([]);
   const [multis, setMultis] = useState<Multi[]>([]);
+  const [setlists, setSetlists] = useState<Setlist[]>([]);
+  const [activeSetlistId, setActiveSetlistId] = useState<string | null>(null);
+  const [selectedSetlistId, setSelectedSetlistId] = useState<string | null>(null);
+  const [newSongName, setNewSongName] = useState('');
+  const [newSongType, setNewSongType] = useState<'patch' | 'multi'>('patch');
+  const [newSongTargetId, setNewSongTargetId] = useState('');
   const [activeMultiId, setActiveMultiId] = useState<string | null>(null);
   const [selectedSlotIndex, setSelectedSlotIndex] = useState<number>(0);
-  const [libraryTab, setLibraryTab] = useState<'PATCHES' | 'MULTIS'>('PATCHES');
+  const [libraryTab, setLibraryTab] = useState<'PATCHES' | 'MULTIS' | 'SETLISTS'>('PATCHES');
   const [searchQuery, setSearchQuery] = useState('');
   const [isRestored, setIsRestored] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [isEncoding, setIsEncoding] = useState(false);
+
+  const [customDialog, setCustomDialog] = useState<{
+    type: 'alert' | 'confirm' | 'prompt';
+    title: string;
+    message: string;
+    defaultValue?: string;
+    onConfirm: (value?: string) => void;
+    onCancel?: () => void;
+  } | null>(null);
+  const [dialogInput, setDialogInput] = useState('');
+
+  const showCustomAlert = (title: string, message: string, onConfirm?: () => void) => {
+    setCustomDialog({
+      type: 'alert',
+      title,
+      message,
+      onConfirm: () => {
+        if (onConfirm) onConfirm();
+        setCustomDialog(null);
+      }
+    });
+  };
+
+  const showCustomConfirm = (title: string, message: string, onConfirm: () => void, onCancel?: () => void) => {
+    setCustomDialog({
+      type: 'confirm',
+      title,
+      message,
+      onConfirm: () => {
+        onConfirm();
+        setCustomDialog(null);
+      },
+      onCancel: () => {
+        if (onCancel) onCancel();
+        setCustomDialog(null);
+      }
+    });
+  };
+
+  const showCustomPrompt = (title: string, message: string, defaultValue: string, onConfirm: (val: string) => void) => {
+    setDialogInput(defaultValue);
+    setCustomDialog({
+      type: 'prompt',
+      title,
+      message,
+      defaultValue,
+      onConfirm: (val) => {
+        onConfirm(val || '');
+        setCustomDialog(null);
+      },
+      onCancel: () => {
+        setCustomDialog(null);
+      }
+    });
+  };
 
   const [midiLedActive, setMidiLedActive] = useState(false);
   const midiLedTimeoutRef = useRef<number | null>(null);
@@ -219,6 +280,8 @@ function App() {
         if (appState.currentScreen) setCurrentScreen(appState.currentScreen);
         if (appState.showKeyboard !== undefined) setShowKeyboard(appState.showKeyboard);
         if (appState.isMidiLogVisible !== undefined) setIsMidiLogVisible(appState.isMidiLogVisible);
+        if (appState.setlists) setSetlists(appState.setlists);
+        if (appState.activeSetlistId) setActiveSetlistId(appState.activeSetlistId);
       } else {
         // Fallback to legacy localStorage
         const lastPatchId = localStorage.getItem('jupiter_last_patch_id');
@@ -244,7 +307,9 @@ function App() {
       midiMappings,
       currentScreen,
       showKeyboard,
-      isMidiLogVisible
+      isMidiLogVisible,
+      setlists,
+      activeSetlistId
     });
 
     // Also keep localStorage as minimal fallback
@@ -253,7 +318,7 @@ function App() {
     } else {
       localStorage.removeItem('jupiter_last_patch_id');
     }
-  }, [activePatchId, activeMultiId, params, midiMappings, currentScreen, showKeyboard, isMidiLogVisible, isRestored]);
+  }, [activePatchId, activeMultiId, params, midiMappings, currentScreen, showKeyboard, isMidiLogVisible, isRestored, setlists, activeSetlistId]);
 
   // Save multis whenever they change
   useEffect(() => {
@@ -573,6 +638,41 @@ function App() {
     engineRef.current?.setPitchBend(value);
   }, []);
 
+  const handleProgramChange = React.useCallback((program: number, channel: number) => {
+    addMidiDebugEvent('PC', settings.midiChannel || 'Omni', `Program Change ${program}`, program, program);
+    
+    const activeSetlist = setlists.find(s => s.id === activeSetlistId);
+    if (!activeSetlist) return;
+
+    const song = activeSetlist.songs[program];
+    if (song) {
+      if (song.type === 'patch') {
+        const patch = patches.find(p => p.id === song.targetId);
+        if (patch) {
+          setParams(cleanVoiceParams(patch.params));
+          setActivePatchId(patch.id);
+          setActiveMultiId(null);
+          setMidiMappings(patch.midiMappings || []);
+        }
+      } else if (song.type === 'multi') {
+        const multi = multis.find(m => m.id === song.targetId);
+        if (multi) {
+          setActiveMultiId(multi.id);
+          setActivePatchId(null);
+          setSelectedSlotIndex(0);
+          if (multi.slots.length > 0) {
+            const firstSlot = multi.slots[0];
+            const patch = patches.find(p => p.id === firstSlot.patchId);
+            if (patch) {
+              setParams(cleanVoiceParams(patch.params));
+              setMidiMappings(patch.midiMappings || []);
+            }
+          }
+        }
+      }
+    }
+  }, [setlists, activeSetlistId, patches, multis, settings.midiChannel, addMidiDebugEvent]);
+
   // Use refs for MIDI callbacks. Assign them directly in render to prevent stale closure lag from asynchronous useEffect runs
   const midiCCRef = useRef<(cc: number, value: number, channel: number) => void>(() => {});
   const midiNoteOnRef = useRef<(note: number, velocity: number) => void>(() => {});
@@ -581,7 +681,8 @@ function App() {
   const handlePanicRef = useRef<() => void>(() => {});
   const isMidiLogVisibleRef = useRef<boolean>(false);
   const addMidiLogRef = useRef<(data: Uint8Array) => void>(() => {});
-  const addMidiDebugRef = useRef<(type: 'Note On' | 'Note Off' | 'CC' | 'Pitch Bend' | 'Panic', channel: number | string, noteOrCC: string, numValue: number, velocityOrVal: string | number) => void>(() => {});
+  const addMidiDebugRef = useRef<(type: 'Note On' | 'Note Off' | 'CC' | 'Pitch Bend' | 'Panic' | 'PC', channel: number | string, noteOrCC: string, numValue: number, velocityOrVal: string | number) => void>(() => {});
+  const midiProgramChangeRef = useRef<(program: number, channel: number) => void>(() => {});
 
   // Synchronously update Callback Refs on every render cycle to prevent any lag or stale closures
   useEffect(() => {
@@ -594,6 +695,7 @@ function App() {
     isMidiLogVisibleRef.current = isMidiLogVisible;
     addMidiDebugRef.current = addMidiDebugEvent;
     triggerMidiLedFlashRef.current = triggerMidiLedFlash;
+    midiProgramChangeRef.current = handleProgramChange;
   });
 
   useEffect(() => {
@@ -638,6 +740,14 @@ function App() {
       window.removeEventListener('keydown', handleFirstInteraction);
     };
   }, []);
+
+  useEffect(() => {
+    if (newSongType === 'patch') {
+      setNewSongTargetId(patches[0]?.id || '');
+    } else {
+      setNewSongTargetId(multis[0]?.id || '');
+    }
+  }, [newSongType, patches, multis]);
 
   useEffect(() => {
     if (engineRef.current) {
@@ -726,7 +836,7 @@ function App() {
     setSyncError(null);
     try {
       await googleSheetsService.saveToSheet(patches, multis, settings.googleSheetUrl);
-      alert('Library (Patches & Multis) synced to Google Sheets successfully!');
+      showCustomAlert('SYNC COMPLETE', 'Library (Patches & Multis) synced to Google Sheets successfully!');
     } catch (error: any) {
       console.error(error);
       setSyncError(error.message || 'Failed to sync');
@@ -737,20 +847,25 @@ function App() {
 
   const handlePullFromSheet = async () => {
     if (!settings.googleSheetUrl) return;
-    if (!confirm('This will overwrite local library with patches and multis from Google Sheets. Continue?')) return;
-    setIsSyncing(true);
-    setSyncError(null);
-    try {
-      const result = await googleSheetsService.loadFromSheet(settings.googleSheetUrl);
-      setPatches(result.patches);
-      setMultis(result.multis);
-      alert('Library (Patches & Multis) updated from Google Sheets!');
-    } catch (error: any) {
-      console.error(error);
-      setSyncError(error.message || 'Failed to load');
-    } finally {
-      setIsSyncing(false);
-    }
+    showCustomConfirm(
+      'OVERWRITE LOCAL LIBRARY',
+      'This will overwrite local library with patches and multis from Google Sheets. Continue?',
+      async () => {
+        setIsSyncing(true);
+        setSyncError(null);
+        try {
+          const result = await googleSheetsService.loadFromSheet(settings.googleSheetUrl);
+          setPatches(result.patches);
+          setMultis(result.multis);
+          showCustomAlert('SYNC COMPLETE', 'Library (Patches & Multis) updated from Google Sheets!');
+        } catch (error: any) {
+          console.error(error);
+          setSyncError(error.message || 'Failed to load');
+        } finally {
+          setIsSyncing(false);
+        }
+      }
+    );
   };
 
   const handleSaveSheetUrl = async () => {
@@ -798,6 +913,9 @@ function App() {
           () => {
             addMidiDebugRef.current('Panic', 'All', 'Panic', 0, 0);
             handlePanicRef.current();
+          },
+          (program, channel) => {
+            midiProgramChangeRef.current(program, channel);
           }
         );
         midiRef.current.init().then(() => {
@@ -933,7 +1051,7 @@ function App() {
   };
 
   const deletePatch = async (id: string) => {
-    if (confirm('Delete patch?')) {
+    showCustomConfirm('DELETE PATCH', 'Delete patch?', async () => {
       const updatedPatches = patches.filter(p => p.id !== id);
       setPatches(updatedPatches);
       if (activePatchId === id) setActivePatchId(null);
@@ -947,7 +1065,7 @@ function App() {
           console.error('App: Auto-sync failed:', error);
         }
       }
-    }
+    });
   };
 
   const loadMulti = (multi: Multi) => {
@@ -964,6 +1082,123 @@ function App() {
       }
     }
     setCurrentScreen('SYNTH');
+  };
+
+  const handleCreateSetlist = () => {
+    showCustomPrompt('CREATE SETLIST', 'ENTER NAME FOR THE NEW SETLIST:', `SETLIST ${setlists.length + 1}`, (name) => {
+      if (!name) return;
+      const newSetlist: Setlist = {
+        id: `setlist-${Date.now()}`,
+        name: name.toUpperCase(),
+        songs: []
+      };
+      const updatedSetlists = [...setlists, newSetlist];
+      setSetlists(updatedSetlists);
+      setSelectedSetlistId(newSetlist.id);
+      if (!activeSetlistId) {
+        setActiveSetlistId(newSetlist.id);
+      }
+    });
+  };
+
+  const handleDeleteSetlist = (id: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    showCustomConfirm('DELETE SETLIST', 'ARE YOU SURE YOU WANT TO DELETE THIS SETLIST?', () => {
+      const updated = setlists.filter(s => s.id !== id);
+      setSetlists(updated);
+      if (activeSetlistId === id) {
+        setActiveSetlistId(updated[0]?.id || null);
+      }
+      if (selectedSetlistId === id) {
+        setSelectedSetlistId(updated[0]?.id || null);
+      }
+    });
+  };
+
+  const handleRenameSetlist = (id: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    const setlist = setlists.find(s => s.id === id);
+    if (!setlist) return;
+    showCustomPrompt('RENAME SETLIST', 'RENAME SETLIST TO:', setlist.name, (name) => {
+      if (!name) return;
+      const updated = setlists.map(s => s.id === id ? { ...s, name: name.toUpperCase() } : s);
+      setSetlists(updated);
+    });
+  };
+
+  const handleAddSongToSetlist = (setlistId: string, songName: string, type: 'patch' | 'multi', targetId: string) => {
+    if (!songName.trim() || !targetId) return;
+    const newSong: Song = {
+      id: `song-${Date.now()}`,
+      name: songName.trim().toUpperCase(),
+      type,
+      targetId
+    };
+    const updated = setlists.map(s => {
+      if (s.id === setlistId) {
+        return {
+          ...s,
+          songs: [...s.songs, newSong]
+        };
+      }
+      return s;
+    });
+    setSetlists(updated);
+  };
+
+  const handleDeleteSongFromSetlist = (setlistId: string, songId: string) => {
+    const updated = setlists.map(s => {
+      if (s.id === setlistId) {
+        return {
+          ...s,
+          songs: s.songs.filter(sg => sg.id !== songId)
+        };
+      }
+      return s;
+    });
+    setSetlists(updated);
+  };
+
+  const handleMoveSong = (setlistId: string, songId: string, direction: 'up' | 'down') => {
+    const updated = setlists.map(s => {
+      if (s.id === setlistId) {
+        const index = s.songs.findIndex(sg => sg.id === songId);
+        if (index === -1) return s;
+        if (direction === 'up' && index === 0) return s;
+        if (direction === 'down' && index === s.songs.length - 1) return s;
+        
+        const targetIndex = direction === 'up' ? index - 1 : index + 1;
+        const newSongs = [...s.songs];
+        const temp = newSongs[index];
+        newSongs[index] = newSongs[targetIndex];
+        newSongs[targetIndex] = temp;
+        
+        return {
+          ...s,
+          songs: newSongs
+        };
+      }
+      return s;
+    });
+    setSetlists(updated);
+  };
+
+  const handleLoadSong = (song: Song) => {
+    if (song.type === 'patch') {
+      const patch = patches.find(p => p.id === song.targetId);
+      if (patch) {
+        loadPatch(patch);
+      } else {
+        alert('Associated Patch not found!');
+      }
+    } else if (song.type === 'multi') {
+      const multi = multis.find(m => m.id === song.targetId);
+      if (multi) {
+        loadMulti(multi);
+      } else {
+        alert('Associated Multi not found!');
+      }
+    }
   };
 
   const handleCreateMulti = async () => {
@@ -1095,7 +1330,7 @@ function App() {
   };
 
   const handleDeleteMulti = async (id: string) => {
-    if (confirm('Delete this multi preset?')) {
+    showCustomConfirm('DELETE MULTI PRESET', 'Delete this multi preset?', async () => {
       const updatedMultis = multis.filter(m => m.id !== id);
       setMultis(updatedMultis);
       if (activeMultiId === id) setActiveMultiId(null);
@@ -1108,7 +1343,7 @@ function App() {
           console.error('Failed to sync deletion to sheet:', e);
         }
       }
-    }
+    });
   };
 
   const synthSections = (
@@ -1903,6 +2138,16 @@ function App() {
                   >
                     Multis
                   </button>
+                  <button
+                    onClick={() => setLibraryTab('SETLISTS')}
+                    className={`pb-2 text-sm font-bold uppercase tracking-widest border-b-2 transition-all ${
+                      libraryTab === 'SETLISTS'
+                        ? 'text-orange-500 border-orange-500'
+                        : 'text-zinc-500 border-transparent hover:text-zinc-300'
+                    }`}
+                  >
+                    Setlists
+                  </button>
                 </div>
 
                 <div className="flex flex-col sm:flex-row gap-4 mb-6">
@@ -1912,7 +2157,13 @@ function App() {
                       type="text" 
                       value={searchQuery}
                       onChange={(e) => setSearchQuery(e.target.value)}
-                      placeholder={libraryTab === 'PATCHES' ? "Search patches..." : "Search multis..."}
+                      placeholder={
+                        libraryTab === 'PATCHES' 
+                          ? "Search patches..." 
+                          : libraryTab === 'MULTIS' 
+                            ? "Search multis..." 
+                            : "Search setlists..."
+                      }
                       className="w-full bg-zinc-900 border border-zinc-800 p-4 pl-10 text-sm font-bold uppercase tracking-widest text-white focus:border-orange-500 outline-none transition-all"
                     />
                     {searchQuery && (
@@ -1925,11 +2176,23 @@ function App() {
                     )}
                   </div>
                   <button
-                    onClick={libraryTab === 'PATCHES' ? startCreatePatch : startCreateMulti}
+                    onClick={
+                      libraryTab === 'PATCHES' 
+                        ? startCreatePatch 
+                        : libraryTab === 'MULTIS' 
+                          ? startCreateMulti 
+                          : handleCreateSetlist
+                    }
                     className="px-6 py-4 bg-orange-600 hover:bg-orange-500 text-white font-bold uppercase tracking-widest text-xs flex items-center justify-center gap-2 transition-all shrink-0 shadow-[0_0_12px_rgba(249,115,22,0.2)]"
                   >
                     <Plus size={16} />
-                    {libraryTab === 'PATCHES' ? 'Create New Patch' : 'Create New Multi'}
+                    {
+                      libraryTab === 'PATCHES' 
+                        ? 'Create New Patch' 
+                        : libraryTab === 'MULTIS' 
+                          ? 'Create New Multi' 
+                          : 'Create New Setlist'
+                    }
                   </button>
                 </div>
 
@@ -2028,6 +2291,272 @@ function App() {
                         </div>
                       ))
                     )}
+                  </div>
+                )}
+
+                {libraryTab === 'SETLISTS' && (
+                  <div className="flex flex-col lg:flex-row gap-6 items-start mt-4">
+                    {/* Left Pane: Setlists List */}
+                    <div className="w-full lg:w-1/3 flex flex-col gap-4 bg-zinc-900/40 p-4 border border-zinc-800">
+                      <div className="flex justify-between items-center pb-2 border-b border-zinc-800">
+                        <span className="text-xs font-bold uppercase tracking-widest text-zinc-400">Available Setlists</span>
+                        <button
+                          onClick={handleCreateSetlist}
+                          className="px-3 py-1 bg-orange-600 hover:bg-orange-500 text-white font-bold uppercase tracking-widest text-[9px] flex items-center gap-1 transition-all"
+                        >
+                          <Plus size={10} />
+                          New
+                        </button>
+                      </div>
+
+                      <div className="flex flex-col gap-2 max-h-[350px] overflow-y-auto pr-1">
+                        {setlists.length === 0 ? (
+                          <div className="text-center py-8 text-zinc-500 uppercase tracking-widest text-[9px] font-bold border border-dashed border-zinc-800">
+                            No setlists created
+                          </div>
+                        ) : (
+                          setlists.map(s => {
+                            const isActive = s.id === activeSetlistId;
+                            const isSelected = s.id === selectedSetlistId;
+                            return (
+                              <div
+                                key={s.id}
+                                onClick={() => setSelectedSetlistId(s.id)}
+                                className={`p-3 border cursor-pointer transition-all flex items-center justify-between group ${
+                                  isSelected
+                                    ? 'bg-orange-600/10 border-orange-500'
+                                    : 'bg-zinc-950/40 border-zinc-800 hover:border-zinc-700'
+                                }`}
+                              >
+                                <div className="flex flex-col gap-0.5 min-w-0">
+                                  <div className="flex items-center gap-2">
+                                    <span className="font-bold text-sm uppercase tracking-wider truncate">{s.name}</span>
+                                    {isActive && (
+                                      <span className="px-1.5 py-0.5 text-[7px] font-bold tracking-widest uppercase bg-green-500/10 text-green-500 border border-green-500/20 shrink-0">
+                                        Active
+                                      </span>
+                                    )}
+                                  </div>
+                                  <span className="text-[9px] text-zinc-500 uppercase tracking-widest font-bold">
+                                    {s.songs.length} Song{s.songs.length !== 1 ? 's' : ''}
+                                  </span>
+                                </div>
+
+                                <div className="flex gap-1 items-center">
+                                  {!isActive && (
+                                    <button
+                                      onClick={(e) => { e.stopPropagation(); setActiveSetlistId(s.id); }}
+                                      className="opacity-0 group-hover:opacity-100 px-2 py-1 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-[8px] font-bold uppercase tracking-widest transition-all shrink-0"
+                                    >
+                                      Use
+                                    </button>
+                                  )}
+                                  <button
+                                    onClick={(e) => { e.stopPropagation(); handleRenameSetlist(s.id); }}
+                                    className="p-1 hover:bg-white/10 text-zinc-400 hover:text-white transition-all shrink-0"
+                                    title="Rename Setlist"
+                                  >
+                                    <Edit2 size={12} />
+                                  </button>
+                                  <button
+                                    onClick={(e) => { e.stopPropagation(); handleDeleteSetlist(s.id); }}
+                                    className="p-1 hover:bg-red-500/20 text-red-500 hover:text-red-400 transition-all shrink-0"
+                                    title="Delete Setlist"
+                                  >
+                                    <Trash2 size={12} />
+                                  </button>
+                                </div>
+                              </div>
+                            );
+                          })
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Right Pane: Selected Setlist Songs */}
+                    <div className="flex-1 w-full bg-zinc-900/20 p-5 border border-zinc-800 flex flex-col gap-5">
+                      {selectedSetlistId ? (() => {
+                        const currentSetlist = setlists.find(s => s.id === selectedSetlistId);
+                        if (!currentSetlist) return null;
+                        return (
+                          <>
+                            <div className="flex justify-between items-center border-b border-zinc-800 pb-3">
+                              <div className="flex flex-col gap-1">
+                                <span className="text-[9px] font-bold tracking-widest text-orange-500 uppercase">Setlist Editor</span>
+                                <h3 className="text-xl font-bold uppercase tracking-wide text-zinc-100">{currentSetlist.name}</h3>
+                              </div>
+                              {activeSetlistId !== currentSetlist.id && (
+                                <button
+                                  onClick={() => setActiveSetlistId(currentSetlist.id)}
+                                  className="px-4 py-2 bg-green-600 hover:bg-green-500 text-white font-bold uppercase tracking-widest text-[10px] transition-all font-bold"
+                                >
+                                  Activate for MIDI PC
+                                </button>
+                              )}
+                            </div>
+
+                            {/* Add Song Form */}
+                            <div className="bg-zinc-950/40 p-4 border border-zinc-800/80 flex flex-col gap-4">
+                              <span className="text-[10px] font-bold tracking-widest text-zinc-400 uppercase">Add Song to Setlist</span>
+                              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                                <div className="flex flex-col gap-1.5">
+                                  <label className="text-[8px] font-bold text-zinc-500 uppercase tracking-widest">Song Title</label>
+                                  <input
+                                    type="text"
+                                    value={newSongName}
+                                    onChange={(e) => setNewSongName(e.target.value)}
+                                    placeholder="E.G. INTRO JAM"
+                                    className="bg-black border border-zinc-800 p-2.5 text-xs font-bold uppercase tracking-widest text-white focus:border-orange-500 outline-none"
+                                  />
+                                </div>
+
+                                <div className="flex flex-col gap-1.5">
+                                  <label className="text-[8px] font-bold text-zinc-500 uppercase tracking-widest">Load Type</label>
+                                  <select
+                                    value={newSongType}
+                                    onChange={(e) => setNewSongType(e.target.value as 'patch' | 'multi')}
+                                    className="bg-black border border-zinc-800 p-2.5 text-xs font-bold uppercase tracking-widest text-white focus:border-orange-500 outline-none"
+                                  >
+                                    <option value="patch">Patch</option>
+                                    <option value="multi">Multi</option>
+                                  </select>
+                                </div>
+
+                                <div className="flex flex-col gap-1.5">
+                                  <label className="text-[8px] font-bold text-zinc-500 uppercase tracking-widest">Select Target</label>
+                                  <select
+                                    value={newSongTargetId}
+                                    onChange={(e) => setNewSongTargetId(e.target.value)}
+                                    className="bg-black border border-zinc-800 p-2.5 text-xs font-bold uppercase tracking-widest text-white focus:border-orange-500 outline-none"
+                                  >
+                                    {newSongType === 'patch' ? (
+                                      patches.map(p => (
+                                        <option key={p.id} value={p.id}>{p.name.toUpperCase()}</option>
+                                      ))
+                                    ) : (
+                                      multis.map(m => (
+                                        <option key={m.id} value={m.id}>{m.name.toUpperCase()}</option>
+                                      ))
+                                    )}
+                                  </select>
+                                </div>
+                              </div>
+
+                              <button
+                                onClick={() => {
+                                  if (!newSongName.trim()) {
+                                    alert('Please enter a Song Title!');
+                                    return;
+                                  }
+                                  handleAddSongToSetlist(currentSetlist.id, newSongName, newSongType, newSongTargetId);
+                                  setNewSongName('');
+                                }}
+                                className="w-full sm:w-auto self-end px-5 py-2.5 bg-orange-600 hover:bg-orange-500 text-white font-bold uppercase tracking-widest text-[10px] transition-all flex items-center justify-center gap-1.5"
+                              >
+                                <Plus size={12} />
+                                Add Song
+                              </button>
+                            </div>
+
+                            {/* Songs List */}
+                            <div className="flex flex-col gap-2.5">
+                              <span className="text-[10px] font-bold tracking-widest text-zinc-400 uppercase">Setlist Songs (Indexed for MIDI Program Change)</span>
+                              {currentSetlist.songs.length === 0 ? (
+                                <div className="text-center py-12 text-zinc-500 uppercase tracking-widest text-[10px] font-bold border border-dashed border-zinc-800 bg-zinc-950/20">
+                                  No songs in this setlist. Add some above!
+                                </div>
+                              ) : (
+                                <div className="flex flex-col gap-2 max-h-[400px] overflow-y-auto pr-1">
+                                  {currentSetlist.songs.map((song, index) => {
+                                    const targetName = song.type === 'patch' 
+                                      ? patches.find(p => p.id === song.targetId)?.name 
+                                      : multis.find(m => m.id === song.targetId)?.name;
+                                    
+                                    const isActiveSong = activeSetlistId === currentSetlist.id && (
+                                      song.type === 'patch' ? activePatchId === song.targetId : activeMultiId === song.targetId
+                                    );
+
+                                    return (
+                                      <div
+                                        key={song.id}
+                                        className={`p-3 bg-zinc-950/60 border flex items-center justify-between transition-all ${
+                                          isActiveSong
+                                            ? 'border-orange-500 bg-orange-500/5'
+                                            : 'border-zinc-800 hover:border-zinc-700'
+                                        }`}
+                                      >
+                                        <div className="flex items-center gap-4 min-w-0">
+                                          {/* Program Change indicator */}
+                                          <div className="flex flex-col items-center justify-center bg-zinc-900 border border-zinc-800 px-2 py-1 shrink-0 font-mono text-center">
+                                            <span className="text-[8px] text-zinc-500 uppercase tracking-widest font-bold">MIDI PC</span>
+                                            <span className="text-xs font-bold text-orange-500">{index}</span>
+                                          </div>
+
+                                          <div className="flex flex-col gap-0.5 min-w-0">
+                                            <span className="font-bold text-sm uppercase truncate text-zinc-100">{song.name}</span>
+                                            <div className="flex items-center gap-1.5 text-[9px] text-zinc-400 font-bold uppercase tracking-widest">
+                                              <span className={`px-1 text-[8px] tracking-widest ${
+                                                song.type === 'patch' 
+                                                  ? 'bg-blue-500/10 text-blue-400 border border-blue-500/20' 
+                                                  : 'bg-purple-500/10 text-purple-400 border border-purple-500/20'
+                                              }`}>
+                                                {song.type}
+                                              </span>
+                                              <span className="truncate">{targetName || 'UNKNOWN'}</span>
+                                            </div>
+                                          </div>
+                                        </div>
+
+                                        <div className="flex items-center gap-1 shrink-0">
+                                          <button
+                                            onClick={() => handleLoadSong(song)}
+                                            className={`px-3 py-1.5 text-[9px] font-bold uppercase tracking-widest transition-all ${
+                                              isActiveSong
+                                                ? 'bg-orange-600 text-white'
+                                                : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-300'
+                                            }`}
+                                          >
+                                            {isActiveSong ? 'Loaded' : 'Load'}
+                                          </button>
+                                          <button
+                                            onClick={() => handleMoveSong(currentSetlist.id, song.id, 'up')}
+                                            disabled={index === 0}
+                                            className="p-1.5 hover:bg-white/10 text-zinc-400 hover:text-white disabled:opacity-20 disabled:pointer-events-none transition-all"
+                                            title="Move Up"
+                                          >
+                                            ▲
+                                          </button>
+                                          <button
+                                            onClick={() => handleMoveSong(currentSetlist.id, song.id, 'down')}
+                                            disabled={index === currentSetlist.songs.length - 1}
+                                            className="p-1.5 hover:bg-white/10 text-zinc-400 hover:text-white disabled:opacity-20 disabled:pointer-events-none transition-all"
+                                            title="Move Down"
+                                          >
+                                            ▼
+                                          </button>
+                                          <button
+                                            onClick={() => handleDeleteSongFromSetlist(currentSetlist.id, song.id)}
+                                            className="p-1.5 hover:bg-red-500/20 text-red-500 hover:text-red-400 transition-all"
+                                            title="Remove Song"
+                                          >
+                                            <Trash2 size={13} />
+                                          </button>
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              )}
+                            </div>
+                          </>
+                        );
+                      })() : (
+                        <div className="flex-1 flex flex-col items-center justify-center text-center p-12 border border-dashed border-zinc-800 bg-zinc-950/20 min-h-[300px]">
+                          <span className="text-zinc-500 uppercase tracking-widest text-[11px] font-bold">Select or Create a Setlist to Begin</span>
+                          <p className="text-zinc-600 text-xs mt-1 max-w-sm">Create multiple setlists for different gigs or projects, filled with your favorite single patches or multi setups.</p>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 )}
 
@@ -2334,6 +2863,63 @@ function App() {
           onSimulateNoteOff={handleNoteOff}
           onSimulateCC={handleMidiCC}
         />
+
+        {/* Custom Dialog Overlay to bypass sandbox restrictions */}
+        {customDialog && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/85 p-4 animate-in fade-in duration-200">
+            <div className="bg-zinc-950 border-2 border-zinc-800 p-6 sm:p-8 w-full max-w-md shadow-[0_0_50px_rgba(0,0,0,0.8)] flex flex-col gap-6">
+              <div className="flex flex-col gap-2">
+                <span className="text-[10px] font-mono tracking-[0.2em] text-orange-500 uppercase font-semibold">
+                  {customDialog.type === 'alert' ? 'Notification' : customDialog.type === 'confirm' ? 'Confirm Action' : 'Input Required'}
+                </span>
+                <h2 className="text-lg font-bold uppercase tracking-wider text-white">
+                  {customDialog.title}
+                </h2>
+              </div>
+              
+              <p className="text-sm text-zinc-400 font-medium leading-relaxed">
+                {customDialog.message}
+              </p>
+
+              {customDialog.type === 'prompt' && (
+                <input
+                  type="text"
+                  value={dialogInput}
+                  onChange={(e) => setDialogInput(e.target.value)}
+                  autoFocus
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      customDialog.onConfirm(dialogInput);
+                    }
+                  }}
+                  className="w-full bg-black border border-zinc-800 focus:border-orange-500 p-3 text-sm font-bold uppercase tracking-wider text-white outline-none"
+                />
+              )}
+
+              <div className="flex justify-end gap-3 mt-2">
+                {customDialog.type !== 'alert' && (
+                  <button
+                    onClick={() => {
+                      if (customDialog.onCancel) customDialog.onCancel();
+                      setCustomDialog(null);
+                    }}
+                    className="px-5 py-2.5 bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-zinc-200 font-bold uppercase tracking-wider text-[11px] transition-all"
+                  >
+                    Cancel
+                  </button>
+                )}
+                <button
+                  onClick={() => {
+                    customDialog.onConfirm(dialogInput);
+                  }}
+                  className="px-5 py-2.5 bg-orange-600 hover:bg-orange-500 text-white font-bold uppercase tracking-wider text-[11px] shadow-[0_0_15px_rgba(249,115,22,0.3)] transition-all"
+                >
+                  Confirm
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     );
   }

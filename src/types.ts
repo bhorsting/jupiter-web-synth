@@ -179,6 +179,19 @@ export interface Multi {
   slots: MultiSlot[];
 }
 
+export interface Song {
+  id: string;
+  name: string;
+  type: 'patch' | 'multi';
+  targetId: string;
+}
+
+export interface Setlist {
+  id: string;
+  name: string;
+  songs: Song[];
+}
+
 export const DEFAULT_PARAMS: VoiceParams = {
   lfoRate: 5,
   lfoWaveform: 'sine',

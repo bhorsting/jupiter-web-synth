@@ -8,6 +8,7 @@ export type MIDICCCallback = (cc: number, value: number, channel: number) => voi
 export type MIDIPitchBendCallback = (value: number, channel: number) => void;
 export type MIDIPanicCallback = () => void;
 export type MIDIRawCallback = (data: Uint8Array) => void;
+export type MIDIProgramChangeCallback = (program: number, channel: number) => void;
 
 export class MIDIService {
   private onNoteOn: MIDICallback;
@@ -16,6 +17,7 @@ export class MIDIService {
   private onPitchBend?: MIDIPitchBendCallback;
   private onPanic?: MIDIPanicCallback;
   private onMessage?: MIDIRawCallback;
+  private onProgramChange?: MIDIProgramChangeCallback;
   private access: MIDIAccess | null = null;
   private inputId: string = 'all';
   private channel: number = 0; // 0 for all
@@ -28,7 +30,8 @@ export class MIDIService {
     onCC?: MIDICCCallback, 
     onMessage?: MIDIRawCallback,
     onPitchBend?: MIDIPitchBendCallback,
-    onPanic?: MIDIPanicCallback
+    onPanic?: MIDIPanicCallback,
+    onProgramChange?: MIDIProgramChangeCallback
   ) {
     this.onNoteOn = onNoteOn;
     this.onNoteOff = onNoteOff;
@@ -36,6 +39,7 @@ export class MIDIService {
     this.onMessage = onMessage;
     this.onPitchBend = onPitchBend;
     this.onPanic = onPanic;
+    this.onProgramChange = onProgramChange;
   }
 
   async init() {
@@ -197,6 +201,9 @@ export class MIDIService {
           // Apply channel filter if configured (0 is "all")
           if (this.channel === 0 || this.channel === channel) {
             // Program Change or Channel Pressure
+            if (type === 0xC0 && this.onProgramChange) {
+              this.onProgramChange(byte1, channel - 1);
+            }
           }
         } else {
           break;

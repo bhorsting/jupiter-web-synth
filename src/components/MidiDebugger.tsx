@@ -5,7 +5,7 @@ import { X, Trash2, Play, Square, Activity, Sliders, Music, Zap } from 'lucide-r
 export interface MidiDebugEvent {
   id: string;
   timestamp: string;
-  type: 'Note On' | 'Note Off' | 'CC' | 'Pitch Bend' | 'Panic';
+  type: 'Note On' | 'Note Off' | 'CC' | 'Pitch Bend' | 'Panic' | 'PC';
   channel: number | string;
   noteOrCC: string;
   numValue: number;
@@ -123,6 +123,7 @@ export const MidiDebugger: React.FC<MidiDebuggerProps> = ({
                     if (ev.type === 'CC') typeBadgeColor = 'text-blue-400 bg-blue-400/10 border-blue-400/20';
                     if (ev.type === 'Pitch Bend') typeBadgeColor = 'text-yellow-500 bg-yellow-500/10 border-yellow-500/20';
                     if (ev.type === 'Panic') typeBadgeColor = 'text-purple-500 bg-purple-500/10 border-purple-500/20';
+                    if (ev.type === 'PC') typeBadgeColor = 'text-cyan-400 bg-cyan-400/10 border-cyan-400/20';
 
                     return (
                       <div 
