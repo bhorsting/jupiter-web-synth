@@ -37,6 +37,7 @@ import { SettingsProvider, useSettings } from './contexts/SettingsContext';
 import { googleSheetsService } from './services/GoogleSheetsService';
 import { indexedDBService } from './services/IndexedDBService';
 import { PRESET_PATCHES } from './constants/presetPatches';
+import { DURAN_PATCHES, DURAN_MULTIS, DURAN_SETLIST } from './constants/duranPresets';
 import 'react-simple-keyboard/build/css/index.css';
 
 type Screen = 'SYNTH' | 'ARP' | 'FX' | 'PATCHES';
@@ -200,11 +201,10 @@ function App() {
       await indexedDBService.init();
       const storedPatches = await indexedDBService.getAllPatches();
       
-      // Always merge PRESET_PATCHES to ensure user has the latest ones if they haven't deleted them
-      // We identify presets by their prefix in the ID if we had one, but here they are just objects.
-      // Let's check by name or ID if it exists.
+      // Always merge PRESET_PATCHES and DURAN_PATCHES to ensure user has the latest ones if they haven't deleted them
+      const allPresetPatches = [...PRESET_PATCHES, ...DURAN_PATCHES];
       const existingIds = new Set(storedPatches.map(p => p.id));
-      const newPresets = PRESET_PATCHES.filter(p => !existingIds.has(p.id));
+      const newPresets = allPresetPatches.filter(p => !existingIds.has(p.id));
       
       let finalPatches = [...storedPatches];
       
@@ -216,8 +216,8 @@ function App() {
 
       if (storedPatches.length === 0 && finalPatches.length === 0) {
         console.log('Seeding IndexedDB with preset patches...');
-        await indexedDBService.savePatches(PRESET_PATCHES);
-        finalPatches = PRESET_PATCHES;
+        await indexedDBService.savePatches(allPresetPatches);
+        finalPatches = allPresetPatches;
       }
 
       // Migration: ensure all fields exist
@@ -236,6 +236,7 @@ function App() {
       // Load multis
       const storedMultis = await indexedDBService.getAllMultis();
       let finalMultis = [...storedMultis];
+      
       if (finalMultis.length === 0) {
         const defaultMulti: Multi = {
           id: 'default-multi-split',
@@ -265,13 +266,24 @@ function App() {
             }
           ]
         };
-        await indexedDBService.saveMultis([defaultMulti]);
         finalMultis = [defaultMulti];
       }
+
+      // Ensure DURAN_MULTIS are seeded if not present
+      const existingMultiIds = new Set(finalMultis.map(m => m.id));
+      const newDuranMultis = DURAN_MULTIS.filter(m => !existingMultiIds.has(m.id));
+      if (newDuranMultis.length > 0) {
+        finalMultis = [...finalMultis, ...newDuranMultis];
+      }
+      
+      await indexedDBService.saveMultis(finalMultis);
       setMultis(finalMultis);
       
       // Restore last selected patch and params if exists in appState
       const appState = await indexedDBService.getAppState();
+      let finalSetlists: Setlist[] = [];
+      let activeSetId: string | null = null;
+      
       if (appState) {
         if (appState.activePatchId) setActivePatchId(appState.activePatchId);
         if (appState.activeMultiId) setActiveMultiId(appState.activeMultiId);
@@ -280,8 +292,8 @@ function App() {
         if (appState.currentScreen) setCurrentScreen(appState.currentScreen);
         if (appState.showKeyboard !== undefined) setShowKeyboard(appState.showKeyboard);
         if (appState.isMidiLogVisible !== undefined) setIsMidiLogVisible(appState.isMidiLogVisible);
-        if (appState.setlists) setSetlists(appState.setlists);
-        if (appState.activeSetlistId) setActiveSetlistId(appState.activeSetlistId);
+        finalSetlists = appState.setlists || [];
+        activeSetId = appState.activeSetlistId || null;
       } else {
         // Fallback to legacy localStorage
         const lastPatchId = localStorage.getItem('jupiter_last_patch_id');
@@ -293,6 +305,21 @@ function App() {
           }
         }
       }
+
+      // Check if DURAN_SETLIST is missing from setlists list, if so add it
+      if (!finalSetlists.some(s => s.id === DURAN_SETLIST.id)) {
+        finalSetlists = [...finalSetlists, DURAN_SETLIST];
+        // Make the Duran Duran setlist active if none is currently active
+        if (!activeSetId) {
+          activeSetId = DURAN_SETLIST.id;
+        }
+      }
+      
+      setSetlists(finalSetlists);
+      if (activeSetId) {
+        setActiveSetlistId(activeSetId);
+      }
+      
       setIsRestored(true);
     };
     initDB();
@@ -1004,12 +1031,49 @@ function App() {
       updatedMultis = multis.map(m => m.id === namingTargetId ? { ...m, name: pendingName.trim() } : m);
       setMultis(updatedMultis);
     } else if (namingMode === 'CREATE_MULTI') {
+      const p0 = patches[0]?.id || '1';
+      const p1 = patches[1]?.id || p0;
+      const p2 = patches[2]?.id || p0;
+      const p3 = patches[3]?.id || p0;
       const newMulti: Multi = {
         id: `multi-${Date.now()}`,
         name: pendingName.trim(),
         slots: [
           {
-            patchId: patches[0]?.id || '1',
+            patchId: p0,
+            lowNote: 0,
+            highNote: 127,
+            lowVelocity: 0,
+            highVelocity: 127,
+            lowMapVelocity: 0,
+            highMapVelocity: 127,
+            transposeOctave: 0,
+            transposeNote: 0
+          },
+          {
+            patchId: p1,
+            lowNote: 0,
+            highNote: 127,
+            lowVelocity: 0,
+            highVelocity: 127,
+            lowMapVelocity: 0,
+            highMapVelocity: 127,
+            transposeOctave: 0,
+            transposeNote: 0
+          },
+          {
+            patchId: p2,
+            lowNote: 0,
+            highNote: 127,
+            lowVelocity: 0,
+            highVelocity: 127,
+            lowMapVelocity: 0,
+            highMapVelocity: 127,
+            transposeOctave: 0,
+            transposeNote: 0
+          },
+          {
+            patchId: p3,
             lowNote: 0,
             highNote: 127,
             lowVelocity: 0,
@@ -1202,12 +1266,49 @@ function App() {
   };
 
   const handleCreateMulti = async () => {
+    const p0 = patches[0]?.id || '1';
+    const p1 = patches[1]?.id || p0;
+    const p2 = patches[2]?.id || p0;
+    const p3 = patches[3]?.id || p0;
     const newMulti: Multi = {
       id: `multi-${Date.now()}`,
       name: `NEW MULTI ${multis.length + 1}`,
       slots: [
         {
-          patchId: patches[0]?.id || '1',
+          patchId: p0,
+          lowNote: 0,
+          highNote: 127,
+          lowVelocity: 0,
+          highVelocity: 127,
+          lowMapVelocity: 0,
+          highMapVelocity: 127,
+          transposeOctave: 0,
+          transposeNote: 0
+        },
+        {
+          patchId: p1,
+          lowNote: 0,
+          highNote: 127,
+          lowVelocity: 0,
+          highVelocity: 127,
+          lowMapVelocity: 0,
+          highMapVelocity: 127,
+          transposeOctave: 0,
+          transposeNote: 0
+        },
+        {
+          patchId: p2,
+          lowNote: 0,
+          highNote: 127,
+          lowVelocity: 0,
+          highVelocity: 127,
+          lowMapVelocity: 0,
+          highMapVelocity: 127,
+          transposeOctave: 0,
+          transposeNote: 0
+        },
+        {
+          patchId: p3,
           lowNote: 0,
           highNote: 127,
           lowVelocity: 0,
@@ -2003,7 +2104,7 @@ function App() {
                           {activePatchId && (
                             <button 
                               onClick={savePatch}
-                              className="p-2 hover:bg-white/5 rounded-full text-blue-400 hover:text-white transition-colors"
+                              className="p-2 hover:bg-white/5 rounded-none text-blue-400 hover:text-white transition-colors border border-transparent hover:border-zinc-800"
                               title="Update Current Patch"
                             >
                               <Save size={24} />
@@ -2011,7 +2112,7 @@ function App() {
                           )}
                           <button 
                             onClick={saveAsNewPatch}
-                            className="p-2 hover:bg-white/5 rounded-full text-zinc-400 hover:text-white transition-colors"
+                            className="p-2 hover:bg-white/5 rounded-none text-zinc-400 hover:text-white transition-colors border border-transparent hover:border-zinc-800"
                             title="Save Current as New"
                           >
                             <Plus size={24} />
@@ -2021,7 +2122,7 @@ function App() {
                       {libraryTab === 'MULTIS' && (
                         <button 
                           onClick={handleCreateMulti}
-                          className="p-2 hover:bg-white/5 rounded-full text-orange-500 hover:text-white transition-colors"
+                          className="p-2 hover:bg-white/5 rounded-none text-orange-500 hover:text-white transition-colors border border-transparent hover:border-zinc-800"
                           title="Create New Multi"
                         >
                           <Plus size={24} />
@@ -2047,7 +2148,7 @@ function App() {
                     <Cloud size={16} />
                     <h3 className="text-[10px] font-bold uppercase tracking-widest">Google Sheets Sync</h3>
                     {googleSheetsService.isConnected() && (
-                      <div className="flex items-center gap-1 text-[8px] bg-green-500/10 text-green-500 px-2 py-0.5 rounded-full border border-green-500/20">
+                      <div className="flex items-center gap-1 text-[8px] bg-green-500/10 text-green-500 px-2 py-0.5 rounded-none border border-green-500/20">
                         <div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
                         CONNECTED
                       </div>
@@ -2220,14 +2321,14 @@ function App() {
                             <div className="flex gap-1">
                               <button 
                                 onClick={(e) => { e.stopPropagation(); startRenamePatch(patch.id, patch.name); }}
-                                className="opacity-0 group-hover:opacity-100 p-2 hover:bg-white/10 text-zinc-400 hover:text-white rounded transition-all"
+                                className="opacity-0 group-hover:opacity-100 p-2 hover:bg-white/10 text-zinc-400 hover:text-white rounded-none transition-all"
                                 title="Rename Patch"
                               >
                                 <Edit2 size={14} />
                               </button>
                               <button 
                                 onClick={(e) => { e.stopPropagation(); deletePatch(patch.id); }}
-                                className="opacity-0 group-hover:opacity-100 p-2 hover:bg-red-500/20 text-red-500 rounded transition-all"
+                                className="opacity-0 group-hover:opacity-100 p-2 hover:bg-red-500/20 text-red-500 rounded-none transition-all"
                                 title="Delete Patch"
                               >
                                 <Trash2 size={14} />
@@ -2269,14 +2370,14 @@ function App() {
                             <div className="flex gap-1">
                               <button 
                                 onClick={(e) => { e.stopPropagation(); startRenameMulti(multi.id, multi.name); }}
-                                className="opacity-0 group-hover:opacity-100 p-2 hover:bg-white/10 text-zinc-400 hover:text-white rounded transition-all"
+                                className="opacity-0 group-hover:opacity-100 p-2 hover:bg-white/10 text-zinc-400 hover:text-white rounded-none transition-all"
                                 title="Rename Multi"
                               >
                                 <Edit2 size={14} />
                               </button>
                               <button 
                                 onClick={(e) => { e.stopPropagation(); handleDeleteMulti(multi.id); }}
-                                className="opacity-0 group-hover:opacity-100 p-2 hover:bg-red-500/20 text-red-500 rounded transition-all"
+                                className="opacity-0 group-hover:opacity-100 p-2 hover:bg-red-500/20 text-red-500 rounded-none transition-all"
                                 title="Delete Multi"
                               >
                                 <Trash2 size={14} />
@@ -2575,7 +2676,7 @@ function App() {
                           />
                           <button
                             onClick={() => startRenameMulti(activeMultiId, multis.find(m => m.id === activeMultiId)?.name || '')}
-                            className="p-2 bg-zinc-900 border border-zinc-800 hover:border-zinc-700 text-zinc-400 hover:text-white transition-all flex items-center justify-center rounded"
+                            className="p-2 bg-zinc-900 border border-zinc-800 hover:border-zinc-700 text-zinc-400 hover:text-white transition-all flex items-center justify-center rounded-none"
                             title="Rename Multi via Onscreen Keyboard"
                           >
                             <Edit2 size={14} />
@@ -2607,8 +2708,8 @@ function App() {
                           <div className="flex flex-col xl:flex-row gap-4 items-stretch xl:items-center justify-between">
                             <div className="flex flex-wrap items-center gap-4">
                               <div className="flex items-center gap-2">
-                                <span className={`w-6 h-6 rounded-full flex items-center justify-center font-bold text-xs ${
-                                  selectedSlotIndex === index ? 'bg-orange-500 text-black' : 'bg-zinc-800 text-zinc-400'
+                                <span className={`w-6 h-6 rounded-none border border-zinc-800 flex items-center justify-center font-bold text-xs ${
+                                  selectedSlotIndex === index ? 'bg-orange-500 text-black border-orange-500' : 'bg-zinc-800 text-zinc-400'
                                 }`}>
                                   {index + 1}
                                 </span>
@@ -2626,7 +2727,7 @@ function App() {
                               </select>
                               
                               {selectedSlotIndex === index && (
-                                <span className="text-[9px] font-bold uppercase text-orange-500 bg-orange-500/10 px-2 py-0.5 border border-orange-500/20 rounded-sm">
+                                <span className="text-[9px] font-bold uppercase text-orange-500 bg-orange-500/10 px-2 py-0.5 border border-orange-500/20 rounded-none">
                                   Editing Parameters Active
                                 </span>
                               )}
@@ -2751,7 +2852,7 @@ function App() {
 
                               <button
                                 onClick={(e) => { e.stopPropagation(); handleDeleteSlot(index); }}
-                                className="p-2 hover:bg-red-500/10 text-red-500 hover:text-red-400 rounded transition-colors self-end md:self-auto xl:mt-3"
+                                className="p-2 hover:bg-red-500/10 text-red-500 hover:text-red-400 rounded-none transition-colors self-end md:self-auto xl:mt-3"
                                 title="Delete Part"
                               >
                                 <Trash2 size={16} />
