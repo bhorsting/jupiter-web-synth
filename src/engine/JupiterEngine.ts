@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { VoiceParams, PerformanceSettings, Multi, Patch } from '../types';
+import { VoiceParams, PerformanceSettings, Multi, Patch, createDefaultDX7Voice, getDX7Algorithm } from '../types';
 
 let noiseBuffer: AudioBuffer | null = null;
 
@@ -32,6 +32,12 @@ class Voice {
   private hammondGains: GainNode[] = [];
   private percussionOsc: OscillatorNode | null = null;
   private percussionGain: GainNode | null = null;
+
+  // DX7 FM synthesis engine
+  private dx7Oscs: OscillatorNode[] = [];
+  private dx7Gains: GainNode[] = [];
+  private dx7FeedbackDelay: DelayNode | null = null;
+  private dx7FeedbackGain: GainNode | null = null;
 
   // PWM nodes
   private vco1PwmLfoGain: GainNode | null = null;
@@ -115,6 +121,33 @@ class Voice {
     this.params = params;
     if (settings) this.perfSettings = settings;
     const time = this.ctx.currentTime;
+
+    if (params.synthEngine === 'dx7') {
+      const bendFactor = Math.pow(2, this.pitchBendOffset / 12);
+      const voice = params.dx7Voice || createDefaultDX7Voice();
+      if (this.dx7Oscs && this.dx7Oscs.length > 0 && this.midiNote !== null) {
+        const freq = 440 * Math.pow(2, (this.midiNote - 69) / 12);
+        this.dx7Oscs.forEach((osc, i) => {
+          const op = voice.operators[i];
+          if (op) {
+            let opFreq = freq;
+            if (op.mode === 1) {
+              opFreq = Math.pow(10, (op.coarse % 4) + op.fine / 100);
+            } else {
+              const ratio = (op.coarse === 0 ? 0.5 : op.coarse) * (1.0 + op.fine / 100);
+              opFreq = freq * ratio;
+            }
+            osc.frequency.setTargetAtTime(opFreq * bendFactor, time, 0.02);
+          }
+        });
+      }
+      this.filter.type = 'lowpass';
+      this.filter.Q.setTargetAtTime(params.filterResonance * 10, time, 0.05);
+      if (!this.isReleasing) {
+        this.filter.frequency.setTargetAtTime(Math.max(20, params.filterCutoff), time, 0.05);
+      }
+      return;
+    }
 
     if (params.synthEngine === 'hammond') {
       const drawbarLevels = [
@@ -283,6 +316,169 @@ class Voice {
     this.vco2Drift = (Math.random() - 0.5) * 0.04;
 
     const freq = 440 * Math.pow(2, (midiNote - 69) / 12);
+
+    if (this.params.synthEngine === 'dx7') {
+      const voice = this.params.dx7Voice || createDefaultDX7Voice();
+      const bendFactor = Math.pow(2, this.pitchBendOffset / 12);
+      const alg = getDX7Algorithm(voice.algorithm);
+      
+      this.dx7Oscs = [];
+      this.dx7Gains = [];
+      
+      for (let i = 0; i < 6; i++) {
+        const op = voice.operators[i] || createDefaultDX7Voice().operators[i];
+        const osc = this.ctx.createOscillator();
+        osc.type = 'sine';
+        
+        const gainNode = this.ctx.createGain();
+        gainNode.gain.setValueAtTime(0, time);
+        
+        let opFreq = freq;
+        if (op.mode === 1) {
+          opFreq = Math.pow(10, (op.coarse % 4) + op.fine / 100);
+        } else {
+          const ratio = (op.coarse === 0 ? 0.5 : op.coarse) * (1.0 + op.fine / 100);
+          opFreq = freq * ratio;
+        }
+        
+        const detuneCents = op.detune * 2.5;
+        osc.frequency.setValueAtTime(opFreq * bendFactor, time);
+        osc.detune.setValueAtTime(detuneCents, time);
+        
+        this.dx7Oscs.push(osc);
+        this.dx7Gains.push(gainNode);
+      }
+      
+      // Set up feedback
+      if (voice.feedback > 0) {
+        const fbSrc = alg.feedbackSrc;
+        const fbDest = alg.feedbackDest;
+        
+        const delay = this.ctx.createDelay(0.01);
+        delay.delayTime.setValueAtTime(1 / this.ctx.sampleRate, time);
+        this.dx7FeedbackDelay = delay;
+        
+        const fbGain = this.ctx.createGain();
+        // If feedback source is a carrier, max level is 0.28.
+        // If modulator, max level is opFreq * 8.0.
+        // We want feedback modulation depth (frequency deviation) to be around (voice.feedback / 7) * opFreq * 1.5.
+        const isSrcCarrier = alg.carriers.includes(fbSrc);
+        let fbDepth = 0;
+        if (isSrcCarrier) {
+          fbDepth = (voice.feedback / 7.0) * (freq * 1.5) / 0.28;
+        } else {
+          fbDepth = (voice.feedback / 7.0) * 0.18; // Since modulator output already has opFreq * 8.0 scale, 0.18 * 8 = 1.44 mod index
+        }
+        
+        fbGain.gain.setValueAtTime(fbDepth, time);
+        this.dx7FeedbackGain = fbGain;
+        
+        this.dx7Gains[fbSrc].connect(delay);
+        delay.connect(fbGain);
+        fbGain.connect(this.dx7Oscs[fbDest].frequency);
+      }
+      
+      // Modulators routing
+      for (const toStr in alg.modulators) {
+        const toOp = parseInt(toStr);
+        const fromOps = alg.modulators[toOp];
+        
+        fromOps.forEach(fromOp => {
+          this.dx7Gains[fromOp].connect(this.dx7Oscs[toOp].frequency);
+        });
+      }
+      
+      // Carriers connection
+      alg.carriers.forEach(carrierIdx => {
+        this.dx7Oscs[carrierIdx].connect(this.dx7Gains[carrierIdx]);
+        this.dx7Gains[carrierIdx].connect(this.filter);
+      });
+      
+      // Modulators connection to their own envelopes
+      for (let i = 0; i < 6; i++) {
+        if (!alg.carriers.includes(i)) {
+          this.dx7Oscs[i].connect(this.dx7Gains[i]);
+        }
+      }
+      
+      // Schedule envelopes
+      for (let i = 0; i < 6; i++) {
+        const op = voice.operators[i] || createDefaultDX7Voice().operators[i];
+        const gainNode = this.dx7Gains[i];
+        
+        const R1 = op.rates[0];
+        const R2 = op.rates[1];
+        const R3 = op.rates[2];
+        const R4 = op.rates[3];
+        
+        const L1 = op.levels[0];
+        const L2 = op.levels[1];
+        const L3 = op.levels[2];
+        const L4 = op.levels[3];
+        
+        const t1 = Math.pow(10, (99 - R1) / 25) * 0.01;
+        const t2 = Math.pow(10, (99 - R2) / 25) * 0.01;
+        const t3 = Math.pow(10, (99 - R3) / 25) * 0.01;
+        
+        const isCarrier = alg.carriers.includes(i);
+        let opFreq = freq;
+        if (op.mode === 1) {
+          opFreq = Math.pow(10, (op.coarse % 4) + op.fine / 100);
+        } else {
+          const ratio = (op.coarse === 0 ? 0.5 : op.coarse) * (1.0 + op.fine / 100);
+          opFreq = freq * ratio;
+        }
+        
+        const maxLevelScale = isCarrier ? 0.28 : (opFreq * 8.0);
+        
+        const levelToValue = (lvl: number) => {
+          // Combined level from envelope level (lvl) and operator output level (op.level)
+          // Both are 0 to 99.
+          // In real DX7, each level unit is 0.75 dB attenuation.
+          const totalLevel = op.level - (99 - lvl);
+          
+          if (totalLevel <= 0) return 0;
+          
+          // Apply velocity sensitivity
+          const velSense = op.velocitySensitivity || 0;
+          const velAttenuationDb = (1.0 - velocity) * (velSense * 6.0); // up to 42 dB attenuation
+          
+          const attenuationDb = (99 - totalLevel) * 0.75 + velAttenuationDb;
+          
+          if (attenuationDb > 85) return 0;
+          
+          const linearGain = Math.pow(10, -attenuationDb / 20);
+          
+          return linearGain * maxLevelScale;
+        };
+        
+        gainNode.gain.cancelScheduledValues(time);
+        
+        const val4 = levelToValue(L4);
+        const val1 = levelToValue(L1);
+        const val2 = levelToValue(L2);
+        const val3 = levelToValue(L3);
+        
+        gainNode.gain.setValueAtTime(val4, time);
+        gainNode.gain.linearRampToValueAtTime(val1, time + t1);
+        gainNode.gain.linearRampToValueAtTime(val2, time + t1 + t2);
+        gainNode.gain.linearRampToValueAtTime(val3, time + t1 + t2 + t3);
+        
+        (gainNode as any).dx7ReleaseRate = R4;
+        (gainNode as any).dx7L4 = L4;
+        (gainNode as any).dx7LevelToValue = levelToValue;
+      }
+      
+      for (let i = 0; i < 6; i++) {
+        this.dx7Oscs[i].start(time);
+      }
+      
+      this.vca.gain.cancelScheduledValues(time);
+      this.vca.gain.setValueAtTime(0, time);
+      this.vca.gain.linearRampToValueAtTime(1.0, time + 0.005);
+      
+      return;
+    }
 
     if (this.params.synthEngine === 'hammond') {
       const bendFactor = Math.pow(2, this.pitchBendOffset / 12);
@@ -670,7 +866,26 @@ class Voice {
     this.pitchBendOffset = offset;
     const time = this.ctx.currentTime;
     if (this.midiNote !== null && !this.isReleasing) {
-      if (this.params.synthEngine === 'hammond') {
+      if (this.params.synthEngine === 'dx7') {
+        const freq = 440 * Math.pow(2, (this.midiNote - 69) / 12);
+        const bendFactor = Math.pow(2, offset / 12);
+        const voice = this.params.dx7Voice || createDefaultDX7Voice();
+        if (this.dx7Oscs && this.dx7Oscs.length > 0) {
+          this.dx7Oscs.forEach((osc, i) => {
+            const op = voice.operators[i];
+            if (op) {
+              let opFreq = freq;
+              if (op.mode === 1) {
+                opFreq = Math.pow(10, (op.coarse % 4) + op.fine / 100);
+              } else {
+                const ratio = (op.coarse === 0 ? 0.5 : op.coarse) * (1.0 + op.fine / 100);
+                opFreq = freq * ratio;
+              }
+              osc.frequency.setTargetAtTime(opFreq * bendFactor, time, 0.02);
+            }
+          });
+        }
+      } else if (this.params.synthEngine === 'hammond') {
         const freq = 440 * Math.pow(2, (this.midiNote - 69) / 12);
         const bendFactor = Math.pow(2, offset / 12);
         this.hammondOscs.forEach((osc) => {
@@ -749,6 +964,26 @@ class Voice {
       this.percussionGain = null;
     }
 
+    if (this.dx7Oscs && this.dx7Oscs.length > 0) {
+      this.dx7Oscs.forEach(osc => {
+        try { osc.stop(time); } catch(e) {}
+        osc.disconnect();
+      });
+      this.dx7Oscs = [];
+    }
+    if (this.dx7Gains && this.dx7Gains.length > 0) {
+      this.dx7Gains.forEach(g => g.disconnect());
+      this.dx7Gains = [];
+    }
+    if (this.dx7FeedbackDelay) {
+      this.dx7FeedbackDelay.disconnect();
+      this.dx7FeedbackDelay = null;
+    }
+    if (this.dx7FeedbackGain) {
+      this.dx7FeedbackGain.disconnect();
+      this.dx7FeedbackGain = null;
+    }
+
     // Clean up PWM nodes
     if (this.vco1PwmOffset) {
       try { this.vco1PwmOffset.stop(time); } catch(e) {}
@@ -790,7 +1025,34 @@ class Voice {
     this.isReleasing = true;
     let releaseDuration = 0.05;
     
-    if (this.params.synthEngine === 'hammond') {
+    if (this.params.synthEngine === 'dx7') {
+      let maxReleaseTime = 0.05;
+      
+      this.dx7Gains.forEach((gainNode) => {
+        const R4 = (gainNode as any).dx7ReleaseRate ?? 50;
+        const L4 = (gainNode as any).dx7L4 ?? 0;
+        const levelToValue = (gainNode as any).dx7LevelToValue ?? ((lvl: number) => 0);
+        
+        const t4 = Math.pow(10, (99 - R4) / 25) * 0.01;
+        const targetVal = levelToValue(L4);
+        
+        gainNode.gain.cancelScheduledValues(time);
+        gainNode.gain.setValueAtTime(gainNode.gain.value, time);
+        gainNode.gain.setTargetAtTime(targetVal, time, Math.max(0.001, t4 / 3));
+        
+        if (t4 > maxReleaseTime) {
+          maxReleaseTime = t4;
+        }
+      });
+      
+      releaseDuration = maxReleaseTime;
+      
+      if (this.dx7Oscs && this.dx7Oscs.length > 0) {
+        this.dx7Oscs.forEach(osc => {
+          try { osc.stop(time + releaseDuration + 0.1); } catch (e) {}
+        });
+      }
+    } else if (this.params.synthEngine === 'hammond') {
       const organRelease = 0.04; // snappy organ release
       releaseDuration = organRelease;
       this.vca.gain.cancelScheduledValues(time);

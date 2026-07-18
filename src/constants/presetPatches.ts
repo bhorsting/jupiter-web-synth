@@ -929,5 +929,377 @@ export const PRESET_PATCHES: Patch[] = [
       chorusMode: 2,
       reverbMix: 0.3,
     }
+  },
+
+  // DX7 CLASSICS
+  {
+    id: "dx7-ep1",
+    name: "DX7 E. Piano 1",
+    params: {
+      ...DEFAULT_PARAMS,
+      synthEngine: 'dx7',
+      dx7Voice: {
+        name: 'E. PIANO 1',
+        algorithm: 5,
+        feedback: 4,
+        keySync: true,
+        lfoSpeed: 35,
+        lfoDelay: 0,
+        lfoPmd: 0,
+        lfoAmd: 0,
+        lfoSync: true,
+        lfoWaveform: 0,
+        pitchModSensitivity: 3,
+        transpose: 24,
+        pitchRates: [99, 99, 99, 99],
+        pitchLevels: [50, 50, 50, 50],
+        operators: [
+          // Op 1 (Carrier) - fundamental sine
+          {
+            rates: [95, 29, 20, 50],
+            levels: [99, 95, 0, 0],
+            breakpoint: 39, leftDepth: 0, rightDepth: 0, leftCurve: 0, rightCurve: 0,
+            rateScaling: 0, detune: 0, ams: 0, velocitySensitivity: 2, level: 99,
+            mode: 0, coarse: 1, fine: 0
+          },
+          // Op 2 (Modulator to Op 1) - fast chime
+          {
+            rates: [99, 45, 12, 50],
+            levels: [99, 0, 0, 0],
+            breakpoint: 39, leftDepth: 0, rightDepth: 0, leftCurve: 0, rightCurve: 0,
+            rateScaling: 2, detune: 3, ams: 0, velocitySensitivity: 5, level: 78,
+            mode: 0, coarse: 14, fine: 0
+          },
+          // Op 3 (Carrier) - mid-warmth
+          {
+            rates: [95, 25, 20, 50],
+            levels: [99, 95, 0, 0],
+            breakpoint: 39, leftDepth: 0, rightDepth: 0, leftCurve: 0, rightCurve: 0,
+            rateScaling: 0, detune: 0, ams: 0, velocitySensitivity: 2, level: 99,
+            mode: 0, coarse: 1, fine: 0
+          },
+          // Op 4 (Modulator to Op 3) - warm body
+          {
+            rates: [99, 35, 12, 50],
+            levels: [99, 0, 0, 0],
+            breakpoint: 39, leftDepth: 0, rightDepth: 0, leftCurve: 0, rightCurve: 0,
+            rateScaling: 2, detune: -3, ams: 0, velocitySensitivity: 4, level: 68,
+            mode: 0, coarse: 1, fine: 0
+          },
+          // Op 5 (Carrier) - high chime fundamental
+          {
+            rates: [95, 30, 20, 50],
+            levels: [99, 95, 0, 0],
+            breakpoint: 39, leftDepth: 0, rightDepth: 0, leftCurve: 0, rightCurve: 0,
+            rateScaling: 0, detune: 0, ams: 0, velocitySensitivity: 2, level: 85,
+            mode: 0, coarse: 2, fine: 0
+          },
+          // Op 6 (Modulator to Op 5) - feedback shine
+          {
+            rates: [99, 50, 15, 50],
+            levels: [99, 0, 0, 0],
+            breakpoint: 39, leftDepth: 0, rightDepth: 0, leftCurve: 0, rightCurve: 0,
+            rateScaling: 3, detune: 0, ams: 0, velocitySensitivity: 6, level: 55,
+            mode: 0, coarse: 1, fine: 0
+          }
+        ]
+      }
+    }
+  },
+  {
+    id: "dx7-tubebells",
+    name: "DX7 Tubular Bells",
+    params: {
+      ...DEFAULT_PARAMS,
+      synthEngine: 'dx7',
+      dx7Voice: {
+        name: 'TUBULAR BELLS',
+        algorithm: 2,
+        feedback: 6,
+        keySync: true,
+        lfoSpeed: 20,
+        lfoDelay: 5,
+        lfoPmd: 0,
+        lfoAmd: 0,
+        lfoSync: true,
+        lfoWaveform: 0,
+        pitchModSensitivity: 3,
+        transpose: 24,
+        pitchRates: [99, 99, 99, 99],
+        pitchLevels: [50, 50, 50, 50],
+        operators: [
+          // Op 1 (Carrier) - bell fundamental
+          {
+            rates: [90, 40, 15, 50],
+            levels: [99, 85, 0, 0],
+            breakpoint: 39, leftDepth: 0, rightDepth: 0, leftCurve: 0, rightCurve: 0,
+            rateScaling: 1, detune: 0, ams: 0, velocitySensitivity: 3, level: 99,
+            mode: 0, coarse: 1, fine: 0
+          },
+          // Op 2 (Modulator to Op 1) - high chime sideband
+          {
+            rates: [99, 35, 12, 50],
+            levels: [95, 0, 0, 0],
+            breakpoint: 39, leftDepth: 0, rightDepth: 0, leftCurve: 0, rightCurve: 0,
+            rateScaling: 2, detune: 4, ams: 0, velocitySensitivity: 4, level: 75,
+            mode: 0, coarse: 9, fine: 0
+          },
+          // Op 3 (Carrier) - sub bell tone
+          {
+            rates: [90, 30, 10, 50],
+            levels: [99, 70, 0, 0],
+            breakpoint: 39, leftDepth: 0, rightDepth: 0, leftCurve: 0, rightCurve: 0,
+            rateScaling: 0, detune: 1, ams: 0, velocitySensitivity: 2, level: 90,
+            mode: 0, coarse: 2, fine: 50
+          },
+          // Op 4 (Modulator to Op 3) - inharmonic chime
+          {
+            rates: [99, 45, 15, 50],
+            levels: [99, 0, 0, 0],
+            breakpoint: 39, leftDepth: 0, rightDepth: 0, leftCurve: 0, rightCurve: 0,
+            rateScaling: 2, detune: -2, ams: 0, velocitySensitivity: 5, level: 80,
+            mode: 0, coarse: 11, fine: 14
+          },
+          // Op 5 (Carrier) - metallic strike transient
+          {
+            rates: [99, 70, 40, 50],
+            levels: [99, 0, 0, 0],
+            breakpoint: 39, leftDepth: 0, rightDepth: 0, leftCurve: 0, rightCurve: 0,
+            rateScaling: 3, detune: 0, ams: 0, velocitySensitivity: 4, level: 82,
+            mode: 1, coarse: 3, fine: 50
+          },
+          // Op 6 (Modulator to Op 5 with feedback) - noise/clang strike
+          {
+            rates: [99, 85, 50, 50],
+            levels: [99, 0, 0, 0],
+            breakpoint: 39, leftDepth: 0, rightDepth: 0, leftCurve: 0, rightCurve: 0,
+            rateScaling: 4, detune: 2, ams: 0, velocitySensitivity: 5, level: 88,
+            mode: 0, coarse: 17, fine: 0
+          }
+        ]
+      }
+    }
+  },
+  {
+    id: "dx7-solidbass",
+    name: "DX7 Solid Bass",
+    params: {
+      ...DEFAULT_PARAMS,
+      synthEngine: 'dx7',
+      dx7Voice: {
+        name: 'SOLID BASS',
+        algorithm: 16,
+        feedback: 6,
+        keySync: true,
+        lfoSpeed: 15,
+        lfoDelay: 0,
+        lfoPmd: 0,
+        lfoAmd: 0,
+        lfoSync: true,
+        lfoWaveform: 0,
+        pitchModSensitivity: 2,
+        transpose: 12,
+        pitchRates: [99, 99, 99, 99],
+        pitchLevels: [50, 50, 50, 50],
+        operators: [
+          // Op 1 (Carrier) - main bass pluck
+          {
+            rates: [99, 75, 40, 60],
+            levels: [99, 90, 0, 0],
+            breakpoint: 39, leftDepth: 0, rightDepth: 0, leftCurve: 0, rightCurve: 0,
+            rateScaling: 1, detune: 0, ams: 0, velocitySensitivity: 3, level: 99,
+            mode: 0, coarse: 1, fine: 0
+          },
+          // Op 2 (Modulator to Op 1 with feedback) - pluck transient / grit
+          {
+            rates: [99, 65, 30, 50],
+            levels: [99, 0, 0, 0],
+            breakpoint: 39, leftDepth: 0, rightDepth: 0, leftCurve: 0, rightCurve: 0,
+            rateScaling: 2, detune: 2, ams: 0, velocitySensitivity: 4, level: 86,
+            mode: 0, coarse: 1, fine: 0
+          },
+          // Op 3 (Carrier) - secondary sub/warmth
+          {
+            rates: [99, 80, 50, 55],
+            levels: [99, 99, 0, 0],
+            breakpoint: 39, leftDepth: 0, rightDepth: 0, leftCurve: 0, rightCurve: 0,
+            rateScaling: 0, detune: -1, ams: 0, velocitySensitivity: 2, level: 95,
+            mode: 0, coarse: 1, fine: 0
+          },
+          // Op 4 (Modulator to Op 3) - mid woodiness
+          {
+            rates: [99, 70, 25, 50],
+            levels: [95, 0, 0, 0],
+            breakpoint: 39, leftDepth: 0, rightDepth: 0, leftCurve: 0, rightCurve: 0,
+            rateScaling: 2, detune: 1, ams: 0, velocitySensitivity: 4, level: 78,
+            mode: 0, coarse: 2, fine: 0
+          },
+          // Op 5 (Modulator to Op 3) - odd harmonics
+          {
+            rates: [99, 60, 20, 50],
+            levels: [90, 0, 0, 0],
+            breakpoint: 39, leftDepth: 0, rightDepth: 0, leftCurve: 0, rightCurve: 0,
+            rateScaling: 2, detune: 3, ams: 0, velocitySensitivity: 5, level: 65,
+            mode: 0, coarse: 3, fine: 0
+          },
+          // Op 6 (Unused / helper)
+          {
+            rates: [99, 50, 10, 50],
+            levels: [0, 0, 0, 0],
+            breakpoint: 39, leftDepth: 0, rightDepth: 0, leftCurve: 0, rightCurve: 0,
+            rateScaling: 0, detune: 0, ams: 0, velocitySensitivity: 0, level: 0,
+            mode: 0, coarse: 1, fine: 0
+          }
+        ]
+      }
+    }
+  },
+  {
+    id: "dx7-synthbrass",
+    name: "DX7 Synth Brass",
+    params: {
+      ...DEFAULT_PARAMS,
+      synthEngine: 'dx7',
+      dx7Voice: {
+        name: 'SYN BRASS',
+        algorithm: 22,
+        feedback: 5,
+        keySync: true,
+        lfoSpeed: 38,
+        lfoDelay: 10,
+        lfoPmd: 10,
+        lfoAmd: 0,
+        lfoSync: true,
+        lfoWaveform: 0,
+        pitchModSensitivity: 2,
+        transpose: 24,
+        pitchRates: [99, 99, 99, 99],
+        pitchLevels: [50, 50, 50, 50],
+        operators: [
+          // Op 1 (Carrier) - Left Brass Body
+          {
+            rates: [75, 45, 30, 65],
+            levels: [99, 95, 90, 0],
+            breakpoint: 39, leftDepth: 0, rightDepth: 0, leftCurve: 0, rightCurve: 0,
+            rateScaling: 1, detune: -1, ams: 0, velocitySensitivity: 2, level: 99,
+            mode: 0, coarse: 1, fine: 0
+          },
+          // Op 2 (Modulator to Op 1) - Filter-like swell
+          {
+            rates: [68, 50, 25, 55],
+            levels: [95, 80, 0, 0],
+            breakpoint: 39, leftDepth: 0, rightDepth: 0, leftCurve: 0, rightCurve: 0,
+            rateScaling: 2, detune: 2, ams: 0, velocitySensitivity: 4, level: 75,
+            mode: 0, coarse: 1, fine: 0
+          },
+          // Op 3 (Carrier) - Right Brass Body detuned
+          {
+            rates: [75, 45, 30, 65],
+            levels: [99, 95, 90, 0],
+            breakpoint: 39, leftDepth: 0, rightDepth: 0, leftCurve: 0, rightCurve: 0,
+            rateScaling: 1, detune: 2, ams: 0, velocitySensitivity: 2, level: 99,
+            mode: 0, coarse: 1, fine: 0
+          },
+          // Op 4 (Modulator to Op 3) - Filter swell detuned
+          {
+            rates: [68, 50, 25, 55],
+            levels: [95, 80, 0, 0],
+            breakpoint: 39, leftDepth: 0, rightDepth: 0, leftCurve: 0, rightCurve: 0,
+            rateScaling: 2, detune: -2, ams: 0, velocitySensitivity: 4, level: 75,
+            mode: 0, coarse: 1, fine: 0
+          },
+          // Op 5 (Carrier) - High bite
+          {
+            rates: [80, 55, 35, 70],
+            levels: [90, 85, 75, 0],
+            breakpoint: 39, leftDepth: 0, rightDepth: 0, leftCurve: 0, rightCurve: 0,
+            rateScaling: 2, detune: 1, ams: 0, velocitySensitivity: 3, level: 80,
+            mode: 0, coarse: 2, fine: 0
+          },
+          // Op 6 (Modulator to Op 5 with feedback) - High bite swell
+          {
+            rates: [72, 60, 20, 60],
+            levels: [85, 75, 0, 0],
+            breakpoint: 39, leftDepth: 0, rightDepth: 0, leftCurve: 0, rightCurve: 0,
+            rateScaling: 3, detune: -1, ams: 0, velocitySensitivity: 4, level: 72,
+            mode: 0, coarse: 2, fine: 0
+          }
+        ]
+      }
+    }
+  },
+  {
+    id: "dx7-marimba",
+    name: "DX7 Marimba",
+    params: {
+      ...DEFAULT_PARAMS,
+      synthEngine: 'dx7',
+      dx7Voice: {
+        name: 'MARIMBA',
+        algorithm: 8,
+        feedback: 5,
+        keySync: true,
+        lfoSpeed: 30,
+        lfoDelay: 0,
+        lfoPmd: 0,
+        lfoAmd: 0,
+        lfoSync: true,
+        lfoWaveform: 0,
+        pitchModSensitivity: 2,
+        transpose: 24,
+        pitchRates: [99, 99, 99, 99],
+        pitchLevels: [50, 50, 50, 50],
+        operators: [
+          // Op 1 (Carrier) - fundamental strike
+          {
+            rates: [99, 60, 10, 50],
+            levels: [99, 0, 0, 0],
+            breakpoint: 39, leftDepth: 0, rightDepth: 0, leftCurve: 0, rightCurve: 0,
+            rateScaling: 1, detune: 0, ams: 0, velocitySensitivity: 3, level: 99,
+            mode: 0, coarse: 1, fine: 0
+          },
+          // Op 2 (Modulator to Op 1) - strike tone
+          {
+            rates: [99, 75, 15, 50],
+            levels: [99, 0, 0, 0],
+            breakpoint: 39, leftDepth: 0, rightDepth: 0, leftCurve: 0, rightCurve: 0,
+            rateScaling: 2, detune: 1, ams: 0, velocitySensitivity: 5, level: 82,
+            mode: 0, coarse: 4, fine: 0
+          },
+          // Op 3 (Carrier) - secondary strike
+          {
+            rates: [99, 55, 8, 50],
+            levels: [95, 0, 0, 0],
+            breakpoint: 39, leftDepth: 0, rightDepth: 0, leftCurve: 0, rightCurve: 0,
+            rateScaling: 1, detune: -1, ams: 0, velocitySensitivity: 3, level: 90,
+            mode: 0, coarse: 2, fine: 0
+          },
+          // Op 4 (Modulator to Op 3 with feedback) - wooden transient
+          {
+            rates: [99, 85, 20, 50],
+            levels: [99, 0, 0, 0],
+            breakpoint: 39, leftDepth: 0, rightDepth: 0, leftCurve: 0, rightCurve: 0,
+            rateScaling: 3, detune: 0, ams: 0, velocitySensitivity: 6, level: 85,
+            mode: 0, coarse: 12, fine: 0
+          },
+          // Op 5 (Unused / sub carrier)
+          {
+            rates: [99, 40, 5, 50],
+            levels: [0, 0, 0, 0],
+            breakpoint: 39, leftDepth: 0, rightDepth: 0, leftCurve: 0, rightCurve: 0,
+            rateScaling: 0, detune: 0, ams: 0, velocitySensitivity: 0, level: 0,
+            mode: 0, coarse: 1, fine: 0
+          },
+          // Op 6 (Unused / helper)
+          {
+            rates: [99, 40, 5, 50],
+            levels: [0, 0, 0, 0],
+            breakpoint: 39, leftDepth: 0, rightDepth: 0, leftCurve: 0, rightCurve: 0,
+            rateScaling: 0, detune: 0, ams: 0, velocitySensitivity: 0, level: 0,
+            mode: 0, coarse: 1, fine: 0
+          }
+        ]
+      }
+    }
   }
 ];

@@ -24,7 +24,7 @@ const Section = React.memo<SectionProps>(({ title, children, className = "" }) =
 interface GlobalSectionProps {
   bpm: number;
   timeSignature: string;
-  synthEngine: 'jupiter' | 'hammond';
+  synthEngine: 'jupiter' | 'hammond' | 'dx7';
   updateParam: (key: keyof VoiceParams, val: any) => void;
   isRecording?: boolean;
   isEncoding?: boolean;
@@ -47,7 +47,7 @@ export const GlobalSection = React.memo<GlobalSectionProps>(({
   const [isKeypadOpen, setIsKeypadOpen] = React.useState(false);
 
   return (
-    <div className="flex border-b border-synth-border p-4 gap-8 items-start bg-zinc-950/50 backdrop-blur-sm w-full">
+    <div className="flex flex-col sm:flex-row lg:flex-col border-b lg:border-b-0 lg:border-r border-synth-border p-4 gap-6 items-start bg-zinc-950/50 backdrop-blur-sm w-full lg:w-[240px] lg:shrink-0 lg:h-full lg:overflow-y-auto">
       <div className="flex flex-col gap-3">
         {/* Master Tempo */}
         <div className="flex flex-col gap-1">
@@ -68,7 +68,7 @@ export const GlobalSection = React.memo<GlobalSectionProps>(({
           <div className="flex bg-black/50 p-0.5 shadow-inner">
             <button
               onClick={() => updateParam('synthEngine', 'jupiter')}
-              className={`px-3 py-1.5 text-[9px] uppercase font-mono font-bold tracking-widest transition-all cursor-pointer outline-none focus:outline-none ${
+              className={`px-2 lg:px-1.5 py-1.5 text-[9px] uppercase font-mono font-bold tracking-widest transition-all cursor-pointer outline-none focus:outline-none ${
                 synthEngine === 'jupiter' 
                   ? 'bg-orange-600 text-white shadow shadow-orange-600/20' 
                   : 'text-zinc-500 hover:text-zinc-300'
@@ -78,13 +78,23 @@ export const GlobalSection = React.memo<GlobalSectionProps>(({
             </button>
             <button
               onClick={() => updateParam('synthEngine', 'hammond')}
-              className={`px-3 py-1.5 text-[9px] uppercase font-mono font-bold tracking-widest transition-all cursor-pointer outline-none focus:outline-none ${
+              className={`px-2 lg:px-1.5 py-1.5 text-[9px] uppercase font-mono font-bold tracking-widest transition-all cursor-pointer outline-none focus:outline-none ${
                 synthEngine === 'hammond' 
                   ? 'bg-orange-600 text-white shadow shadow-orange-600/20' 
                   : 'text-zinc-500 hover:text-zinc-300'
               }`}
             >
               B3 Organ
+            </button>
+            <button
+              onClick={() => updateParam('synthEngine', 'dx7')}
+              className={`px-2 lg:px-1.5 py-1.5 text-[9px] uppercase font-mono font-bold tracking-widest transition-all cursor-pointer outline-none focus:outline-none ${
+                synthEngine === 'dx7' 
+                  ? 'bg-orange-600 text-white shadow shadow-orange-600/20' 
+                  : 'text-zinc-500 hover:text-zinc-300'
+              }`}
+            >
+              DX7 FM
             </button>
           </div>
         </div>
@@ -1111,7 +1121,7 @@ export const HammondPercussionSection = React.memo<HammondPercussionSectionProps
           color="bg-orange-500"
         />
         {percussionEnabled && (
-          <div className="flex flex-col gap-1.5 mt-2 bg-black/45 p-2 rounded border border-zinc-800">
+          <div className="flex flex-col gap-1.5 mt-2 bg-black/45 p-2 rounded-none border border-zinc-800">
             <JupiterSelector 
               label="Harmonic"
               options={['second', 'third']}

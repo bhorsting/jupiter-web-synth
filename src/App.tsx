@@ -26,6 +26,7 @@ import {
   HammondPercussionSection,
   EQSection
 } from './components/SynthPanel';
+import { DX7Panel } from './components/DX7Panel';
 import { DEFAULT_PARAMS, VoiceParams, Patch, MidiMapping, cleanVoiceParams, Multi, MultiSlot, Song, Setlist } from './types';
 import { Power, Save, FolderOpen, Sliders, Waves, Activity, Trash2, X, Keyboard as PianoIcon, Cloud, UploadCloud, DownloadCloud, Link, Maximize, Minimize, Settings2, Plus, Layers, Edit2 } from 'lucide-react';
 import React from 'react';
@@ -1493,6 +1494,15 @@ function App() {
             selectedMapParam={selectedMapParam}
           />
         </>
+      ) : params.synthEngine === 'dx7' ? (
+        <DX7Panel 
+          params={params}
+          updateParam={updateParam}
+          isMidiMappingMode={isMidiMappingMode}
+          handleMapClick={handleMapClick}
+          getMappedCC={getMappedCC}
+          selectedMapParam={selectedMapParam}
+        />
       ) : (
         <>
           <LFOSection 
@@ -2298,7 +2308,7 @@ function App() {
                 </div>
 
                 {libraryTab === 'PATCHES' && (
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 gap-3">
                     {patches.filter(p => p.name.toLowerCase().includes(searchQuery.toLowerCase())).length === 0 ? (
                       <div className="col-span-full py-12 text-center bg-zinc-900 border border-dashed border-zinc-800 text-zinc-500 uppercase tracking-widest text-[10px] font-bold">
                         No matching patches found
@@ -2309,36 +2319,36 @@ function App() {
                         .map(patch => (
                         <div 
                           key={patch.id}
-                          className={`p-6 border transition-all cursor-pointer flex flex-col gap-4 group ${
+                          className={`p-3.5 border transition-all cursor-pointer flex flex-col gap-2.5 group ${
                             activePatchId === patch.id 
                               ? 'bg-orange-600/10 border-orange-500' 
                               : 'bg-zinc-900/50 border-zinc-800 hover:border-zinc-600'
                           }`}
                           onClick={() => loadPatch(patch)}
                         >
-                          <div className="flex justify-between items-start">
-                            <span className="text-zinc-500 font-mono text-xs">P-{patch.id.slice(-4)}</span>
-                            <div className="flex gap-1">
+                          <div className="flex justify-between items-center">
+                            <span className="text-zinc-500 font-mono text-[9px]">P-{patch.id.slice(-4)}</span>
+                            <div className="flex gap-0.5">
                               <button 
                                 onClick={(e) => { e.stopPropagation(); startRenamePatch(patch.id, patch.name); }}
-                                className="opacity-0 group-hover:opacity-100 p-2 hover:bg-white/10 text-zinc-400 hover:text-white rounded-none transition-all"
+                                className="opacity-0 group-hover:opacity-100 p-1 hover:bg-white/10 text-zinc-400 hover:text-white rounded-none transition-all"
                                 title="Rename Patch"
                               >
-                                <Edit2 size={14} />
+                                <Edit2 size={11} />
                               </button>
                               <button 
                                 onClick={(e) => { e.stopPropagation(); deletePatch(patch.id); }}
-                                className="opacity-0 group-hover:opacity-100 p-2 hover:bg-red-500/20 text-red-500 rounded-none transition-all"
+                                className="opacity-0 group-hover:opacity-100 p-1 hover:bg-red-500/20 text-red-500 rounded-none transition-all"
                                 title="Delete Patch"
                               >
-                                <Trash2 size={14} />
+                                <Trash2 size={11} />
                               </button>
                             </div>
                           </div>
-                          <h3 className="text-xl font-bold uppercase truncate">{patch.name}</h3>
-                          <div className="flex gap-2">
-                             <div className={`w-1 h-4 ${patch.params.vco1Waveform === 'sawtooth' ? 'bg-orange-500' : 'bg-blue-500'}`} />
-                             <div className={`w-1 h-4 ${patch.params.filterCutoff > 5000 ? 'bg-zinc-300' : 'bg-zinc-700'}`} />
+                          <h3 className="text-xs sm:text-sm font-bold uppercase truncate leading-none py-0.5">{patch.name}</h3>
+                          <div className="flex gap-1.5 mt-0.5">
+                             <div className={`w-1 h-3 ${patch.params.vco1Waveform === 'sawtooth' ? 'bg-orange-500' : 'bg-blue-500'}`} />
+                             <div className={`w-1 h-3 ${patch.params.filterCutoff > 5000 ? 'bg-zinc-300' : 'bg-zinc-700'}`} />
                           </div>
                         </div>
                       ))
@@ -2347,7 +2357,7 @@ function App() {
                 )}
 
                 {libraryTab === 'MULTIS' && (
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 gap-3">
                     {multis.filter(m => m.name.toLowerCase().includes(searchQuery.toLowerCase())).length === 0 ? (
                       <div className="col-span-full py-12 text-center bg-zinc-900 border border-dashed border-zinc-800 text-zinc-500 uppercase tracking-widest text-[10px] font-bold">
                         No matching multis found
@@ -2358,35 +2368,35 @@ function App() {
                         .map(multi => (
                         <div 
                           key={multi.id}
-                          className={`p-6 border transition-all cursor-pointer flex flex-col gap-4 group ${
+                          className={`p-3.5 border transition-all cursor-pointer flex flex-col gap-2.5 group ${
                             activeMultiId === multi.id 
                               ? 'bg-orange-600/10 border-orange-500' 
                               : 'bg-zinc-900/50 border-zinc-800 hover:border-zinc-600'
                           }`}
                           onClick={() => loadMulti(multi)}
                         >
-                          <div className="flex justify-between items-start">
-                            <span className="text-zinc-500 font-mono text-xs">M-{multi.id.slice(-4)}</span>
-                            <div className="flex gap-1">
+                          <div className="flex justify-between items-center">
+                            <span className="text-zinc-500 font-mono text-[9px]">M-{multi.id.slice(-4)}</span>
+                            <div className="flex gap-0.5">
                               <button 
                                 onClick={(e) => { e.stopPropagation(); startRenameMulti(multi.id, multi.name); }}
-                                className="opacity-0 group-hover:opacity-100 p-2 hover:bg-white/10 text-zinc-400 hover:text-white rounded-none transition-all"
+                                className="opacity-0 group-hover:opacity-100 p-1 hover:bg-white/10 text-zinc-400 hover:text-white rounded-none transition-all"
                                 title="Rename Multi"
                               >
-                                <Edit2 size={14} />
+                                <Edit2 size={11} />
                               </button>
                               <button 
                                 onClick={(e) => { e.stopPropagation(); handleDeleteMulti(multi.id); }}
-                                className="opacity-0 group-hover:opacity-100 p-2 hover:bg-red-500/20 text-red-500 rounded-none transition-all"
+                                className="opacity-0 group-hover:opacity-100 p-1 hover:bg-red-500/20 text-red-500 rounded-none transition-all"
                                 title="Delete Multi"
                               >
-                                <Trash2 size={14} />
+                                <Trash2 size={11} />
                               </button>
                             </div>
                           </div>
-                          <h3 className="text-xl font-bold uppercase truncate">{multi.name}</h3>
-                          <div className="flex items-center gap-2 text-zinc-500 text-[9px] font-bold uppercase tracking-widest">
-                            <Layers size={10} />
+                          <h3 className="text-xs sm:text-sm font-bold uppercase truncate leading-none py-0.5">{multi.name}</h3>
+                          <div className="flex items-center gap-1.5 text-zinc-500 text-[8px] font-bold uppercase tracking-widest mt-0.5">
+                            <Layers size={9} />
                             <span>{multi.slots.length} Part{multi.slots.length > 1 ? 's' : ''}</span>
                           </div>
                         </div>

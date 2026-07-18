@@ -3,6 +3,289 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+export interface DX7Operator {
+  rates: number[];      // [R1, R2, R3, R4], 0-99
+  levels: number[];     // [L1, L2, L3, L4], 0-99
+  breakpoint: number;   // 0-99
+  leftDepth: number;    // 0-99
+  rightDepth: number;   // 0-99
+  leftCurve: number;    // 0-3
+  rightCurve: number;   // 0-3
+  rateScaling: number;  // 0-7
+  detune: number;       // -7 to +7
+  ams: number;          // 0-3
+  velocitySensitivity: number; // 0-7
+  level: number;        // 0-99 (Output level)
+  mode: number;         // 0: ratio, 1: fixed
+  coarse: number;       // 0-31
+  fine: number;         // 0-99
+}
+
+export interface DX7Voice {
+  name: string;
+  operators: DX7Operator[]; // Index 0 is Op1, index 5 is Op6
+  pitchRates: number[];     // [R1, R2, R3, R4]
+  pitchLevels: number[];    // [L1, L2, L3, L4]
+  algorithm: number;        // 1-32
+  feedback: number;         // 0-7
+  keySync: boolean;
+  lfoSpeed: number;         // 0-99
+  lfoDelay: number;         // 0-99
+  lfoPmd: number;           // 0-99
+  lfoAmd: number;           // 0-99
+  lfoSync: boolean;
+  lfoWaveform: number;      // 0-5
+  pitchModSensitivity: number; // 0-7
+  transpose: number;        // 0-48
+}
+
+export function createDefaultDX7Voice(): DX7Voice {
+  return {
+    name: 'E. PIANO 1',
+    algorithm: 5,
+    feedback: 4,
+    keySync: true,
+    lfoSpeed: 35,
+    lfoDelay: 0,
+    lfoPmd: 0,
+    lfoAmd: 0,
+    lfoSync: true,
+    lfoWaveform: 0,
+    pitchModSensitivity: 3,
+    transpose: 24,
+    pitchRates: [99, 99, 99, 99],
+    pitchLevels: [50, 50, 50, 50],
+    operators: [
+      // Op 1 (Carrier) - fundamental sine
+      {
+        rates: [95, 29, 20, 50],
+        levels: [99, 95, 0, 0],
+        breakpoint: 39, leftDepth: 0, rightDepth: 0, leftCurve: 0, rightCurve: 0,
+        rateScaling: 0, detune: 0, ams: 0, velocitySensitivity: 2, level: 99,
+        mode: 0, coarse: 1, fine: 0
+      },
+      // Op 2 (Modulator to Op 1) - fast chime
+      {
+        rates: [99, 45, 12, 50],
+        levels: [99, 0, 0, 0],
+        breakpoint: 39, leftDepth: 0, rightDepth: 0, leftCurve: 0, rightCurve: 0,
+        rateScaling: 2, detune: 3, ams: 0, velocitySensitivity: 5, level: 78,
+        mode: 0, coarse: 14, fine: 0
+      },
+      // Op 3 (Carrier) - mid-warmth
+      {
+        rates: [95, 25, 20, 50],
+        levels: [99, 95, 0, 0],
+        breakpoint: 39, leftDepth: 0, rightDepth: 0, leftCurve: 0, rightCurve: 0,
+        rateScaling: 0, detune: 0, ams: 0, velocitySensitivity: 2, level: 99,
+        mode: 0, coarse: 1, fine: 0
+      },
+      // Op 4 (Modulator to Op 3) - warm body
+      {
+        rates: [99, 35, 12, 50],
+        levels: [99, 0, 0, 0],
+        breakpoint: 39, leftDepth: 0, rightDepth: 0, leftCurve: 0, rightCurve: 0,
+        rateScaling: 2, detune: -3, ams: 0, velocitySensitivity: 4, level: 68,
+        mode: 0, coarse: 1, fine: 0
+      },
+      // Op 5 (Carrier) - high chime fundamental
+      {
+        rates: [95, 30, 20, 50],
+        levels: [99, 95, 0, 0],
+        breakpoint: 39, leftDepth: 0, rightDepth: 0, leftCurve: 0, rightCurve: 0,
+        rateScaling: 0, detune: 0, ams: 0, velocitySensitivity: 2, level: 85,
+        mode: 0, coarse: 2, fine: 0
+      },
+      // Op 6 (Modulator to Op 5) - feedback shine
+      {
+        rates: [99, 50, 15, 50],
+        levels: [99, 0, 0, 0],
+        breakpoint: 39, leftDepth: 0, rightDepth: 0, leftCurve: 0, rightCurve: 0,
+        rateScaling: 3, detune: 0, ams: 0, velocitySensitivity: 6, level: 55,
+        mode: 0, coarse: 1, fine: 0
+      }
+    ]
+  };
+}
+
+export function getDX7Algorithm(algNum: number): { carriers: number[], modulators: { [to: number]: number[] }, feedbackSrc: number, feedbackDest: number } {
+  // algNum is 1 to 32
+  // We return 0-indexed operator indices (0 to 5 representing DX7 Op1 to Op6)
+  let carriers: number[] = [];
+  let modulators: { [to: number]: number[] } = {};
+  let feedbackSrc = 5; // Op 6
+  let feedbackDest = 5; // Op 6
+
+  switch(algNum) {
+    case 1:
+      carriers = [0, 2];
+      modulators = { 0: [1], 2: [3], 3: [4], 4: [5] };
+      feedbackSrc = 5; feedbackDest = 5;
+      break;
+    case 2:
+      carriers = [0, 2];
+      modulators = { 0: [1], 2: [3], 3: [4], 4: [5] };
+      feedbackSrc = 1; feedbackDest = 1;
+      break;
+    case 3:
+      carriers = [0, 3];
+      modulators = { 0: [1], 1: [2], 3: [4], 4: [5] };
+      feedbackSrc = 5; feedbackDest = 5;
+      break;
+    case 4:
+      carriers = [0, 3];
+      modulators = { 0: [1], 1: [2], 3: [4], 4: [5] };
+      feedbackSrc = 3; feedbackDest = 3;
+      break;
+    case 5:
+      carriers = [0, 2, 4];
+      modulators = { 0: [1], 2: [3], 4: [5] };
+      feedbackSrc = 5; feedbackDest = 5;
+      break;
+    case 6:
+      carriers = [0, 2, 4];
+      modulators = { 0: [1], 2: [3], 4: [5] };
+      feedbackSrc = 5; feedbackDest = 5;
+      break;
+    case 7:
+      carriers = [0, 2];
+      modulators = { 0: [1, 2], 2: [3], 3: [4], 4: [5] };
+      feedbackSrc = 5; feedbackDest = 5;
+      break;
+    case 8:
+      carriers = [0, 2];
+      modulators = { 0: [1, 2], 2: [3], 3: [4], 4: [5] };
+      feedbackSrc = 3; feedbackDest = 3;
+      break;
+    case 9:
+      carriers = [0, 2];
+      modulators = { 0: [1], 2: [3, 4], 4: [5] };
+      feedbackSrc = 5; feedbackDest = 5;
+      break;
+    case 10:
+      carriers = [0, 3];
+      modulators = { 0: [1, 2], 3: [4, 5] };
+      feedbackSrc = 5; feedbackDest = 5;
+      break;
+    case 11:
+      carriers = [0, 2];
+      modulators = { 0: [1], 1: [5], 2: [3, 4] };
+      feedbackSrc = 5; feedbackDest = 5;
+      break;
+    case 12:
+      carriers = [0, 1, 2];
+      modulators = { 0: [3], 1: [4], 2: [5] };
+      feedbackSrc = 5; feedbackDest = 5;
+      break;
+    case 13:
+      carriers = [0, 1, 2];
+      modulators = { 0: [3], 1: [4], 2: [5] };
+      feedbackSrc = 5; feedbackDest = 5;
+      break;
+    case 14:
+      carriers = [0, 1];
+      modulators = { 0: [2], 2: [3, 4], 1: [5] };
+      feedbackSrc = 5; feedbackDest = 5;
+      break;
+    case 15:
+      carriers = [0, 1];
+      modulators = { 0: [2], 2: [3, 4], 1: [5] };
+      feedbackSrc = 1; feedbackDest = 1;
+      break;
+    case 16:
+      carriers = [0, 1];
+      modulators = { 0: [2, 3], 1: [4, 5] };
+      feedbackSrc = 5; feedbackDest = 5;
+      break;
+    case 17:
+      carriers = [0, 1];
+      modulators = { 0: [2, 3], 1: [4, 5] };
+      feedbackSrc = 1; feedbackDest = 1;
+      break;
+    case 18:
+      carriers = [0];
+      modulators = { 0: [1, 2, 3], 3: [4], 4: [5] };
+      feedbackSrc = 5; feedbackDest = 5;
+      break;
+    case 19:
+      carriers = [0, 2];
+      modulators = { 0: [1], 1: [5], 2: [3], 3: [4] };
+      feedbackSrc = 5; feedbackDest = 5;
+      break;
+    case 20:
+      carriers = [0, 1, 2];
+      modulators = { 0: [3], 3: [4], 1: [5] };
+      feedbackSrc = 5; feedbackDest = 5;
+      break;
+    case 21:
+      carriers = [0, 1, 2];
+      modulators = { 0: [3], 3: [4], 1: [5] };
+      feedbackSrc = 2; feedbackDest = 2;
+      break;
+    case 22:
+      carriers = [0, 1, 2];
+      modulators = { 0: [3, 4, 5] };
+      feedbackSrc = 5; feedbackDest = 5;
+      break;
+    case 23:
+      carriers = [0, 1, 2];
+      modulators = { 0: [3, 4], 1: [5] };
+      feedbackSrc = 5; feedbackDest = 5;
+      break;
+    case 24:
+      carriers = [0, 1, 2];
+      modulators = { 0: [3], 1: [4], 2: [5] };
+      feedbackSrc = 5; feedbackDest = 5;
+      break;
+    case 25:
+      carriers = [0, 1, 2];
+      modulators = { 0: [3], 1: [4], 2: [5] };
+      feedbackSrc = 0; feedbackDest = 0;
+      break;
+    case 26:
+      carriers = [0, 1];
+      modulators = { 0: [2], 2: [3], 1: [4], 4: [5] };
+      feedbackSrc = 5; feedbackDest = 5;
+      break;
+    case 27:
+      carriers = [0, 1];
+      modulators = { 0: [2], 2: [3], 1: [4], 4: [5] };
+      feedbackSrc = 2; feedbackDest = 2;
+      break;
+    case 28:
+      carriers = [0, 3];
+      modulators = { 0: [1, 2], 3: [4], 4: [5] };
+      feedbackSrc = 5; feedbackDest = 5;
+      break;
+    case 29:
+      carriers = [0, 1, 2];
+      modulators = { 0: [3, 4], 1: [5] };
+      feedbackSrc = 5; feedbackDest = 5;
+      break;
+    case 30:
+      carriers = [0];
+      modulators = { 0: [1, 2, 3, 4, 5] };
+      feedbackSrc = 5; feedbackDest = 5;
+      break;
+    case 31:
+      carriers = [0, 1, 2, 3, 4];
+      modulators = { 0: [5] };
+      feedbackSrc = 5; feedbackDest = 5;
+      break;
+    case 32:
+      carriers = [0, 1, 2, 3, 4, 5];
+      modulators = {};
+      feedbackSrc = 5; feedbackDest = 5;
+      break;
+    default:
+      carriers = [0, 2];
+      modulators = { 0: [1], 2: [3], 3: [4], 4: [5] };
+      feedbackSrc = 5; feedbackDest = 5;
+  }
+
+  return { carriers, modulators, feedbackSrc, feedbackDest };
+}
+
 export interface VoiceParams {
   lfoRate: number;
   lfoWaveform: 'sine' | 'sawtooth' | 'square' | 'random';
@@ -121,7 +404,8 @@ export interface VoiceParams {
   filterEnvSource: 'env1' | 'env2';
 
   // Hammond Organ Engine Params
-  synthEngine: 'jupiter' | 'hammond';
+  synthEngine: 'jupiter' | 'hammond' | 'dx7';
+  dx7Voice?: DX7Voice;
   hammondDb16: number;     // 16' (sub-octave)
   hammondDb513: number;    // 5 1/3' (quint)
   hammondDb8: number;      // 8' (fundamental)
@@ -326,6 +610,7 @@ export const DEFAULT_PARAMS: VoiceParams = {
   // Metronome defaults
   metronomeEnabled: false,
   metronomeVolume: 0.4,
+  dx7Voice: createDefaultDX7Voice(),
 };
 
 export interface PerformanceSettings {
@@ -367,6 +652,13 @@ export function cleanVoiceParams(rawParams: any): VoiceParams {
     const typedKey = key as keyof VoiceParams;
     const defaultValue = DEFAULT_PARAMS[typedKey];
     const rawValue = rawParams[typedKey];
+    
+    if (typedKey === 'dx7Voice') {
+      if (rawParams.dx7Voice && typeof rawParams.dx7Voice === 'object') {
+        params.dx7Voice = rawParams.dx7Voice;
+      }
+      return;
+    }
     
     // Check if the parameter is missing, undefined, null, or is NaN
     if (rawValue === undefined || rawValue === null || (typeof defaultValue === 'number' && typeof rawValue === 'number' && isNaN(rawValue))) {
