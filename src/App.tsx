@@ -2079,7 +2079,7 @@ function App() {
 
         <div className={`flex-1 relative overflow-y-auto lg:overflow-hidden transition-all duration-300`}>
           {currentScreen === 'SYNTH' && (
-            <div className="relative lg:absolute lg:inset-0 flex flex-col h-full w-full overflow-hidden">
+            <div className="relative lg:absolute lg:inset-0 flex flex-col lg:h-full w-full lg:overflow-hidden">
               {/* Main synth panel grid/flex list */}
               <div className="flex-1 relative flex flex-col md:grid md:grid-cols-2 lg:flex lg:flex-row bg-synth-border/40 gap-[1px] min-h-fit lg:min-h-0 lg:h-full overflow-y-auto lg:overflow-y-hidden lg:overflow-x-auto">
                 {synthSections}
@@ -2088,7 +2088,7 @@ function App() {
           )}
           
           {currentScreen === 'ARP' && (
-            <div className="relative lg:absolute lg:inset-0 flex flex-col h-full w-full overflow-hidden">
+            <div className="relative lg:absolute lg:inset-0 flex flex-col lg:h-full w-full lg:overflow-hidden">
               <div className="flex-1 relative flex flex-col md:grid md:grid-cols-2 lg:flex lg:flex-row bg-synth-border/40 gap-[1px] min-h-fit lg:min-h-0 lg:h-full overflow-y-auto lg:overflow-y-hidden lg:overflow-x-auto">
                 {arpSections}
               </div>
@@ -2096,7 +2096,7 @@ function App() {
           )}
           
           {currentScreen === 'FX' && (
-            <div className="relative lg:absolute lg:inset-0 flex flex-col h-full w-full overflow-hidden">
+            <div className="relative lg:absolute lg:inset-0 flex flex-col lg:h-full w-full lg:overflow-hidden">
               <div className="flex-1 relative flex flex-col md:grid md:grid-cols-2 lg:flex lg:flex-row bg-synth-border/40 gap-[1px] min-h-fit lg:min-h-0 lg:h-full overflow-y-auto lg:overflow-y-hidden lg:overflow-x-auto">
                 {fxSections}
               </div>
