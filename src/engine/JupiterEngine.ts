@@ -991,6 +991,7 @@ class Voice {
       this.vco1PwmOffset = null;
     }
     if (this.vco1PwmLfoGain) {
+      try { this.lfoModBusNode.disconnect(this.vco1PwmLfoGain); } catch(e) {}
       this.vco1PwmLfoGain.disconnect();
       this.vco1PwmLfoGain = null;
     }
@@ -1005,9 +1006,11 @@ class Voice {
 
     if (this.vco2PwmOffset) {
       try { this.vco2PwmOffset.stop(time); } catch(e) {}
+      this.vco2PwmOffset.disconnect();
       this.vco2PwmOffset = null;
     }
     if (this.vco2PwmLfoGain) {
+      try { this.lfoModBusNode.disconnect(this.vco2PwmLfoGain); } catch(e) {}
       this.vco2PwmLfoGain.disconnect();
       this.vco2PwmLfoGain = null;
     }
@@ -1018,6 +1021,14 @@ class Voice {
     if (this.vco2PwmShaper) {
       this.vco2PwmShaper.disconnect();
       this.vco2PwmShaper = null;
+    }
+
+    // Clean up temporary modulation bus connections on this voice to prevent orphaned node accumulation
+    if (this.vcoLfoMod) {
+      try { this.vcoLfoMod.disconnect(); } catch(e) {}
+    }
+    if (this.crossModGain) {
+      try { this.crossModGain.disconnect(); } catch(e) {}
     }
   }
 
