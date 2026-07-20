@@ -1301,5 +1301,326 @@ export const PRESET_PATCHES: Patch[] = [
         ]
       }
     }
+  },
+  {
+    id: "dx7-tinaflute",
+    name: "DX7 Breathy Flute",
+    params: {
+      ...DEFAULT_PARAMS,
+      synthEngine: 'dx7',
+      chorusMix: 0.25,
+      delayMix: 0.2,
+      delayTime: 0.35,
+      delayFeedback: 0.3,
+      reverbMix: 0.45,
+      reverbTime: 4.0,
+      dx7Voice: {
+        name: 'BREATH FLUTE',
+        algorithm: 11,
+        feedback: 6,
+        keySync: true,
+        lfoSpeed: 32,
+        lfoDelay: 4,
+        lfoPmd: 3,
+        lfoAmd: 0,
+        lfoSync: true,
+        lfoWaveform: 0,
+        pitchModSensitivity: 2,
+        transpose: 24,
+        pitchRates: [99, 99, 99, 99],
+        pitchLevels: [50, 50, 50, 50],
+        operators: [
+          // Op 1 (Carrier) - fundamental flute body
+          {
+            rates: [99, 40, 15, 60],
+            levels: [99, 99, 99, 0],
+            breakpoint: 39, leftDepth: 0, rightDepth: 0, leftCurve: 0, rightCurve: 0,
+            rateScaling: 1, detune: 0, ams: 0, velocitySensitivity: 2, level: 99,
+            mode: 0, coarse: 1, fine: 0
+          },
+          // Op 2 (Modulator to Op 1) - warm woodwind body
+          {
+            rates: [99, 30, 20, 50],
+            levels: [90, 85, 0, 0],
+            breakpoint: 39, leftDepth: 0, rightDepth: 0, leftCurve: 0, rightCurve: 0,
+            rateScaling: 2, detune: 1, ams: 0, velocitySensitivity: 3, level: 65,
+            mode: 0, coarse: 2, fine: 0
+          },
+          // Op 3 (Carrier) - breath/noise carrier
+          {
+            rates: [99, 50, 20, 60],
+            levels: [99, 95, 0, 0],
+            breakpoint: 39, leftDepth: 0, rightDepth: 0, leftCurve: 0, rightCurve: 0,
+            rateScaling: 1, detune: -1, ams: 0, velocitySensitivity: 2, level: 90,
+            mode: 0, coarse: 3, fine: 0
+          },
+          // Op 4 (Modulator to Op 3) - fast blow chiff
+          {
+            rates: [99, 95, 50, 70],
+            levels: [99, 0, 0, 0],
+            breakpoint: 39, leftDepth: 0, rightDepth: 0, leftCurve: 0, rightCurve: 0,
+            rateScaling: 2, detune: 2, ams: 0, velocitySensitivity: 4, level: 78,
+            mode: 0, coarse: 8, fine: 0
+          },
+          // Op 5 (Modulator to Op 3) - high air sizzle
+          {
+            rates: [99, 70, 40, 60],
+            levels: [95, 0, 0, 0],
+            breakpoint: 39, leftDepth: 0, rightDepth: 0, leftCurve: 0, rightCurve: 0,
+            rateScaling: 2, detune: -2, ams: 0, velocitySensitivity: 3, level: 62,
+            mode: 0, coarse: 12, fine: 0
+          },
+          // Op 6 (Feedback Modulator to Op 2) - noisy puff of breath
+          {
+            rates: [99, 99, 50, 70],
+            levels: [99, 0, 0, 0],
+            breakpoint: 39, leftDepth: 0, rightDepth: 0, leftCurve: 0, rightCurve: 0,
+            rateScaling: 3, detune: 0, ams: 0, velocitySensitivity: 5, level: 85,
+            mode: 0, coarse: 1, fine: 0
+          }
+        ]
+      }
+    }
+  },
+  {
+    id: "dx7-stevieharmonica",
+    name: "DX7 Stevie Harmonica",
+    params: {
+      ...DEFAULT_PARAMS,
+      synthEngine: 'dx7',
+      vcoLfoAmount: 0.08,
+      lfoRate: 6.2,
+      chorusMix: 0.15,
+      reverbMix: 0.35,
+      reverbTime: 3.2,
+      delayMix: 0.15,
+      delayTime: 0.28,
+      delayFeedback: 0.3,
+      dx7Voice: {
+        name: 'HARMONICA',
+        algorithm: 5,
+        feedback: 5,
+        keySync: true,
+        lfoSpeed: 42,
+        lfoDelay: 5,
+        lfoPmd: 5,
+        lfoAmd: 0,
+        lfoSync: true,
+        lfoWaveform: 0,
+        pitchModSensitivity: 3,
+        transpose: 24,
+        pitchRates: [99, 99, 99, 99],
+        pitchLevels: [50, 50, 50, 50],
+        operators: [
+          // Op 1 (Carrier) - main reed fundamental
+          {
+            rates: [99, 45, 30, 60],
+            levels: [99, 95, 90, 0],
+            breakpoint: 39, leftDepth: 0, rightDepth: 0, leftCurve: 0, rightCurve: 0,
+            rateScaling: 1, detune: 0, ams: 0, velocitySensitivity: 2, level: 99,
+            mode: 0, coarse: 1, fine: 0
+          },
+          // Op 2 (Modulator to Op 1) - nasal harmonica buzz
+          {
+            rates: [99, 55, 35, 55],
+            levels: [95, 90, 0, 0],
+            breakpoint: 39, leftDepth: 0, rightDepth: 0, leftCurve: 0, rightCurve: 0,
+            rateScaling: 2, detune: 2, ams: 0, velocitySensitivity: 3, level: 78,
+            mode: 0, coarse: 3, fine: 0
+          },
+          // Op 3 (Carrier) - high reed detuned
+          {
+            rates: [99, 45, 25, 60],
+            levels: [99, 92, 85, 0],
+            breakpoint: 39, leftDepth: 0, rightDepth: 0, leftCurve: 0, rightCurve: 0,
+            rateScaling: 1, detune: 2, ams: 0, velocitySensitivity: 2, level: 92,
+            mode: 0, coarse: 2, fine: 0
+          },
+          // Op 4 (Modulator to Op 3) - high buzzy harmonica resonance
+          {
+            rates: [99, 50, 30, 55],
+            levels: [95, 85, 0, 0],
+            breakpoint: 39, leftDepth: 0, rightDepth: 0, leftCurve: 0, rightCurve: 0,
+            rateScaling: 2, detune: -2, ams: 0, velocitySensitivity: 4, level: 74,
+            mode: 0, coarse: 5, fine: 0
+          },
+          // Op 5 (Carrier) - sub/warmth
+          {
+            rates: [99, 35, 20, 60],
+            levels: [99, 99, 90, 0],
+            breakpoint: 39, leftDepth: 0, rightDepth: 0, leftCurve: 0, rightCurve: 0,
+            rateScaling: 1, detune: -1, ams: 0, velocitySensitivity: 2, level: 85,
+            mode: 0, coarse: 1, fine: 0
+          },
+          // Op 6 (Feedback Modulator to Op 5) - raspy metal-reed rattle
+          {
+            rates: [99, 65, 40, 50],
+            levels: [92, 0, 0, 0],
+            breakpoint: 39, leftDepth: 0, rightDepth: 0, leftCurve: 0, rightCurve: 0,
+            rateScaling: 2, detune: 3, ams: 0, velocitySensitivity: 4, level: 68,
+            mode: 0, coarse: 4, fine: 0
+          }
+        ]
+      }
+    }
+  },
+  {
+    id: "dx7-axelf",
+    name: "DX7 Axel F Marimba",
+    params: {
+      ...DEFAULT_PARAMS,
+      synthEngine: 'dx7',
+      delayMix: 0.3,
+      delayTime: 0.18,
+      delayFeedback: 0.25,
+      reverbMix: 0.25,
+      reverbTime: 2.0,
+      dx7Voice: {
+        name: 'AXEL MARIMBA',
+        algorithm: 1,
+        feedback: 5,
+        keySync: true,
+        lfoSpeed: 28,
+        lfoDelay: 0,
+        lfoPmd: 0,
+        lfoAmd: 0,
+        lfoSync: true,
+        lfoWaveform: 0,
+        pitchModSensitivity: 2,
+        transpose: 24,
+        pitchRates: [99, 99, 99, 99],
+        pitchLevels: [50, 50, 50, 50],
+        operators: [
+          // Op 1 (Carrier) - round wood body
+          {
+            rates: [99, 85, 10, 50],
+            levels: [99, 0, 0, 0],
+            breakpoint: 39, leftDepth: 0, rightDepth: 0, leftCurve: 0, rightCurve: 0,
+            rateScaling: 1, detune: 0, ams: 0, velocitySensitivity: 3, level: 99,
+            mode: 0, coarse: 1, fine: 0
+          },
+          // Op 2 (Modulator to Op 1) - fast wood snap
+          {
+            rates: [99, 90, 15, 50],
+            levels: [99, 0, 0, 0],
+            breakpoint: 39, leftDepth: 0, rightDepth: 0, leftCurve: 0, rightCurve: 0,
+            rateScaling: 2, detune: 1, ams: 0, velocitySensitivity: 4, level: 78,
+            mode: 0, coarse: 2, fine: 0
+          },
+          // Op 3 (Carrier) - metallic mallet strike
+          {
+            rates: [99, 75, 12, 50],
+            levels: [99, 0, 0, 0],
+            breakpoint: 39, leftDepth: 0, rightDepth: 0, leftCurve: 0, rightCurve: 0,
+            rateScaling: 1, detune: 0, ams: 0, velocitySensitivity: 3, level: 95,
+            mode: 0, coarse: 4, fine: 0
+          },
+          // Op 4 (Modulator to Op 3) - metallic ring chime
+          {
+            rates: [99, 80, 15, 50],
+            levels: [99, 0, 0, 0],
+            breakpoint: 39, leftDepth: 0, rightDepth: 0, leftCurve: 0, rightCurve: 0,
+            rateScaling: 2, detune: 2, ams: 0, velocitySensitivity: 5, level: 84,
+            mode: 0, coarse: 8, fine: 0
+          },
+          // Op 5 (Modulator to Op 4) - ultra-high harmonic strike
+          {
+            rates: [99, 85, 20, 50],
+            levels: [99, 0, 0, 0],
+            breakpoint: 39, leftDepth: 0, rightDepth: 0, leftCurve: 0, rightCurve: 0,
+            rateScaling: 2, detune: -2, ams: 0, velocitySensitivity: 5, level: 72,
+            mode: 0, coarse: 12, fine: 0
+          },
+          // Op 6 (Feedback Modulator to Op 5) - wooden hammer transient
+          {
+            rates: [99, 95, 30, 50],
+            levels: [99, 0, 0, 0],
+            breakpoint: 39, leftDepth: 0, rightDepth: 0, leftCurve: 0, rightCurve: 0,
+            rateScaling: 3, detune: 0, ams: 0, velocitySensitivity: 6, level: 65,
+            mode: 0, coarse: 1, fine: 0
+          }
+        ]
+      }
+    }
+  },
+  {
+    id: "dx7-tearsinrain",
+    name: "DX7 Tears In Rain",
+    params: {
+      ...DEFAULT_PARAMS,
+      synthEngine: 'dx7',
+      reverbMix: 0.75,
+      reverbTime: 6.0,
+      delayMix: 0.45,
+      delayTime: 0.65,
+      delayFeedback: 0.55,
+      chorusMix: 0.55,
+      dx7Voice: {
+        name: 'RAIN CHIMES',
+        algorithm: 5,
+        feedback: 6,
+        keySync: true,
+        lfoSpeed: 25,
+        lfoDelay: 0,
+        lfoPmd: 0,
+        lfoAmd: 0,
+        lfoSync: true,
+        lfoWaveform: 0,
+        pitchModSensitivity: 2,
+        transpose: 24,
+        pitchRates: [99, 99, 99, 99],
+        pitchLevels: [50, 50, 50, 50],
+        operators: [
+          // Op 1 (Carrier) - low glass bell body
+          {
+            rates: [99, 30, 10, 45],
+            levels: [99, 80, 0, 0],
+            breakpoint: 39, leftDepth: 0, rightDepth: 0, leftCurve: 0, rightCurve: 0,
+            rateScaling: 1, detune: 0, ams: 0, velocitySensitivity: 3, level: 99,
+            mode: 0, coarse: 1, fine: 0
+          },
+          // Op 2 (Modulator to Op 1) - low glass bell modulator
+          {
+            rates: [99, 25, 8, 45],
+            levels: [95, 0, 0, 0],
+            breakpoint: 39, leftDepth: 0, rightDepth: 0, leftCurve: 0, rightCurve: 0,
+            rateScaling: 2, detune: -2, ams: 0, velocitySensitivity: 3, level: 75,
+            mode: 0, coarse: 1, fine: 0
+          },
+          // Op 3 (Carrier) - mid sparkling glass carrier
+          {
+            rates: [99, 28, 12, 45],
+            levels: [99, 75, 0, 0],
+            breakpoint: 39, leftDepth: 0, rightDepth: 0, leftCurve: 0, rightCurve: 0,
+            rateScaling: 1, detune: 1, ams: 0, velocitySensitivity: 3, level: 95,
+            mode: 0, coarse: 3, fine: 0
+          },
+          // Op 4 (Modulator to Op 3) - high crystalline chime modulator
+          {
+            rates: [99, 35, 10, 45],
+            levels: [99, 0, 0, 0],
+            breakpoint: 39, leftDepth: 0, rightDepth: 0, leftCurve: 0, rightCurve: 0,
+            rateScaling: 2, detune: 3, ams: 0, velocitySensitivity: 4, level: 78,
+            mode: 0, coarse: 7, fine: 0
+          },
+          // Op 5 (Carrier) - high glistening glass carrier
+          {
+            rates: [99, 32, 15, 45],
+            levels: [99, 70, 0, 0],
+            breakpoint: 39, leftDepth: 0, rightDepth: 0, leftCurve: 0, rightCurve: 0,
+            rateScaling: 1, detune: -1, ams: 0, velocitySensitivity: 3, level: 90,
+            mode: 0, coarse: 5, fine: 0
+          },
+          // Op 6 (Feedback Modulator to Op 5) - shimmering feedback sparkle
+          {
+            rates: [99, 40, 12, 45],
+            levels: [95, 0, 0, 0],
+            breakpoint: 39, leftDepth: 0, rightDepth: 0, leftCurve: 0, rightCurve: 0,
+            rateScaling: 2, detune: 4, ams: 0, velocitySensitivity: 5, level: 68,
+            mode: 0, coarse: 11, fine: 0
+          }
+        ]
+      }
+    }
   }
 ];

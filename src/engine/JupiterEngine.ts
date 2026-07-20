@@ -54,6 +54,9 @@ class Voice {
   private pitchBendOffset: number = 0; // in semitones
   private velocity: number = 1;
 
+  // Active synth engine tracking
+  private activeSynthEngine: 'jupiter' | 'hammond' | 'dx7' = 'jupiter';
+
   // Vintage detuning drift per voice card
   private vco1Drift: number = 0;
   private vco2Drift: number = 0;
@@ -74,6 +77,7 @@ class Voice {
     this.perfSettings = settings;
     this.sharedNoiseBuffer = sharedNoiseBuffer;
     this.lfoModBusNode = lfoModBus;
+    this.activeSynthEngine = params.synthEngine || 'jupiter';
 
     this.vco1Gain = ctx.createGain();
     this.vco2Gain = ctx.createGain();
@@ -122,7 +126,7 @@ class Voice {
     if (settings) this.perfSettings = settings;
     const time = this.ctx.currentTime;
 
-    if (params.synthEngine === 'dx7') {
+    if (this.activeSynthEngine === 'dx7') {
       const bendFactor = Math.pow(2, this.pitchBendOffset / 12);
       const voice = params.dx7Voice || createDefaultDX7Voice();
       if (this.dx7Oscs && this.dx7Oscs.length > 0 && this.midiNote !== null) {
@@ -149,7 +153,7 @@ class Voice {
       return;
     }
 
-    if (params.synthEngine === 'hammond') {
+    if (this.activeSynthEngine === 'hammond') {
       const drawbarLevels = [
         params.hammondDb16,
         params.hammondDb513,
@@ -318,6 +322,7 @@ class Voice {
     const freq = 440 * Math.pow(2, (midiNote - 69) / 12);
 
     if (this.params.synthEngine === 'dx7') {
+      this.activeSynthEngine = 'dx7';
       const voice = this.params.dx7Voice || createDefaultDX7Voice();
       const bendFactor = Math.pow(2, this.pitchBendOffset / 12);
       const alg = getDX7Algorithm(voice.algorithm);
@@ -355,19 +360,49 @@ class Voice {
         const fbDest = alg.feedbackDest;
         
         const delay = this.ctx.createDelay(0.01);
-        delay.delayTime.setValueAtTime(1 / this.ctx.sampleRate, time);
+        // Use a stable, non-zero delay time equal to exactly 1 render block (128 samples).
+        // This is the native Web Audio block processing delay, which prevents sub-sample
+        // calculation instability and denormal audio thread pops.
+        delay.delayTime.setValueAtTime(128 / this.ctx.sampleRate, time);
         this.dx7FeedbackDelay = delay;
         
         const fbGain = this.ctx.createGain();
-        // If feedback source is a carrier, max level is 0.28.
-        // If modulator, max level is opFreq * 8.0.
-        // We want feedback modulation depth (frequency deviation) to be around (voice.feedback / 7) * opFreq * 1.5.
+        
+        // Calculate the actual frequencies of both source and destination operators
+        const opSrc = voice.operators[fbSrc] || createDefaultDX7Voice().operators[fbSrc];
+        let opFreqSrc = freq;
+        if (opSrc.mode === 1) {
+          opFreqSrc = Math.pow(10, (opSrc.coarse % 4) + opSrc.fine / 100);
+        } else {
+          const ratio = (opSrc.coarse === 0 ? 0.5 : opSrc.coarse) * (1.0 + opSrc.fine / 100);
+          opFreqSrc = freq * ratio;
+        }
+
+        const opDest = voice.operators[fbDest] || createDefaultDX7Voice().operators[fbDest];
+        let opFreqDest = freq;
+        if (opDest.mode === 1) {
+          opFreqDest = Math.pow(10, (opDest.coarse % 4) + opDest.fine / 100);
+        } else {
+          const ratio = (opDest.coarse === 0 ? 0.5 : opDest.coarse) * (1.0 + opDest.fine / 100);
+          opFreqDest = freq * ratio;
+        }
+
+        // To prevent the modulated frequency from swinging below zero (which causes severe wrapping,
+        // phase-reversal, and metallic crackles), limit the peak deviation to at most 70% of the destination
+        // frequency or source frequency, whichever is smaller.
+        const safeFreq = Math.min(opFreqSrc, opFreqDest);
+        const maxSafeDeviation = safeFreq * 0.7;
         const isSrcCarrier = alg.carriers.includes(fbSrc);
+        
         let fbDepth = 0;
         if (isSrcCarrier) {
-          fbDepth = (voice.feedback / 7.0) * (freq * 1.5) / 0.28;
+          // Carrier output has amplitude scaled to 0.28.
+          // fbDepth = (ratio of voice.feedback) * maxSafeDeviation / 0.28
+          fbDepth = (voice.feedback / 7.0) * maxSafeDeviation / 0.28;
         } else {
-          fbDepth = (voice.feedback / 7.0) * 0.18; // Since modulator output already has opFreq * 8.0 scale, 0.18 * 8 = 1.44 mod index
+          // Modulator output has amplitude scaled to opFreqSrc * 8.0.
+          // fbDepth = (ratio of voice.feedback) * maxSafeDeviation / (opFreqSrc * 8.0)
+          fbDepth = (voice.feedback / 7.0) * maxSafeDeviation / (opFreqSrc * 8.0);
         }
         
         fbGain.gain.setValueAtTime(fbDepth, time);
@@ -474,13 +509,15 @@ class Voice {
       }
       
       this.vca.gain.cancelScheduledValues(time);
-      this.vca.gain.setValueAtTime(0, time);
+      const prevGain = Math.max(0.0001, this.vca.gain.value);
+      this.vca.gain.setValueAtTime(prevGain, time);
       this.vca.gain.linearRampToValueAtTime(1.0, time + 0.005);
       
       return;
     }
 
     if (this.params.synthEngine === 'hammond') {
+      this.activeSynthEngine = 'hammond';
       const bendFactor = Math.pow(2, this.pitchBendOffset / 12);
       const footages = [0.5, 1.5, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 8.0];
       const drawbarLevels = [
@@ -569,12 +606,14 @@ class Voice {
 
       // Snappy but 100% click-free Organ VCA gating
       this.vca.gain.cancelScheduledValues(time);
-      this.vca.gain.setValueAtTime(0, time);
+      const prevGain = Math.max(0.0001, this.vca.gain.value);
+      this.vca.gain.setValueAtTime(prevGain, time);
       this.vca.gain.linearRampToValueAtTime(1.0, time + 0.008);
-
+      
       return;
     }
 
+    this.activeSynthEngine = 'jupiter';
     this.vco1 = this.ctx.createOscillator();
     this.vco2 = this.ctx.createOscillator();
     this.subOsc = this.ctx.createOscillator();
@@ -866,7 +905,7 @@ class Voice {
     this.pitchBendOffset = offset;
     const time = this.ctx.currentTime;
     if (this.midiNote !== null && !this.isReleasing) {
-      if (this.params.synthEngine === 'dx7') {
+      if (this.activeSynthEngine === 'dx7') {
         const freq = 440 * Math.pow(2, (this.midiNote - 69) / 12);
         const bendFactor = Math.pow(2, offset / 12);
         const voice = this.params.dx7Voice || createDefaultDX7Voice();
@@ -885,7 +924,7 @@ class Voice {
             }
           });
         }
-      } else if (this.params.synthEngine === 'hammond') {
+      } else if (this.activeSynthEngine === 'hammond') {
         const freq = 440 * Math.pow(2, (this.midiNote - 69) / 12);
         const bendFactor = Math.pow(2, offset / 12);
         this.hammondOscs.forEach((osc) => {
@@ -945,34 +984,77 @@ class Voice {
     }
     if (this.hammondOscs && this.hammondOscs.length > 0) {
       this.hammondOscs.forEach(osc => {
-        try { osc.stop(time); } catch(e) {}
-        osc.disconnect();
+        try { osc.stop(time + 0.01); } catch(e) {}
+        const oscToDisconnect = osc;
+        setTimeout(() => {
+          try { oscToDisconnect.disconnect(); } catch(err) {}
+        }, 15);
       });
       this.hammondOscs = [];
     }
     if (this.hammondGains && this.hammondGains.length > 0) {
-      this.hammondGains.forEach(g => g.disconnect());
+      this.hammondGains.forEach(g => {
+        try {
+          g.gain.cancelScheduledValues(time);
+          g.gain.setValueAtTime(g.gain.value, time);
+          g.gain.linearRampToValueAtTime(0, time + 0.005);
+          const gToDisconnect = g;
+          setTimeout(() => {
+            try { gToDisconnect.disconnect(); } catch(err) {}
+          }, 15);
+        } catch(e) {
+          try { g.disconnect(); } catch(err) {}
+        }
+      });
       this.hammondGains = [];
     }
     if (this.percussionOsc) {
-      try { this.percussionOsc.stop(time); } catch(e) {}
-      this.percussionOsc.disconnect();
+      try { this.percussionOsc.stop(time + 0.01); } catch(e) {}
+      const oscToDisconnect = this.percussionOsc;
+      setTimeout(() => {
+        try { oscToDisconnect.disconnect(); } catch(err) {}
+      }, 15);
       this.percussionOsc = null;
     }
     if (this.percussionGain) {
-      this.percussionGain.disconnect();
+      try {
+        this.percussionGain.gain.cancelScheduledValues(time);
+        this.percussionGain.gain.setValueAtTime(this.percussionGain.gain.value, time);
+        this.percussionGain.gain.linearRampToValueAtTime(0, time + 0.005);
+        const gToDisconnect = this.percussionGain;
+        setTimeout(() => {
+          try { gToDisconnect.disconnect(); } catch(err) {}
+        }, 15);
+      } catch(e) {
+        try { this.percussionGain.disconnect(); } catch(err) {}
+      }
       this.percussionGain = null;
     }
 
     if (this.dx7Oscs && this.dx7Oscs.length > 0) {
       this.dx7Oscs.forEach(osc => {
-        try { osc.stop(time); } catch(e) {}
-        osc.disconnect();
+        try { osc.stop(time + 0.01); } catch(e) {}
+        const oscToDisconnect = osc;
+        setTimeout(() => {
+          try { oscToDisconnect.disconnect(); } catch(err) {}
+        }, 15);
       });
       this.dx7Oscs = [];
     }
     if (this.dx7Gains && this.dx7Gains.length > 0) {
-      this.dx7Gains.forEach(g => g.disconnect());
+      this.dx7Gains.forEach(g => {
+        try {
+          g.gain.cancelScheduledValues(time);
+          g.gain.setValueAtTime(g.gain.value, time);
+          g.gain.linearRampToValueAtTime(0, time + 0.005);
+          const gToDisconnect = g;
+          setTimeout(() => {
+            try { gToDisconnect.disconnect(); } catch(err) {}
+          }, 15);
+        } catch(e) {
+          try { g.disconnect(); } catch(err) {}
+        }
+      });
       this.dx7Gains = [];
     }
     if (this.dx7FeedbackDelay) {
@@ -1036,7 +1118,7 @@ class Voice {
     this.isReleasing = true;
     let releaseDuration = 0.05;
     
-    if (this.params.synthEngine === 'dx7') {
+    if (this.activeSynthEngine === 'dx7') {
       let maxReleaseTime = 0.05;
       
       this.dx7Gains.forEach((gainNode) => {
@@ -1063,21 +1145,21 @@ class Voice {
           try { osc.stop(time + releaseDuration + 0.1); } catch (e) {}
         });
       }
-    } else if (this.params.synthEngine === 'hammond') {
+    } else if (this.activeSynthEngine === 'hammond') {
       const organRelease = 0.04; // snappy organ release
       releaseDuration = organRelease;
       this.vca.gain.cancelScheduledValues(time);
       this.vca.gain.setValueAtTime(this.vca.gain.value, time);
       this.vca.gain.setTargetAtTime(0, time, organRelease / 3);
 
-      // Schedule stop on physical Hammond oscillators at completion of envelope
+      // Schedule stop on physical Hammond oscillators at completion of envelope plus safety margin
       if (this.hammondOscs && this.hammondOscs.length > 0) {
         this.hammondOscs.forEach(osc => {
-          try { osc.stop(time + organRelease); } catch (e) {}
+          try { osc.stop(time + organRelease + 0.1); } catch (e) {}
         });
       }
       if (this.percussionOsc) {
-        try { this.percussionOsc.stop(time + organRelease); } catch (e) {}
+        try { this.percussionOsc.stop(time + organRelease + 0.1); } catch (e) {}
       }
     } else {
       const { env1Release, env2Release, filterEnvSource } = this.params;
