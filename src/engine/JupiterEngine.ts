@@ -14,6 +14,8 @@ class Voice {
   private vco2: OscillatorNode | null = null;
   private vco1SoundfontSource: AudioBufferSourceNode | null = null;
   private vco2SoundfontSource: AudioBufferSourceNode | null = null;
+  private vco1SoundfontNodes: Array<{ src: AudioBufferSourceNode; gain: GainNode; rootFreq: number; coarseTune: number; fineTune: number }> = [];
+  private vco2SoundfontNodes: Array<{ src: AudioBufferSourceNode; gain: GainNode; rootFreq: number; coarseTune: number; fineTune: number }> = [];
   private subOsc: OscillatorNode | null = null;
   private vco1Noise: AudioBufferSourceNode | null = null;
   private vco2Noise: AudioBufferSourceNode | null = null;
@@ -621,6 +623,8 @@ class Voice {
     this.vco2 = null;
     this.vco1SoundfontSource = null;
     this.vco2SoundfontSource = null;
+    this.vco1SoundfontNodes = [];
+    this.vco2SoundfontNodes = [];
     this.vco1Noise = null;
     this.vco2Noise = null;
     this.subOsc = this.ctx.createOscillator();
@@ -640,17 +644,73 @@ class Voice {
 
     // VCO1 instantiation
     if (vco1SoundfontEnabled && vco1SoundfontName) {
-      const buffer = soundfontService.getDecodedBuffer(vco1SoundfontName, vco1SoundfontSampleIndex ?? 0);
-      if (buffer) {
+      const zones = soundfontService.getMatchingZonesSync(
+        vco1SoundfontName,
+        vco1SoundfontSampleIndex ?? 0,
+        midiNote,
+        velocity
+      );
+
+      for (const zone of zones) {
+        if (!zone.audioBuffer) continue;
         const src = this.ctx.createBufferSource();
-        src.buffer = buffer;
+        src.buffer = zone.audioBuffer;
+
         src.loop = true;
-        src.connect(this.vco1Gain);
-        this.vco1SoundfontSource = src;
+        const sr = zone.sampleRate || 44100;
+        const sStart = zone.startSample;
+        const lStart = zone.startLoopSample;
+        const lEnd = zone.endLoopSample;
+
+        if ((zone.loopMode === 1 || zone.loopMode === 3) && lEnd > lStart + 16) {
+          src.loopStart = Math.max(0, (lStart - sStart) / sr);
+          src.loopEnd = Math.min(zone.audioBuffer.duration, (lEnd - sStart) / sr);
+        } else {
+          src.loopStart = 0;
+          src.loopEnd = zone.audioBuffer.duration;
+        }
+
+        const zoneGain = this.ctx.createGain();
+        zoneGain.gain.setValueAtTime(zone.attenuation, time);
+        src.connect(zoneGain);
+        zoneGain.connect(this.vco1Gain);
+
+        const rootFreq = 440 * Math.pow(2, (zone.rootKey - 69) / 12);
+        this.vco1SoundfontNodes.push({
+          src,
+          gain: zoneGain,
+          rootFreq,
+          coarseTune: zone.coarseTune,
+          fineTune: zone.fineTune
+        });
+      }
+
+      if (this.vco1SoundfontNodes.length === 0) {
+        const buffer = soundfontService.getDecodedBuffer(vco1SoundfontName, vco1SoundfontSampleIndex ?? 0);
+        if (buffer) {
+          const src = this.ctx.createBufferSource();
+          src.buffer = buffer;
+          src.loop = true;
+          const zoneGain = this.ctx.createGain();
+          zoneGain.gain.setValueAtTime(1.0, time);
+          src.connect(zoneGain);
+          zoneGain.connect(this.vco1Gain);
+          this.vco1SoundfontNodes.push({
+            src,
+            gain: zoneGain,
+            rootFreq: 261.63,
+            coarseTune: 0,
+            fineTune: 0
+          });
+        }
+      }
+
+      if (this.vco1SoundfontNodes.length > 0) {
+        this.vco1SoundfontSource = this.vco1SoundfontNodes[0].src;
       }
     }
 
-    if (!this.vco1SoundfontSource) {
+    if (!this.vco1SoundfontSource && this.vco1SoundfontNodes.length === 0) {
       this.vco1 = this.ctx.createOscillator();
       this.vco1Noise = this.ctx.createBufferSource();
       if (this.sharedNoiseBuffer) {
@@ -662,17 +722,73 @@ class Voice {
 
     // VCO2 instantiation
     if (vco2SoundfontEnabled && vco2SoundfontName) {
-      const buffer = soundfontService.getDecodedBuffer(vco2SoundfontName, vco2SoundfontSampleIndex ?? 0);
-      if (buffer) {
+      const zones = soundfontService.getMatchingZonesSync(
+        vco2SoundfontName,
+        vco2SoundfontSampleIndex ?? 0,
+        midiNote,
+        velocity
+      );
+
+      for (const zone of zones) {
+        if (!zone.audioBuffer) continue;
         const src = this.ctx.createBufferSource();
-        src.buffer = buffer;
+        src.buffer = zone.audioBuffer;
+
         src.loop = true;
-        src.connect(this.vco2Gain);
-        this.vco2SoundfontSource = src;
+        const sr = zone.sampleRate || 44100;
+        const sStart = zone.startSample;
+        const lStart = zone.startLoopSample;
+        const lEnd = zone.endLoopSample;
+
+        if ((zone.loopMode === 1 || zone.loopMode === 3) && lEnd > lStart + 16) {
+          src.loopStart = Math.max(0, (lStart - sStart) / sr);
+          src.loopEnd = Math.min(zone.audioBuffer.duration, (lEnd - sStart) / sr);
+        } else {
+          src.loopStart = 0;
+          src.loopEnd = zone.audioBuffer.duration;
+        }
+
+        const zoneGain = this.ctx.createGain();
+        zoneGain.gain.setValueAtTime(zone.attenuation, time);
+        src.connect(zoneGain);
+        zoneGain.connect(this.vco2Gain);
+
+        const rootFreq = 440 * Math.pow(2, (zone.rootKey - 69) / 12);
+        this.vco2SoundfontNodes.push({
+          src,
+          gain: zoneGain,
+          rootFreq,
+          coarseTune: zone.coarseTune,
+          fineTune: zone.fineTune
+        });
+      }
+
+      if (this.vco2SoundfontNodes.length === 0) {
+        const buffer = soundfontService.getDecodedBuffer(vco2SoundfontName, vco2SoundfontSampleIndex ?? 0);
+        if (buffer) {
+          const src = this.ctx.createBufferSource();
+          src.buffer = buffer;
+          src.loop = true;
+          const zoneGain = this.ctx.createGain();
+          zoneGain.gain.setValueAtTime(1.0, time);
+          src.connect(zoneGain);
+          zoneGain.connect(this.vco2Gain);
+          this.vco2SoundfontNodes.push({
+            src,
+            gain: zoneGain,
+            rootFreq: 261.63,
+            coarseTune: 0,
+            fineTune: 0
+          });
+        }
+      }
+
+      if (this.vco2SoundfontNodes.length > 0) {
+        this.vco2SoundfontSource = this.vco2SoundfontNodes[0].src;
       }
     }
 
-    if (!this.vco2SoundfontSource) {
+    if (!this.vco2SoundfontSource && this.vco2SoundfontNodes.length === 0) {
       this.vco2 = this.ctx.createOscillator();
       this.vco2Noise = this.ctx.createBufferSource();
       if (this.sharedNoiseBuffer) {
@@ -771,21 +887,21 @@ class Voice {
     if (this.params.vcoLfoSelect === 'vco1' || this.params.vcoLfoSelect === 'both') {
       if (this.vco1) {
         this.vcoLfoMod.connect(this.vco1.frequency);
-      } else if (this.vco1SoundfontSource) {
+      } else if (this.vco1SoundfontNodes.length > 0) {
         const vibratoGain = this.ctx.createGain();
         vibratoGain.gain.setValueAtTime(0.005, time);
         this.vcoLfoMod.connect(vibratoGain);
-        vibratoGain.connect(this.vco1SoundfontSource.playbackRate);
+        this.vco1SoundfontNodes.forEach(node => vibratoGain.connect(node.src.playbackRate));
       }
     }
     if (this.params.vcoLfoSelect === 'vco2' || this.params.vcoLfoSelect === 'both') {
       if (this.vco2) {
         this.vcoLfoMod.connect(this.vco2.frequency);
-      } else if (this.vco2SoundfontSource) {
+      } else if (this.vco2SoundfontNodes.length > 0) {
         const vibratoGain = this.ctx.createGain();
         vibratoGain.gain.setValueAtTime(0.005, time);
         this.vcoLfoMod.connect(vibratoGain);
-        vibratoGain.connect(this.vco2SoundfontSource.playbackRate);
+        this.vco2SoundfontNodes.forEach(node => vibratoGain.connect(node.src.playbackRate));
       }
     }
     if (this.params.vcoLfoSelect === 'both' && this.subOsc) {
@@ -797,11 +913,11 @@ class Voice {
     if (this.vco2Noise) this.vco2Noise.connect(this.crossModGain);
     if (this.vco1) {
       this.crossModGain.connect(this.vco1.frequency);
-    } else if (this.vco1SoundfontSource) {
+    } else if (this.vco1SoundfontNodes.length > 0) {
       const crossModScale = this.ctx.createGain();
       crossModScale.gain.setValueAtTime(0.001, time);
       this.crossModGain.connect(crossModScale);
-      crossModScale.connect(this.vco1SoundfontSource.playbackRate);
+      this.vco1SoundfontNodes.forEach(node => crossModScale.connect(node.src.playbackRate));
     }
 
     this.subOsc.type = this.params.subOscWaveform;
@@ -833,24 +949,30 @@ class Voice {
         this.vco1.frequency.cancelScheduledValues(time);
         this.vco1.frequency.setValueAtTime(prevFreq1, time);
         this.vco1.frequency.setTargetAtTime(finalFreq1, time + 0.05, glideTime / 3);
-      } else if (this.vco1SoundfontSource) {
-        const prevRate1 = prevFreq1 / 261.63;
-        const finalRate1 = finalFreq1 / 261.63;
-        this.vco1SoundfontSource.playbackRate.cancelScheduledValues(time);
-        this.vco1SoundfontSource.playbackRate.setValueAtTime(prevRate1, time);
-        this.vco1SoundfontSource.playbackRate.setTargetAtTime(finalRate1, time + 0.05, glideTime / 3);
+      } else if (this.vco1SoundfontNodes.length > 0) {
+        this.vco1SoundfontNodes.forEach(node => {
+          const tuneFactor = Math.pow(2, (node.coarseTune + node.fineTune / 100) / 12);
+          const prevRate1 = (prevFreq1 / node.rootFreq) * tuneFactor;
+          const finalRate1 = (finalFreq1 / node.rootFreq) * tuneFactor;
+          node.src.playbackRate.cancelScheduledValues(time);
+          node.src.playbackRate.setValueAtTime(prevRate1, time);
+          node.src.playbackRate.setTargetAtTime(finalRate1, time + 0.05, glideTime / 3);
+        });
       }
 
       if (this.vco2) {
         this.vco2.frequency.cancelScheduledValues(time);
         this.vco2.frequency.setValueAtTime(prevFreq2, time);
         this.vco2.frequency.setTargetAtTime(finalFreq2, time + 0.05, glideTime / 3);
-      } else if (this.vco2SoundfontSource) {
-        const prevRate2 = prevFreq2 / 261.63;
-        const finalRate2 = finalFreq2 / 261.63;
-        this.vco2SoundfontSource.playbackRate.cancelScheduledValues(time);
-        this.vco2SoundfontSource.playbackRate.setValueAtTime(prevRate2, time);
-        this.vco2SoundfontSource.playbackRate.setTargetAtTime(finalRate2, time + 0.05, glideTime / 3);
+      } else if (this.vco2SoundfontNodes.length > 0) {
+        this.vco2SoundfontNodes.forEach(node => {
+          const tuneFactor = Math.pow(2, (node.coarseTune + node.fineTune / 100) / 12);
+          const prevRate2 = (prevFreq2 / node.rootFreq) * tuneFactor;
+          const finalRate2 = (finalFreq2 / node.rootFreq) * tuneFactor;
+          node.src.playbackRate.cancelScheduledValues(time);
+          node.src.playbackRate.setValueAtTime(prevRate2, time);
+          node.src.playbackRate.setTargetAtTime(finalRate2, time + 0.05, glideTime / 3);
+        });
       }
 
       this.subOsc.frequency.cancelScheduledValues(time);
@@ -859,16 +981,22 @@ class Voice {
     } else {
       if (this.vco1) {
         this.vco1.frequency.setValueAtTime(finalFreq1, time);
-      } else if (this.vco1SoundfontSource) {
-        const finalRate1 = finalFreq1 / 261.63;
-        this.vco1SoundfontSource.playbackRate.setValueAtTime(finalRate1, time);
+      } else if (this.vco1SoundfontNodes.length > 0) {
+        this.vco1SoundfontNodes.forEach(node => {
+          const tuneFactor = Math.pow(2, (node.coarseTune + node.fineTune / 100) / 12);
+          const finalRate1 = (finalFreq1 / node.rootFreq) * tuneFactor;
+          node.src.playbackRate.setValueAtTime(finalRate1, time);
+        });
       }
 
       if (this.vco2) {
         this.vco2.frequency.setValueAtTime(finalFreq2, time);
-      } else if (this.vco2SoundfontSource) {
-        const finalRate2 = finalFreq2 / 261.63;
-        this.vco2SoundfontSource.playbackRate.setValueAtTime(finalRate2, time);
+      } else if (this.vco2SoundfontNodes.length > 0) {
+        this.vco2SoundfontNodes.forEach(node => {
+          const tuneFactor = Math.pow(2, (node.coarseTune + node.fineTune / 100) / 12);
+          const finalRate2 = (finalFreq2 / node.rootFreq) * tuneFactor;
+          node.src.playbackRate.setValueAtTime(finalRate2, time);
+        });
       }
 
       this.subOsc.frequency.setValueAtTime(finalSubFreq, time);
@@ -988,9 +1116,9 @@ class Voice {
     this.vco2NoiseGain.gain.setValueAtTime(isVco2Noise ? vco2Level : 0, time);
 
     if (this.vco1) this.vco1.start(time);
-    if (this.vco1SoundfontSource) this.vco1SoundfontSource.start(time);
+    this.vco1SoundfontNodes.forEach(node => node.src.start(time));
     if (this.vco2) this.vco2.start(time);
-    if (this.vco2SoundfontSource) this.vco2SoundfontSource.start(time);
+    this.vco2SoundfontNodes.forEach(node => node.src.start(time));
     if (this.subOsc) this.subOsc.start(time);
     if (this.vco1Noise) this.vco1Noise.start(time);
     if (this.vco2Noise) this.vco2Noise.start(time);
@@ -1030,7 +1158,7 @@ class Voice {
           const pertHarm = this.params.hammondPercussionHarmonic === 'second' ? 2.0 : 3.0;
           this.percussionOsc.frequency.setTargetAtTime(freq * pertHarm * bendFactor, time, 0.02);
         }
-      } else if (this.vco1 || this.vco2 || this.vco1SoundfontSource || this.vco2SoundfontSource) {
+      } else if (this.vco1 || this.vco2 || this.vco1SoundfontNodes.length > 0 || this.vco2SoundfontNodes.length > 0) {
         const freq = 440 * Math.pow(2, (this.midiNote - 69) / 12);
         const { vco1Freq, vco1Range, vco2Freq, vco2Range, vco2Detune } = this.params;
         
@@ -1041,16 +1169,22 @@ class Voice {
 
         if (this.vco1) {
           this.vco1.frequency.setTargetAtTime(targetFreq1, time, 0.02);
-        } else if (this.vco1SoundfontSource) {
-          const rate1 = targetFreq1 / 261.63;
-          this.vco1SoundfontSource.playbackRate.setTargetAtTime(rate1, time, 0.02);
+        } else if (this.vco1SoundfontNodes.length > 0) {
+          this.vco1SoundfontNodes.forEach(node => {
+            const tuneFactor = Math.pow(2, (node.coarseTune + node.fineTune / 100) / 12);
+            const rate1 = (targetFreq1 / node.rootFreq) * tuneFactor;
+            node.src.playbackRate.setTargetAtTime(rate1, time, 0.02);
+          });
         }
 
         if (this.vco2) {
           this.vco2.frequency.setTargetAtTime(targetFreq2, time, 0.02);
-        } else if (this.vco2SoundfontSource) {
-          const rate2 = targetFreq2 / 261.63;
-          this.vco2SoundfontSource.playbackRate.setTargetAtTime(rate2, time, 0.02);
+        } else if (this.vco2SoundfontNodes.length > 0) {
+          this.vco2SoundfontNodes.forEach(node => {
+            const tuneFactor = Math.pow(2, (node.coarseTune + node.fineTune / 100) / 12);
+            const rate2 = (targetFreq2 / node.rootFreq) * tuneFactor;
+            node.src.playbackRate.setTargetAtTime(rate2, time, 0.02);
+          });
         }
 
         if (this.subOsc) {
@@ -1068,9 +1202,13 @@ class Voice {
       this.vco1.disconnect();
       this.vco1 = null;
     }
-    if (this.vco1SoundfontSource) {
-      try { this.vco1SoundfontSource.stop(time); } catch(e) {}
-      this.vco1SoundfontSource.disconnect();
+    if (this.vco1SoundfontNodes.length > 0) {
+      this.vco1SoundfontNodes.forEach(node => {
+        try { node.src.stop(time); } catch(e) {}
+        node.src.disconnect();
+        node.gain.disconnect();
+      });
+      this.vco1SoundfontNodes = [];
       this.vco1SoundfontSource = null;
     }
     if (this.subOsc) {
@@ -1083,9 +1221,13 @@ class Voice {
       this.vco2.disconnect();
       this.vco2 = null;
     }
-    if (this.vco2SoundfontSource) {
-      try { this.vco2SoundfontSource.stop(time); } catch(e) {}
-      this.vco2SoundfontSource.disconnect();
+    if (this.vco2SoundfontNodes.length > 0) {
+      this.vco2SoundfontNodes.forEach(node => {
+        try { node.src.stop(time); } catch(e) {}
+        node.src.disconnect();
+        node.gain.disconnect();
+      });
+      this.vco2SoundfontNodes = [];
       this.vco2SoundfontSource = null;
     }
     if (this.vco1Noise) {
@@ -1303,7 +1445,7 @@ class Voice {
     }
     this.stopTimer = window.setTimeout(() => {
       this.stop();
-    }, Math.max(0.05, releaseDuration) * 1000);
+    }, Math.max(0.1, releaseDuration * 3.0) * 1000);
   }
   
   stop() {
