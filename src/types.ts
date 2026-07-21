@@ -297,6 +297,8 @@ export interface VoiceParams {
   vco1PulseWidth: number;
   vco1PwmMode: 'manual' | 'lfo';
   vco1VelocitySensitivity: number;
+  vco1SoundfontEnabled: boolean;
+  vco1SoundfontName: string;
   
   vco2Freq: number;
   vco2Range: 2 | 4 | 8 | 16;
@@ -306,6 +308,8 @@ export interface VoiceParams {
   vco2Detune: number;
   vco2Sync: boolean;
   vco2VelocitySensitivity: number;
+  vco2SoundfontEnabled: boolean;
+  vco2SoundfontName: string;
   
   crossMod: number;
   vcoMix: number;
@@ -487,6 +491,8 @@ export const DEFAULT_PARAMS: VoiceParams = {
   vco1PulseWidth: 0.5,
   vco1PwmMode: 'manual',
   vco1VelocitySensitivity: 0,
+  vco1SoundfontEnabled: false,
+  vco1SoundfontName: '',
   
   vco2Freq: 0,
   vco2Range: 8,
@@ -496,6 +502,8 @@ export const DEFAULT_PARAMS: VoiceParams = {
   vco2Detune: 0,
   vco2Sync: false,
   vco2VelocitySensitivity: 0,
+  vco2SoundfontEnabled: false,
+  vco2SoundfontName: '',
   
   crossMod: 0,
   vcoMix: 0.5,
@@ -625,6 +633,8 @@ export interface PerformanceSettings {
   velocitySensitivity: number;
   googleSheetUrl: string;
   autoConnectMicroKontrol: boolean;
+  googleDriveApiKey?: string;
+  googleDriveFolderId?: string;
 }
 
 export const DEFAULT_PERFORMANCE_SETTINGS: PerformanceSettings = {
@@ -639,6 +649,8 @@ export const DEFAULT_PERFORMANCE_SETTINGS: PerformanceSettings = {
   velocitySensitivity: 0.5,
   googleSheetUrl: '',
   autoConnectMicroKontrol: true,
+  googleDriveApiKey: '',
+  googleDriveFolderId: '',
 };
 
 export function cleanVoiceParams(rawParams: any): VoiceParams {

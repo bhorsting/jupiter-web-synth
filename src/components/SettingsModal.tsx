@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { X, Settings2, Sliders, Cpu, Volume2, Palette, ShieldAlert, Piano, RotateCw, Bluetooth } from 'lucide-react';
+import { X, Settings2, Sliders, Cpu, Volume2, Palette, ShieldAlert, Piano, RotateCw, Bluetooth, Cloud, RefreshCw, Trash2, Download } from 'lucide-react';
 import { useSettings } from '../contexts/SettingsContext';
+import { soundfontService } from '../services/SoundfontService';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -11,6 +12,84 @@ interface SettingsModalProps {
 export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
   const { settings, updateSettings, resetSettings } = useSettings();
   const [midiInputs, setMidiInputs] = useState<{ id: string; name: string }[]>([]);
+  const [driveFiles, setDriveFiles] = useState<any[]>([]);
+  const [downloadedFiles, setDownloadedFiles] = useState<string[]>([]);
+  const [isListing, setIsListing] = useState(false);
+  const [syncError, setSyncError] = useState<string | null>(null);
+  const [downloadingFileId, setDownloadingFileId] = useState<string | null>(null);
+
+  const loadDownloadedList = async () => {
+    try {
+      const files = await soundfontService.listDownloadedFiles();
+      setDownloadedFiles(files);
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  useEffect(() => {
+    if (isOpen) {
+      loadDownloadedList();
+    }
+  }, [isOpen]);
+
+  const handleFetchDriveFiles = async () => {
+    setIsListing(true);
+    setSyncError(null);
+    try {
+      const list = await soundfontService.listFromDrive(settings);
+      setDriveFiles(list);
+    } catch (err: any) {
+      setSyncError(err.message || 'Failed to list files from Google Drive');
+    } finally {
+      setIsListing(false);
+    }
+  };
+
+  const handleDownload = async (fileId: string, name: string) => {
+    if (!fileId) return;
+    setDownloadingFileId(fileId);
+    setSyncError(null);
+    try {
+      await soundfontService.downloadAndSave(fileId, name, settings);
+      await loadDownloadedList();
+      
+      const engine = (window as any).jupiterEngine;
+      const ctx = engine?.ctx;
+      if (ctx) {
+        await soundfontService.preload(name, ctx);
+      }
+    } catch (err: any) {
+      setSyncError(err.message || 'Failed to download file');
+    } finally {
+      setDownloadingFileId(null);
+    }
+  };
+
+  const handleDeleteFile = async (name: string) => {
+    try {
+      await soundfontService.deleteFile(name);
+      await loadDownloadedList();
+    } catch (err: any) {
+      setSyncError(err.message || 'Failed to delete file');
+    }
+  };
+
+  const formatSize = (bytes?: number) => {
+    if (!bytes) return '';
+    const mb = bytes / (1024 * 1024);
+    if (mb >= 1) return `${mb.toFixed(1)} MB`;
+    return `${(bytes / 1024).toFixed(0)} KB`;
+  };
+
+  const mergedFilesMap = new Map<string, { id?: string; name: string; size?: number }>();
+  downloadedFiles.forEach(name => {
+    mergedFilesMap.set(name, { name });
+  });
+  driveFiles.forEach(df => {
+    mergedFilesMap.set(df.name, { id: df.id, name: df.name, size: df.size });
+  });
+  const mergedFiles = Array.from(mergedFilesMap.values()).sort((a, b) => a.name.localeCompare(b.name));
 
   useEffect(() => {
     if (isOpen) {
@@ -257,6 +336,137 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                           </button>
                         ))}
                       </div>
+                    </div>
+                  </div>
+                </section>
+
+                {/* Soundfont & Google Drive Section */}
+                <section className="space-y-4 pt-6 border-t border-zinc-800">
+                  <div className="flex items-center gap-2 text-cyan-400">
+                    <Cloud className="w-4 h-4" />
+                    <h3 className="text-xs font-bold uppercase tracking-wider">Soundfont / Sample Sync (Google Drive)</h3>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-1">
+                      <label className="text-[10px] uppercase tracking-widest text-zinc-500 font-bold">Google Drive API Key</label>
+                      <input 
+                        type="password"
+                        placeholder="Enter API Key"
+                        value={settings.googleDriveApiKey || ''}
+                        onChange={(e) => updateSettings({ googleDriveApiKey: e.target.value })}
+                        className="w-full bg-black/40 border border-zinc-800 rounded px-3 py-2 text-xs text-zinc-300 outline-none focus:border-cyan-500/50"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[10px] uppercase tracking-widest text-zinc-500 font-bold">Folder ID</label>
+                      <input 
+                        type="text"
+                        placeholder="Enter Folder ID"
+                        value={settings.googleDriveFolderId || ''}
+                        onChange={(e) => updateSettings({ googleDriveFolderId: e.target.value })}
+                        className="w-full bg-black/40 border border-zinc-800 rounded px-3 py-2 text-xs text-zinc-300 outline-none focus:border-cyan-500/50"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex gap-2">
+                    <button
+                      onClick={handleFetchDriveFiles}
+                      disabled={isListing || !settings.googleDriveApiKey || !settings.googleDriveFolderId}
+                      className="flex items-center gap-2 px-4 py-2 bg-zinc-900 border border-zinc-800 hover:border-cyan-500/40 text-cyan-400 text-xs font-bold uppercase tracking-wider transition-all rounded disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {isListing ? (
+                        <>
+                          <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                          Fetching Folder...
+                        </>
+                      ) : (
+                        <>
+                          <RefreshCw className="w-3.5 h-3.5" />
+                          Fetch Folder Files
+                        </>
+                      )}
+                    </button>
+                    
+                    <button
+                      onClick={loadDownloadedList}
+                      className="px-4 py-2 bg-zinc-900 border border-zinc-800 hover:border-zinc-700 text-zinc-400 text-xs font-bold uppercase tracking-wider transition-all rounded"
+                    >
+                      Refresh Local Files
+                    </button>
+                  </div>
+
+                  {syncError && (
+                    <p className="text-xs text-red-400 bg-red-950/20 border border-red-900/30 p-2.5 rounded">
+                      {syncError}
+                    </p>
+                  )}
+
+                  {/* Combined Files List */}
+                  <div className="bg-black/20 border border-zinc-800 rounded-lg overflow-hidden">
+                    <div className="bg-zinc-900/40 px-3 py-2 border-b border-zinc-800 flex justify-between items-center">
+                      <span className="text-[10px] uppercase tracking-widest text-zinc-400 font-bold">Active Soundfont Library</span>
+                      <span className="text-[9px] text-zinc-500 font-mono">OPFS OFFLINE CACHE</span>
+                    </div>
+
+                    <div className="divide-y divide-zinc-900 max-h-52 overflow-y-auto custom-scrollbar">
+                      {driveFiles.length === 0 && downloadedFiles.length === 0 && (
+                        <div className="p-4 text-center text-zinc-600 text-xs uppercase tracking-wider">
+                          No files found. Configure Drive and Fetch to sync.
+                        </div>
+                      )}
+
+                      {mergedFiles.map(file => {
+                        const isDownloaded = downloadedFiles.includes(file.name);
+                        const isDownloading = downloadingFileId === file.id;
+
+                        return (
+                          <div key={file.id || file.name} className="px-3 py-2 flex items-center justify-between hover:bg-zinc-900/20 transition-colors">
+                            <div className="flex flex-col min-w-0">
+                              <span className="text-xs text-zinc-300 font-medium truncate">{file.name}</span>
+                              <span className="text-[9px] text-zinc-500 font-mono">
+                                {file.size ? formatSize(file.size) : 'Local offline copy'}
+                              </span>
+                            </div>
+
+                            <div className="flex items-center gap-2 shrink-0">
+                              {isDownloaded ? (
+                                <>
+                                  <span className="text-[10px] text-emerald-400 font-bold uppercase bg-emerald-950/30 border border-emerald-900/40 px-2 py-0.5 rounded">
+                                    Downloaded
+                                  </span>
+                                  <button
+                                    onClick={() => handleDeleteFile(file.name)}
+                                    className="p-1 hover:bg-red-950/40 hover:border-red-900/40 border border-transparent rounded text-zinc-500 hover:text-red-400 transition-colors"
+                                    title="Delete from cache"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                </>
+                              ) : (
+                                <button
+                                  onClick={() => handleDownload(file.id!, file.name)}
+                                  disabled={isDownloading || !file.id}
+                                  className="flex items-center gap-1.5 px-2.5 py-1 bg-cyan-950/30 hover:bg-cyan-900/40 border border-cyan-900/40 hover:border-cyan-500/40 rounded text-cyan-400 text-[10px] font-bold uppercase tracking-wider transition-all disabled:opacity-50"
+                                >
+                                  {isDownloading ? (
+                                    <>
+                                      <RefreshCw className="w-3 h-3 animate-spin" />
+                                      Syncing...
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Download className="w-3 h-3" />
+                                      Download
+                                    </>
+                                  )}
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
                   </div>
                 </section>

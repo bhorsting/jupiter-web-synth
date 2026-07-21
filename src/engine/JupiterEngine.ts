@@ -4,6 +4,7 @@
  */
 
 import { VoiceParams, PerformanceSettings, Multi, Patch, createDefaultDX7Voice, getDX7Algorithm } from '../types';
+import { soundfontService } from '../services/SoundfontService';
 
 let noiseBuffer: AudioBuffer | null = null;
 
@@ -11,6 +12,8 @@ class Voice {
   private ctx: AudioContext;
   private vco1: OscillatorNode | null = null;
   private vco2: OscillatorNode | null = null;
+  private vco1SoundfontSource: AudioBufferSourceNode | null = null;
+  private vco2SoundfontSource: AudioBufferSourceNode | null = null;
   private subOsc: OscillatorNode | null = null;
   private vco1Noise: AudioBufferSourceNode | null = null;
   private vco2Noise: AudioBufferSourceNode | null = null;
@@ -614,23 +617,14 @@ class Voice {
     }
 
     this.activeSynthEngine = 'jupiter';
-    this.vco1 = this.ctx.createOscillator();
-    this.vco2 = this.ctx.createOscillator();
+    this.vco1 = null;
+    this.vco2 = null;
+    this.vco1SoundfontSource = null;
+    this.vco2SoundfontSource = null;
+    this.vco1Noise = null;
+    this.vco2Noise = null;
     this.subOsc = this.ctx.createOscillator();
-    this.vco1Noise = this.ctx.createBufferSource();
-    this.vco2Noise = this.ctx.createBufferSource();
-    
-    if (this.sharedNoiseBuffer) {
-      this.vco1Noise.buffer = this.sharedNoiseBuffer;
-      this.vco2Noise.buffer = this.sharedNoiseBuffer;
-    }
-    this.vco1Noise.loop = true;
-    this.vco2Noise.loop = true;
-
-    // Connect Noises and SubOsc
     this.subOsc.connect(this.subOscGain);
-    this.vco1Noise.connect(this.vco1NoiseGain);
-    this.vco2Noise.connect(this.vco2NoiseGain);
 
     const { 
       env1Attack, env1Decay, env1Sustain, 
@@ -639,96 +633,160 @@ class Voice {
       vco1Range, vco1Freq,
       vco2Range, vco2Freq, vco2Detune,
       portamentoTime, portamentoMode,
-      vco1Waveform, vco2Waveform
+      vco1Waveform, vco2Waveform,
+      vco1SoundfontEnabled, vco1SoundfontName,
+      vco2SoundfontEnabled, vco2SoundfontName
     } = this.params;
 
-    // Set up VCO 1 connection (standard vs pulse wave PWM)
-    if (vco1Waveform === 'pulse') {
-      this.vco1.type = 'sawtooth';
-
-      const shaper = this.ctx.createWaveShaper();
-      const curve = new Float32Array(2);
-      curve[0] = -1;
-      curve[1] = 1;
-      shaper.curve = curve;
-      this.vco1PwmShaper = shaper;
-
-      const sum = this.ctx.createGain();
-      this.vco1PwmSum = sum;
-
-      const offset = this.ctx.createConstantSource();
-      offset.start(time);
-      this.vco1PwmOffset = offset;
-
-      const lfoGain = this.ctx.createGain();
-      this.vco1PwmLfoGain = lfoGain;
-
-      this.lfoModBusNode.connect(lfoGain);
-      lfoGain.connect(offset.offset);
-
-      this.vco1.connect(sum);
-      offset.connect(sum);
-      sum.connect(shaper);
-      shaper.connect(this.vco1Gain);
-
-      if (this.params.vco1PwmMode === 'lfo') {
-        lfoGain.gain.setValueAtTime(0.4, time);
-      } else {
-        lfoGain.gain.setValueAtTime(0, time);
+    // VCO1 instantiation
+    if (vco1SoundfontEnabled && vco1SoundfontName) {
+      const buffer = soundfontService.getDecodedBuffer(vco1SoundfontName);
+      if (buffer) {
+        const src = this.ctx.createBufferSource();
+        src.buffer = buffer;
+        src.loop = true;
+        src.connect(this.vco1Gain);
+        this.vco1SoundfontSource = src;
       }
-      offset.offset.setValueAtTime((this.params.vco1PulseWidth - 0.5) * 1.8, time);
-    } else {
-      this.vco1.type = vco1Waveform as OscillatorType;
-      this.vco1.connect(this.vco1Gain);
+    }
+
+    if (!this.vco1SoundfontSource) {
+      this.vco1 = this.ctx.createOscillator();
+      this.vco1Noise = this.ctx.createBufferSource();
+      if (this.sharedNoiseBuffer) {
+        this.vco1Noise.buffer = this.sharedNoiseBuffer;
+      }
+      this.vco1Noise.loop = true;
+      this.vco1Noise.connect(this.vco1NoiseGain);
+    }
+
+    // VCO2 instantiation
+    if (vco2SoundfontEnabled && vco2SoundfontName) {
+      const buffer = soundfontService.getDecodedBuffer(vco2SoundfontName);
+      if (buffer) {
+        const src = this.ctx.createBufferSource();
+        src.buffer = buffer;
+        src.loop = true;
+        src.connect(this.vco2Gain);
+        this.vco2SoundfontSource = src;
+      }
+    }
+
+    if (!this.vco2SoundfontSource) {
+      this.vco2 = this.ctx.createOscillator();
+      this.vco2Noise = this.ctx.createBufferSource();
+      if (this.sharedNoiseBuffer) {
+        this.vco2Noise.buffer = this.sharedNoiseBuffer;
+      }
+      this.vco2Noise.loop = true;
+      this.vco2Noise.connect(this.vco2NoiseGain);
+    }
+
+    // Set up VCO 1 connection (standard vs pulse wave PWM)
+    if (this.vco1) {
+      if (vco1Waveform === 'pulse') {
+        this.vco1.type = 'sawtooth';
+
+        const shaper = this.ctx.createWaveShaper();
+        const curve = new Float32Array(2);
+        curve[0] = -1;
+        curve[1] = 1;
+        shaper.curve = curve;
+        this.vco1PwmShaper = shaper;
+
+        const sum = this.ctx.createGain();
+        this.vco1PwmSum = sum;
+
+        const offset = this.ctx.createConstantSource();
+        offset.start(time);
+        this.vco1PwmOffset = offset;
+
+        const lfoGain = this.ctx.createGain();
+        this.vco1PwmLfoGain = lfoGain;
+
+        this.lfoModBusNode.connect(lfoGain);
+        lfoGain.connect(offset.offset);
+
+        this.vco1.connect(sum);
+        offset.connect(sum);
+        sum.connect(shaper);
+        shaper.connect(this.vco1Gain);
+
+        if (this.params.vco1PwmMode === 'lfo') {
+          lfoGain.gain.setValueAtTime(0.4, time);
+        } else {
+          lfoGain.gain.setValueAtTime(0, time);
+        }
+        offset.offset.setValueAtTime((this.params.vco1PulseWidth - 0.5) * 1.8, time);
+      } else {
+        this.vco1.type = vco1Waveform as OscillatorType;
+        this.vco1.connect(this.vco1Gain);
+      }
     }
 
     // Set up VCO 2 connection (standard vs pulse wave PWM)
-    if (vco2Waveform === 'pulse') {
-      this.vco2.type = 'sawtooth';
+    if (this.vco2) {
+      if (vco2Waveform === 'pulse') {
+        this.vco2.type = 'sawtooth';
 
-      const shaper = this.ctx.createWaveShaper();
-      const curve = new Float32Array(2);
-      curve[0] = -1;
-      curve[1] = 1;
-      shaper.curve = curve;
-      this.vco2PwmShaper = shaper;
+        const shaper = this.ctx.createWaveShaper();
+        const curve = new Float32Array(2);
+        curve[0] = -1;
+        curve[1] = 1;
+        shaper.curve = curve;
+        this.vco2PwmShaper = shaper;
 
-      const sum = this.ctx.createGain();
-      this.vco2PwmSum = sum;
+        const sum = this.ctx.createGain();
+        this.vco2PwmSum = sum;
 
-      const offset = this.ctx.createConstantSource();
-      offset.start(time);
-      this.vco2PwmOffset = offset;
+        const offset = this.ctx.createConstantSource();
+        offset.start(time);
+        this.vco2PwmOffset = offset;
 
-      const lfoGain = this.ctx.createGain();
-      this.vco2PwmLfoGain = lfoGain;
+        const lfoGain = this.ctx.createGain();
+        this.vco2PwmLfoGain = lfoGain;
 
-      this.lfoModBusNode.connect(lfoGain);
-      lfoGain.connect(offset.offset);
+        this.lfoModBusNode.connect(lfoGain);
+        lfoGain.connect(offset.offset);
 
-      this.vco2.connect(sum);
-      offset.connect(sum);
-      sum.connect(shaper);
-      shaper.connect(this.vco2Gain);
+        this.vco2.connect(sum);
+        offset.connect(sum);
+        sum.connect(shaper);
+        shaper.connect(this.vco2Gain);
 
-      if (this.params.vco2PwmMode === 'lfo') {
-        lfoGain.gain.setValueAtTime(0.4, time);
+        if (this.params.vco2PwmMode === 'lfo') {
+          lfoGain.gain.setValueAtTime(0.4, time);
+        } else {
+          lfoGain.gain.setValueAtTime(0, time);
+        }
+        offset.offset.setValueAtTime((this.params.vco2PulseWidth - 0.5) * 1.8, time);
       } else {
-        lfoGain.gain.setValueAtTime(0, time);
+        this.vco2.type = vco2Waveform as OscillatorType;
+        this.vco2.connect(this.vco2Gain);
       }
-      offset.offset.setValueAtTime((this.params.vco2PulseWidth - 0.5) * 1.8, time);
-    } else {
-      this.vco2.type = vco2Waveform as OscillatorType;
-      this.vco2.connect(this.vco2Gain);
     }
 
     // Connect LFO Mod conditionally based on params.vcoLfoSelect
     this.vcoLfoMod.disconnect();
     if (this.params.vcoLfoSelect === 'vco1' || this.params.vcoLfoSelect === 'both') {
-      this.vcoLfoMod.connect(this.vco1.frequency);
+      if (this.vco1) {
+        this.vcoLfoMod.connect(this.vco1.frequency);
+      } else if (this.vco1SoundfontSource) {
+        const vibratoGain = this.ctx.createGain();
+        vibratoGain.gain.setValueAtTime(0.005, time);
+        this.vcoLfoMod.connect(vibratoGain);
+        vibratoGain.connect(this.vco1SoundfontSource.playbackRate);
+      }
     }
     if (this.params.vcoLfoSelect === 'vco2' || this.params.vcoLfoSelect === 'both') {
-      this.vcoLfoMod.connect(this.vco2.frequency);
+      if (this.vco2) {
+        this.vcoLfoMod.connect(this.vco2.frequency);
+      } else if (this.vco2SoundfontSource) {
+        const vibratoGain = this.ctx.createGain();
+        vibratoGain.gain.setValueAtTime(0.005, time);
+        this.vcoLfoMod.connect(vibratoGain);
+        vibratoGain.connect(this.vco2SoundfontSource.playbackRate);
+      }
     }
     if (this.params.vcoLfoSelect === 'both' && this.subOsc) {
       this.vcoLfoMod.connect(this.subOsc.frequency);
@@ -737,7 +795,14 @@ class Voice {
     // Cross modulation: VCO2 modulates VCO1 frequency
     if (this.vco2) this.vco2.connect(this.crossModGain);
     if (this.vco2Noise) this.vco2Noise.connect(this.crossModGain);
-    this.crossModGain.connect(this.vco1!.frequency);
+    if (this.vco1) {
+      this.crossModGain.connect(this.vco1.frequency);
+    } else if (this.vco1SoundfontSource) {
+      const crossModScale = this.ctx.createGain();
+      crossModScale.gain.setValueAtTime(0.001, time);
+      this.crossModGain.connect(crossModScale);
+      crossModScale.connect(this.vco1SoundfontSource.playbackRate);
+    }
 
     this.subOsc.type = this.params.subOscWaveform;
 
@@ -764,20 +829,48 @@ class Voice {
     const finalSubFreq = targetSubFreq * bendFactor;
 
     if (glideTime > 0.005) {
-      this.vco1.frequency.cancelScheduledValues(time);
-      this.vco2.frequency.cancelScheduledValues(time);
+      if (this.vco1) {
+        this.vco1.frequency.cancelScheduledValues(time);
+        this.vco1.frequency.setValueAtTime(prevFreq1, time);
+        this.vco1.frequency.setTargetAtTime(finalFreq1, time + 0.05, glideTime / 3);
+      } else if (this.vco1SoundfontSource) {
+        const prevRate1 = prevFreq1 / 261.63;
+        const finalRate1 = finalFreq1 / 261.63;
+        this.vco1SoundfontSource.playbackRate.cancelScheduledValues(time);
+        this.vco1SoundfontSource.playbackRate.setValueAtTime(prevRate1, time);
+        this.vco1SoundfontSource.playbackRate.setTargetAtTime(finalRate1, time + 0.05, glideTime / 3);
+      }
+
+      if (this.vco2) {
+        this.vco2.frequency.cancelScheduledValues(time);
+        this.vco2.frequency.setValueAtTime(prevFreq2, time);
+        this.vco2.frequency.setTargetAtTime(finalFreq2, time + 0.05, glideTime / 3);
+      } else if (this.vco2SoundfontSource) {
+        const prevRate2 = prevFreq2 / 261.63;
+        const finalRate2 = finalFreq2 / 261.63;
+        this.vco2SoundfontSource.playbackRate.cancelScheduledValues(time);
+        this.vco2SoundfontSource.playbackRate.setValueAtTime(prevRate2, time);
+        this.vco2SoundfontSource.playbackRate.setTargetAtTime(finalRate2, time + 0.05, glideTime / 3);
+      }
+
       this.subOsc.frequency.cancelScheduledValues(time);
-      
-      this.vco1.frequency.setValueAtTime(prevFreq1, time);
-      this.vco2.frequency.setValueAtTime(prevFreq2, time);
       this.subOsc.frequency.setValueAtTime(prevSubFreq, time);
-      
-      this.vco1.frequency.setTargetAtTime(finalFreq1, time + 0.05, glideTime / 3);
-      this.vco2.frequency.setTargetAtTime(finalFreq2, time + 0.05, glideTime / 3);
       this.subOsc.frequency.setTargetAtTime(finalSubFreq, time + 0.05, glideTime / 3);
     } else {
-      this.vco1.frequency.setValueAtTime(finalFreq1, time);
-      this.vco2.frequency.setValueAtTime(finalFreq2, time);
+      if (this.vco1) {
+        this.vco1.frequency.setValueAtTime(finalFreq1, time);
+      } else if (this.vco1SoundfontSource) {
+        const finalRate1 = finalFreq1 / 261.63;
+        this.vco1SoundfontSource.playbackRate.setValueAtTime(finalRate1, time);
+      }
+
+      if (this.vco2) {
+        this.vco2.frequency.setValueAtTime(finalFreq2, time);
+      } else if (this.vco2SoundfontSource) {
+        const finalRate2 = finalFreq2 / 261.63;
+        this.vco2SoundfontSource.playbackRate.setValueAtTime(finalRate2, time);
+      }
+
       this.subOsc.frequency.setValueAtTime(finalSubFreq, time);
     }
 
@@ -894,11 +987,13 @@ class Voice {
     this.vco2Gain.gain.setValueAtTime(isVco2Noise ? 0 : vco2Level, time);
     this.vco2NoiseGain.gain.setValueAtTime(isVco2Noise ? vco2Level : 0, time);
 
-    this.vco1.start(time);
-    this.vco2.start(time);
-    this.subOsc.start(time);
-    this.vco1Noise.start(time);
-    this.vco2Noise.start(time);
+    if (this.vco1) this.vco1.start(time);
+    if (this.vco1SoundfontSource) this.vco1SoundfontSource.start(time);
+    if (this.vco2) this.vco2.start(time);
+    if (this.vco2SoundfontSource) this.vco2SoundfontSource.start(time);
+    if (this.subOsc) this.subOsc.start(time);
+    if (this.vco1Noise) this.vco1Noise.start(time);
+    if (this.vco2Noise) this.vco2Noise.start(time);
   }
 
   setPitchBend(offset: number) {
@@ -935,7 +1030,7 @@ class Voice {
           const pertHarm = this.params.hammondPercussionHarmonic === 'second' ? 2.0 : 3.0;
           this.percussionOsc.frequency.setTargetAtTime(freq * pertHarm * bendFactor, time, 0.02);
         }
-      } else if (this.vco1 && this.vco2) {
+      } else if (this.vco1 || this.vco2 || this.vco1SoundfontSource || this.vco2SoundfontSource) {
         const freq = 440 * Math.pow(2, (this.midiNote - 69) / 12);
         const { vco1Freq, vco1Range, vco2Freq, vco2Range, vco2Detune } = this.params;
         
@@ -944,8 +1039,19 @@ class Voice {
         const targetFreq1 = freq * (8/vco1Range) * Math.pow(2, vco1Freq / 12) * bendFactor;
         const targetFreq2 = freq * (8/vco2Range) * Math.pow(2, (vco2Freq + (vco2Detune / 100)) / 12) * bendFactor;
 
-        this.vco1.frequency.setTargetAtTime(targetFreq1, time, 0.02);
-        this.vco2.frequency.setTargetAtTime(targetFreq2, time, 0.02);
+        if (this.vco1) {
+          this.vco1.frequency.setTargetAtTime(targetFreq1, time, 0.02);
+        } else if (this.vco1SoundfontSource) {
+          const rate1 = targetFreq1 / 261.63;
+          this.vco1SoundfontSource.playbackRate.setTargetAtTime(rate1, time, 0.02);
+        }
+
+        if (this.vco2) {
+          this.vco2.frequency.setTargetAtTime(targetFreq2, time, 0.02);
+        } else if (this.vco2SoundfontSource) {
+          const rate2 = targetFreq2 / 261.63;
+          this.vco2SoundfontSource.playbackRate.setTargetAtTime(rate2, time, 0.02);
+        }
 
         if (this.subOsc) {
           const subFreqFactor = Math.pow(2, this.params.subOscOctave);
@@ -962,6 +1068,11 @@ class Voice {
       this.vco1.disconnect();
       this.vco1 = null;
     }
+    if (this.vco1SoundfontSource) {
+      try { this.vco1SoundfontSource.stop(time); } catch(e) {}
+      this.vco1SoundfontSource.disconnect();
+      this.vco1SoundfontSource = null;
+    }
     if (this.subOsc) {
       try { this.subOsc.stop(time); } catch(e) {}
       this.subOsc.disconnect();
@@ -971,6 +1082,11 @@ class Voice {
       try { this.vco2.stop(time); } catch(e) {}
       this.vco2.disconnect();
       this.vco2 = null;
+    }
+    if (this.vco2SoundfontSource) {
+      try { this.vco2SoundfontSource.stop(time); } catch(e) {}
+      this.vco2SoundfontSource.disconnect();
+      this.vco2SoundfontSource = null;
     }
     if (this.vco1Noise) {
       try { this.vco1Noise.stop(time); } catch(e) {}

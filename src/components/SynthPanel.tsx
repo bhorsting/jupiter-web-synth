@@ -3,6 +3,7 @@ import { JupiterSlider, JupiterToggle, JupiterSelector, NumericKeypad } from './
 import { VoiceParams } from '../types';
 import { AnimatePresence } from 'motion/react';
 import { Activity } from 'lucide-react';
+import { soundfontService } from '../services/SoundfontService';
 
 interface SectionProps {
   title: string;
@@ -272,6 +273,8 @@ interface VCO1SectionProps {
   vco1Waveform: string;
   vco1PwmMode: string;
   vco1VelocitySensitivity: number;
+  vco1SoundfontEnabled: boolean;
+  vco1SoundfontName: string;
   updateParam: (key: keyof VoiceParams, val: any) => void;
   isMidiMappingMode: boolean;
   handleMapClick: (param: keyof VoiceParams) => void;
@@ -279,77 +282,139 @@ interface VCO1SectionProps {
   selectedMapParam: string | null;
 }
 
-export const VCO1Section = React.memo<VCO1SectionProps>(({
-  vco1Range, crossMod, vco1PulseWidth, vco1Waveform, vco1PwmMode, vco1VelocitySensitivity, updateParam, isMidiMappingMode, handleMapClick, getMappedCC, selectedMapParam
-}) => (
-  <Section title="VCO-1">
-    <JupiterSelector 
-      label="Range" 
-      options={['16', '8', '4', '2']} 
-      value={vco1Range.toString()} 
-      onChange={(v) => updateParam('vco1Range', parseInt(v))} 
-      isMapMode={isMidiMappingMode}
-      onMapClick={() => handleMapClick('vco1Range')}
-      mappedCC={getMappedCC('vco1Range')}
-      isSelected={selectedMapParam === 'vco1Range'}
-    />
-    <JupiterSlider 
-      label="X-Mod" 
-      value={crossMod} 
-      min={0} max={1} 
-      onChange={(v) => updateParam('crossMod', v)} 
-      color="bg-synth-vco"
-      isMapMode={isMidiMappingMode}
-      onMapClick={() => handleMapClick('crossMod')}
-      mappedCC={getMappedCC('crossMod')}
-      isSelected={selectedMapParam === 'crossMod'}
-    />
-    <JupiterSlider 
-      label="Velocity" 
-      value={vco1VelocitySensitivity} 
-      min={0} max={1} 
-      onChange={(v) => updateParam('vco1VelocitySensitivity', v)} 
-      color="bg-synth-vco"
-      isMapMode={isMidiMappingMode}
-      onMapClick={() => handleMapClick('vco1VelocitySensitivity')}
-      mappedCC={getMappedCC('vco1VelocitySensitivity')}
-      isSelected={selectedMapParam === 'vco1VelocitySensitivity'}
-    />
-    <JupiterSlider 
-      label="PW" 
-      value={vco1PulseWidth} 
-      min={0} max={1} 
-      onChange={(v) => updateParam('vco1PulseWidth', v)} 
-      color="bg-synth-vco"
-      isMapMode={isMidiMappingMode}
-      onMapClick={() => handleMapClick('vco1PulseWidth')}
-      mappedCC={getMappedCC('vco1PulseWidth')}
-      isSelected={selectedMapParam === 'vco1PulseWidth'}
-    />
-    {vco1Waveform === 'pulse' && (
+export const VCO1Section: React.FC<VCO1SectionProps> = React.memo(({
+  vco1Range, crossMod, vco1PulseWidth, vco1Waveform, vco1PwmMode, vco1VelocitySensitivity, vco1SoundfontEnabled, vco1SoundfontName, updateParam, isMidiMappingMode, handleMapClick, getMappedCC, selectedMapParam
+}) => {
+  const [localSoundfonts, setLocalSoundfonts] = React.useState<string[]>([]);
+
+  React.useEffect(() => {
+    const updateList = () => {
+      soundfontService.listDownloadedFiles().then(setLocalSoundfonts);
+    };
+    updateList();
+    window.addEventListener('focus', updateList);
+    return () => window.removeEventListener('focus', updateList);
+  }, []);
+
+  return (
+    <Section title="VCO-1">
+      <div className="flex flex-col gap-2 text-center pb-2 border-r border-zinc-850 pr-2 mr-2">
+        <JupiterToggle 
+          label="SF Mode" 
+          active={vco1SoundfontEnabled} 
+          onChange={(v) => updateParam('vco1SoundfontEnabled', v)} 
+          color="bg-cyan-600"
+          isMapMode={isMidiMappingMode}
+          onMapClick={() => handleMapClick('vco1SoundfontEnabled')}
+          mappedCC={getMappedCC('vco1SoundfontEnabled')}
+          isSelected={selectedMapParam === 'vco1SoundfontEnabled'}
+        />
+      </div>
+
+      {vco1SoundfontEnabled && (
+        <div className="flex flex-col items-center w-28 pb-8 pr-2 border-r border-zinc-850 mr-2">
+          <span className="text-[10px] font-mono font-bold uppercase text-gray-400 mb-2 truncate w-full text-center">
+            Soundfont
+          </span>
+          <select
+            value={vco1SoundfontName}
+            onChange={(e) => updateParam('vco1SoundfontName', e.target.value)}
+            className="w-full bg-zinc-950 border border-zinc-800 text-zinc-300 rounded px-2 py-1.5 text-[10px] font-mono uppercase tracking-tight outline-none focus:border-cyan-500/50"
+          >
+            {localSoundfonts.length === 0 ? (
+              <option value="">No Offline SF</option>
+            ) : (
+              <>
+                <option value="">Select SF...</option>
+                {localSoundfonts.map(sf => (
+                  <option key={sf} value={sf}>{sf}</option>
+                ))}
+              </>
+            )}
+          </select>
+          <span className="text-[8px] text-zinc-500 uppercase tracking-tight mt-1 text-center leading-normal">
+            Select an offline soundfont.
+          </span>
+        </div>
+      )}
+
       <JupiterSelector 
-        label="PWM Source" 
-        options={['manual', 'lfo']} 
-        value={vco1PwmMode} 
-        onChange={(v) => updateParam('vco1PwmMode', v)} 
+        label="Range" 
+        options={['16', '8', '4', '2']} 
+        value={vco1Range.toString()} 
+        onChange={(v) => updateParam('vco1Range', parseInt(v))} 
         isMapMode={isMidiMappingMode}
-        onMapClick={() => handleMapClick('vco1PwmMode')}
-        mappedCC={getMappedCC('vco1PwmMode')}
-        isSelected={selectedMapParam === 'vco1PwmMode'}
+        onMapClick={() => handleMapClick('vco1Range')}
+        mappedCC={getMappedCC('vco1Range')}
+        isSelected={selectedMapParam === 'vco1Range'}
       />
-    )}
-    <JupiterSelector 
-      label="Waveform" 
-      options={['sawtooth', 'square', 'pulse', 'triangle', 'sine', 'noise']} 
-      value={vco1Waveform} 
-      onChange={(v) => updateParam('vco1Waveform', v)} 
-      isMapMode={isMidiMappingMode}
-      onMapClick={() => handleMapClick('vco1Waveform')}
-      mappedCC={getMappedCC('vco1Waveform')}
-      isSelected={selectedMapParam === 'vco1Waveform'}
-    />
-  </Section>
-));
+      
+      {!vco1SoundfontEnabled && (
+        <JupiterSlider 
+          label="X-Mod" 
+          value={crossMod} 
+          min={0} max={1} 
+          onChange={(v) => updateParam('crossMod', v)} 
+          color="bg-synth-vco"
+          isMapMode={isMidiMappingMode}
+          onMapClick={() => handleMapClick('crossMod')}
+          mappedCC={getMappedCC('crossMod')}
+          isSelected={selectedMapParam === 'crossMod'}
+        />
+      )}
+
+      <JupiterSlider 
+        label="Velocity" 
+        value={vco1VelocitySensitivity} 
+        min={0} max={1} 
+        onChange={(v) => updateParam('vco1VelocitySensitivity', v)} 
+        color="bg-synth-vco"
+        isMapMode={isMidiMappingMode}
+        onMapClick={() => handleMapClick('vco1VelocitySensitivity')}
+        mappedCC={getMappedCC('vco1VelocitySensitivity')}
+        isSelected={selectedMapParam === 'vco1VelocitySensitivity'}
+      />
+
+      {!vco1SoundfontEnabled && (
+        <>
+          <JupiterSlider 
+            label="PW" 
+            value={vco1PulseWidth} 
+            min={0} max={1} 
+            onChange={(v) => updateParam('vco1PulseWidth', v)} 
+            color="bg-synth-vco"
+            isMapMode={isMidiMappingMode}
+            onMapClick={() => handleMapClick('vco1PulseWidth')}
+            mappedCC={getMappedCC('vco1PulseWidth')}
+            isSelected={selectedMapParam === 'vco1PulseWidth'}
+          />
+          {vco1Waveform === 'pulse' && (
+            <JupiterSelector 
+              label="PWM Source" 
+              options={['manual', 'lfo']} 
+              value={vco1PwmMode} 
+              onChange={(v) => updateParam('vco1PwmMode', v)} 
+              isMapMode={isMidiMappingMode}
+              onMapClick={() => handleMapClick('vco1PwmMode')}
+              mappedCC={getMappedCC('vco1PwmMode')}
+              isSelected={selectedMapParam === 'vco1PwmMode'}
+            />
+          )}
+          <JupiterSelector 
+            label="Waveform" 
+            options={['sawtooth', 'square', 'pulse', 'triangle', 'sine', 'noise']} 
+            value={vco1Waveform} 
+            onChange={(v) => updateParam('vco1Waveform', v)} 
+            isMapMode={isMidiMappingMode}
+            onMapClick={() => handleMapClick('vco1Waveform')}
+            mappedCC={getMappedCC('vco1Waveform')}
+            isSelected={selectedMapParam === 'vco1Waveform'}
+          />
+        </>
+      )}
+    </Section>
+  );
+});
 
 interface VCO2SectionProps {
   vco2Range: number;
@@ -359,6 +424,8 @@ interface VCO2SectionProps {
   vco2Sync: boolean;
   vco2PwmMode: string;
   vco2VelocitySensitivity: number;
+  vco2SoundfontEnabled: boolean;
+  vco2SoundfontName: string;
   updateParam: (key: keyof VoiceParams, val: any) => void;
   isMidiMappingMode: boolean;
   handleMapClick: (param: keyof VoiceParams) => void;
@@ -366,89 +433,150 @@ interface VCO2SectionProps {
   selectedMapParam: string | null;
 }
 
-export const VCO2Section = React.memo<VCO2SectionProps>(({
-  vco2Range, vco2Freq, vco2Detune, vco2Waveform, vco2Sync, vco2PwmMode, vco2VelocitySensitivity, updateParam, isMidiMappingMode, handleMapClick, getMappedCC, selectedMapParam
-}) => (
-  <Section title="VCO-2">
-    <JupiterSelector 
-      label="Range" 
-      options={['16', '8', '4', '2']} 
-      value={vco2Range.toString()} 
-      onChange={(v) => updateParam('vco2Range', parseInt(v))} 
-      isMapMode={isMidiMappingMode}
-      onMapClick={() => handleMapClick('vco2Range')}
-      mappedCC={getMappedCC('vco2Range')}
-      isSelected={selectedMapParam === 'vco2Range'}
-    />
-    <JupiterSlider 
-      label="Tune" 
-      value={vco2Freq} 
-      min={-12} max={12} 
-      onChange={(v) => updateParam('vco2Freq', v)} 
-      color="bg-synth-vco"
-      isMapMode={isMidiMappingMode}
-      onMapClick={() => handleMapClick('vco2Freq')}
-      mappedCC={getMappedCC('vco2Freq')}
-      isSelected={selectedMapParam === 'vco2Freq'}
-    />
-    <JupiterSlider 
-      label="Fine" 
-      value={vco2Detune} 
-      min={-100} max={100} 
-      onChange={(v) => updateParam('vco2Detune', v)} 
-      color="bg-synth-vco"
-      isMapMode={isMidiMappingMode}
-      onMapClick={() => handleMapClick('vco2Detune')}
-      mappedCC={getMappedCC('vco2Detune')}
-      isSelected={selectedMapParam === 'vco2Detune'}
-    />
-    <JupiterSlider 
-      label="Velocity" 
-      value={vco2VelocitySensitivity} 
-      min={0} max={1} 
-      onChange={(v) => updateParam('vco2VelocitySensitivity', v)} 
-      color="bg-synth-vco"
-      isMapMode={isMidiMappingMode}
-      onMapClick={() => handleMapClick('vco2VelocitySensitivity')}
-      mappedCC={getMappedCC('vco2VelocitySensitivity')}
-      isSelected={selectedMapParam === 'vco2VelocitySensitivity'}
-    />
-    {vco2Waveform === 'pulse' && (
+export const VCO2Section: React.FC<VCO2SectionProps> = React.memo(({
+  vco2Range, vco2Freq, vco2Detune, vco2Waveform, vco2Sync, vco2PwmMode, vco2VelocitySensitivity, vco2SoundfontEnabled, vco2SoundfontName, updateParam, isMidiMappingMode, handleMapClick, getMappedCC, selectedMapParam
+}) => {
+  const [localSoundfonts, setLocalSoundfonts] = React.useState<string[]>([]);
+
+  React.useEffect(() => {
+    const updateList = () => {
+      soundfontService.listDownloadedFiles().then(setLocalSoundfonts);
+    };
+    updateList();
+    window.addEventListener('focus', updateList);
+    return () => window.removeEventListener('focus', updateList);
+  }, []);
+
+  return (
+    <Section title="VCO-2">
+      <div className="flex flex-col gap-2 text-center pb-2 border-r border-zinc-855 pr-2 mr-2">
+        <JupiterToggle 
+          label="SF Mode" 
+          active={vco2SoundfontEnabled} 
+          onChange={(v) => updateParam('vco2SoundfontEnabled', v)} 
+          color="bg-cyan-600"
+          isMapMode={isMidiMappingMode}
+          onMapClick={() => handleMapClick('vco2SoundfontEnabled')}
+          mappedCC={getMappedCC('vco2SoundfontEnabled')}
+          isSelected={selectedMapParam === 'vco2SoundfontEnabled'}
+        />
+      </div>
+
+      {vco2SoundfontEnabled && (
+        <div className="flex flex-col items-center w-28 pb-8 pr-2 border-r border-zinc-855 mr-2">
+          <span className="text-[10px] font-mono font-bold uppercase text-gray-400 mb-2 truncate w-full text-center">
+            Soundfont
+          </span>
+          <select
+            value={vco2SoundfontName}
+            onChange={(e) => updateParam('vco2SoundfontName', e.target.value)}
+            className="w-full bg-zinc-950 border border-zinc-800 text-zinc-300 rounded px-2 py-1.5 text-[10px] font-mono uppercase tracking-tight outline-none focus:border-cyan-500/50"
+          >
+            {localSoundfonts.length === 0 ? (
+              <option value="">No Offline SF</option>
+            ) : (
+              <>
+                <option value="">Select SF...</option>
+                {localSoundfonts.map(sf => (
+                  <option key={sf} value={sf}>{sf}</option>
+                ))}
+              </>
+            )}
+          </select>
+          <span className="text-[8px] text-zinc-500 uppercase tracking-tight mt-1 text-center leading-normal">
+            Select an offline soundfont.
+          </span>
+        </div>
+      )}
+
       <JupiterSelector 
-        label="PWM Source" 
-        options={['manual', 'lfo']} 
-        value={vco2PwmMode} 
-        onChange={(v) => updateParam('vco2PwmMode', v)} 
+        label="Range" 
+        options={['16', '8', '4', '2']} 
+        value={vco2Range.toString()} 
+        onChange={(v) => updateParam('vco2Range', parseInt(v))} 
         isMapMode={isMidiMappingMode}
-        onMapClick={() => handleMapClick('vco2PwmMode')}
-        mappedCC={getMappedCC('vco2PwmMode')}
-        isSelected={selectedMapParam === 'vco2PwmMode'}
+        onMapClick={() => handleMapClick('vco2Range')}
+        mappedCC={getMappedCC('vco2Range')}
+        isSelected={selectedMapParam === 'vco2Range'}
       />
-    )}
-    <JupiterSelector 
-      label="Waveform" 
-      options={['sawtooth', 'square', 'pulse', 'triangle', 'sine', 'noise']} 
-      value={vco2Waveform} 
-      onChange={(v) => updateParam('vco2Waveform', v)} 
-      isMapMode={isMidiMappingMode}
-      onMapClick={() => handleMapClick('vco2Waveform')}
-      mappedCC={getMappedCC('vco2Waveform')}
-      isSelected={selectedMapParam === 'vco2Waveform'}
-    />
-    <div className="flex flex-col gap-2 text-center pb-2">
-      <JupiterToggle 
-        label="Sync" 
-        active={vco2Sync} 
-        onChange={(v) => updateParam('vco2Sync', v)} 
+      
+      <JupiterSlider 
+        label="Tune" 
+        value={vco2Freq} 
+        min={-12} max={12} 
+        onChange={(v) => updateParam('vco2Freq', v)} 
         color="bg-synth-vco"
         isMapMode={isMidiMappingMode}
-        onMapClick={() => handleMapClick('vco2Sync')}
-        mappedCC={getMappedCC('vco2Sync')}
-        isSelected={selectedMapParam === 'vco2Sync'}
+        onMapClick={() => handleMapClick('vco2Freq')}
+        mappedCC={getMappedCC('vco2Freq')}
+        isSelected={selectedMapParam === 'vco2Freq'}
       />
-    </div>
-  </Section>
-));
+      
+      <JupiterSlider 
+        label="Fine" 
+        value={vco2Detune} 
+        min={-100} max={100} 
+        onChange={(v) => updateParam('vco2Detune', v)} 
+        color="bg-synth-vco"
+        isMapMode={isMidiMappingMode}
+        onMapClick={() => handleMapClick('vco2Detune')}
+        mappedCC={getMappedCC('vco2Detune')}
+        isSelected={selectedMapParam === 'vco2Detune'}
+      />
+      
+      <JupiterSlider 
+        label="Velocity" 
+        value={vco2VelocitySensitivity} 
+        min={0} max={1} 
+        onChange={(v) => updateParam('vco2VelocitySensitivity', v)} 
+        color="bg-synth-vco"
+        isMapMode={isMidiMappingMode}
+        onMapClick={() => handleMapClick('vco2VelocitySensitivity')}
+        mappedCC={getMappedCC('vco2VelocitySensitivity')}
+        isSelected={selectedMapParam === 'vco2VelocitySensitivity'}
+      />
+
+      {!vco2SoundfontEnabled && (
+        <>
+          {vco2Waveform === 'pulse' && (
+            <JupiterSelector 
+              label="PWM Source" 
+              options={['manual', 'lfo']} 
+              value={vco2PwmMode} 
+              onChange={(v) => updateParam('vco2PwmMode', v)} 
+              isMapMode={isMidiMappingMode}
+              onMapClick={() => handleMapClick('vco2PwmMode')}
+              mappedCC={getMappedCC('vco2PwmMode')}
+              isSelected={selectedMapParam === 'vco2PwmMode'}
+            />
+          )}
+          <JupiterSelector 
+            label="Waveform" 
+            options={['sawtooth', 'square', 'pulse', 'triangle', 'sine', 'noise']} 
+            value={vco2Waveform} 
+            onChange={(v) => updateParam('vco2Waveform', v)} 
+            isMapMode={isMidiMappingMode}
+            onMapClick={() => handleMapClick('vco2Waveform')}
+            mappedCC={getMappedCC('vco2Waveform')}
+            isSelected={selectedMapParam === 'vco2Waveform'}
+          />
+          <div className="flex flex-col gap-2 text-center pb-2">
+            <JupiterToggle 
+              label="Sync" 
+              active={vco2Sync} 
+              onChange={(v) => updateParam('vco2Sync', v)} 
+              color="bg-synth-vco"
+              isMapMode={isMidiMappingMode}
+              onMapClick={() => handleMapClick('vco2Sync')}
+              mappedCC={getMappedCC('vco2Sync')}
+              isSelected={selectedMapParam === 'vco2Sync'}
+            />
+          </div>
+        </>
+      )}
+    </Section>
+  );
+});
 
 interface VCFSectionProps {
   filterCutoff: number;

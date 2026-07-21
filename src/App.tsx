@@ -747,6 +747,7 @@ function App() {
   useEffect(() => {
     if (!engineRef.current) {
       engineRef.current = new JupiterEngine(params, settings);
+      (window as any).jupiterEngine = engineRef.current;
       startEngine();
     }
   }, []);
@@ -1538,6 +1539,8 @@ function App() {
             vco1Waveform={params.vco1Waveform}
             vco1PwmMode={params.vco1PwmMode}
             vco1VelocitySensitivity={params.vco1VelocitySensitivity}
+            vco1SoundfontEnabled={params.vco1SoundfontEnabled}
+            vco1SoundfontName={params.vco1SoundfontName}
             updateParam={updateParam}
             isMidiMappingMode={isMidiMappingMode}
             handleMapClick={handleMapClick}
@@ -1553,6 +1556,8 @@ function App() {
             vco2Sync={params.vco2Sync}
             vco2PwmMode={params.vco2PwmMode}
             vco2VelocitySensitivity={params.vco2VelocitySensitivity}
+            vco2SoundfontEnabled={params.vco2SoundfontEnabled}
+            vco2SoundfontName={params.vco2SoundfontName}
             updateParam={updateParam}
             isMidiMappingMode={isMidiMappingMode}
             handleMapClick={handleMapClick}
