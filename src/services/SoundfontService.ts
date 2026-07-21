@@ -9,6 +9,8 @@ export interface SoundfontFile {
 
 class SoundfontService {
   private decodedCache: Map<string, AudioBuffer> = new Map();
+  private fileBufferCache: Map<string, ArrayBuffer> = new Map();
+  private sampleListCache: Map<string, Array<{ index: number; name: string }>> = new Map();
 
   /**
    * List all soundfont files from the configured Google Drive directory
@@ -78,10 +80,20 @@ class SoundfontService {
     try {
       const root = await navigator.storage.getDirectory();
       await root.removeEntry(name);
-      this.decodedCache.delete(name);
+      this.clearFileCache(name);
     } catch (e) {
       console.error(`Failed to delete file ${name} from OPFS:`, e);
       throw e;
+    }
+  }
+
+  private clearFileCache(name: string) {
+    this.fileBufferCache.delete(name);
+    this.sampleListCache.delete(name);
+    for (const key of Array.from(this.decodedCache.keys())) {
+      if (key === name || key.startsWith(`${name}::`)) {
+        this.decodedCache.delete(key);
+      }
     }
   }
 
@@ -107,34 +119,76 @@ class SoundfontService {
     await writable.write(arrayBuffer);
     await writable.close();
 
-    // Clear from memory cache if it was there (so it reloads with new data)
-    this.decodedCache.delete(name);
+    this.clearFileCache(name);
   }
 
   /**
-   * Load a soundfont file from OPFS, decode it, and cache it in memory
+   * Get raw ArrayBuffer from OPFS or memory cache
    */
-  async loadAndDecode(name: string, ctx: AudioContext): Promise<AudioBuffer> {
-    if (this.decodedCache.has(name)) {
-      return this.decodedCache.get(name)!;
+  private async getFileBuffer(name: string): Promise<ArrayBuffer> {
+    if (this.fileBufferCache.has(name)) {
+      return this.fileBufferCache.get(name)!;
     }
-
     const root = await navigator.storage.getDirectory();
     const fileHandle = await root.getFileHandle(name);
     const file = await fileHandle.getFile();
     const arrayBuffer = await file.arrayBuffer();
+    this.fileBufferCache.set(name, arrayBuffer);
+    return arrayBuffer;
+  }
 
-    // Decode audio data
+  /**
+   * Inspect file and return list of all contained sounds / samples
+   */
+  async getSamplesForFile(name: string): Promise<Array<{ index: number; name: string }>> {
+    if (!name) return [];
+    if (this.sampleListCache.has(name)) {
+      return this.sampleListCache.get(name)!;
+    }
+
+    try {
+      const arrayBuffer = await this.getFileBuffer(name);
+      const samples = this.extractSF2SampleList(arrayBuffer);
+      if (samples.length > 0) {
+        this.sampleListCache.set(name, samples);
+        return samples;
+      }
+    } catch (e) {
+      // Not SF2 or failed parsing sample list
+    }
+
+    const defaultList = [{ index: 0, name: name }];
+    this.sampleListCache.set(name, defaultList);
+    return defaultList;
+  }
+
+  /**
+   * Load a soundfont file from OPFS, decode specified sample index, and cache in memory
+   */
+  async loadAndDecode(name: string, ctx: AudioContext, sampleIndex: number = 0): Promise<AudioBuffer> {
+    const cacheKey = `${name}::${sampleIndex}`;
+    if (this.decodedCache.has(cacheKey)) {
+      return this.decodedCache.get(cacheKey)!;
+    }
+    if (sampleIndex === 0 && this.decodedCache.has(name)) {
+      return this.decodedCache.get(name)!;
+    }
+
+    const arrayBuffer = await this.getFileBuffer(name);
+
+    // Decode audio data using native API or SF2 parser
     try {
       const bufferToDecode = arrayBuffer.slice(0);
       const audioBuffer = await ctx.decodeAudioData(bufferToDecode);
-      this.decodedCache.set(name, audioBuffer);
+      this.decodedCache.set(cacheKey, audioBuffer);
+      if (sampleIndex === 0) this.decodedCache.set(name, audioBuffer);
       return audioBuffer;
     } catch (e) {
       // If native decodeAudioData fails (e.g. .sf2 or .sft SoundFont binary), try SF2 parser fallback
       try {
-        const sf2Buffer = this.parseSF2(arrayBuffer, ctx);
-        this.decodedCache.set(name, sf2Buffer);
+        const sf2Buffer = this.parseSF2(arrayBuffer, ctx, sampleIndex);
+        this.decodedCache.set(cacheKey, sf2Buffer);
+        if (sampleIndex === 0) this.decodedCache.set(name, sf2Buffer);
         return sf2Buffer;
       } catch (sf2Err: any) {
         console.error(`Failed to decode audio or SF2 data for file ${name}:`, e, sf2Err);
@@ -145,15 +199,12 @@ class SoundfontService {
 
   /**
    * SoundFont 2 (SF2) RIFF Parser
-   * Extracts PCM audio data and sample headers from SF2 files to generate Web Audio AudioBuffers
    */
-  private parseSF2(arrayBuffer: ArrayBuffer, ctx: AudioContext): AudioBuffer {
+  private extractSF2SampleHeaders(arrayBuffer: ArrayBuffer) {
     const data = new DataView(arrayBuffer);
     const totalLength = arrayBuffer.byteLength;
 
-    if (totalLength < 12) {
-      throw new Error('File too small to be a valid SF2 SoundFont.');
-    }
+    if (totalLength < 12) return null;
 
     const getString = (offset: number, length: number): string => {
       let str = '';
@@ -166,18 +217,11 @@ class SoundfontService {
       return str;
     };
 
-    const riff = getString(0, 4);
-    if (riff !== 'RIFF') {
-      throw new Error('Not a valid RIFF container.');
-    }
-
-    const formType = getString(8, 4);
-    if (formType !== 'sfbk') {
-      throw new Error(`Not an SF2 SoundFont (Form Type: ${formType}).`);
+    if (getString(0, 4) !== 'RIFF' || getString(8, 4) !== 'sfbk') {
+      return null;
     }
 
     let smplOffset = -1;
-    let smplLength = 0;
     let shdrOffset = -1;
     let shdrLength = 0;
 
@@ -194,24 +238,22 @@ class SoundfontService {
           }
         } else if (chunkId === 'smpl') {
           smplOffset = chunkDataStart;
-          smplLength = chunkSize;
         } else if (chunkId === 'shdr') {
           shdrOffset = chunkDataStart;
           shdrLength = chunkSize;
         }
 
         pos = chunkDataStart + chunkSize;
-        if (pos % 2 !== 0) pos++; // Word alignment padding
+        if (pos % 2 !== 0) pos++;
       }
     };
 
     scanChunks(12, totalLength);
 
-    if (smplOffset === -1 || shdrOffset === -1) {
-      throw new Error('SF2 file missing smpl or shdr data chunks.');
-    }
+    if (smplOffset === -1 || shdrOffset === -1) return null;
 
     interface SF2SampleHeader {
+      index: number;
       name: string;
       start: number;
       end: number;
@@ -234,10 +276,10 @@ class SoundfontService {
       const originalPitch = data.getUint8(hOffset + 40);
       const sampleType = data.getUint16(hOffset + 44, true);
 
-      // Filter out EOS terminal sample or invalid/empty samples
       if (end > start + 100 && (sampleType & 0x7fff) <= 4) {
         samples.push({
-          name,
+          index: samples.length,
+          name: name || `Sound ${samples.length + 1}`,
           start,
           end,
           sampleRate: sampleRate > 0 ? sampleRate : 44100,
@@ -247,21 +289,27 @@ class SoundfontService {
       }
     }
 
-    if (samples.length === 0) {
+    return { smplOffset, totalLength, samples };
+  }
+
+  private extractSF2SampleList(arrayBuffer: ArrayBuffer): Array<{ index: number; name: string }> {
+    const res = this.extractSF2SampleHeaders(arrayBuffer);
+    if (!res || res.samples.length === 0) return [];
+    return res.samples.map(s => ({ index: s.index, name: s.name }));
+  }
+
+  private parseSF2(arrayBuffer: ArrayBuffer, ctx: AudioContext, sampleIndex: number = 0): AudioBuffer {
+    const res = this.extractSF2SampleHeaders(arrayBuffer);
+    if (!res || res.samples.length === 0) {
       throw new Error('No valid sample entries found in SF2 headers.');
     }
 
-    // Sort samples to pick the best main sample (closest to middle C 60 and longest length)
-    samples.sort((a, b) => {
-      const distA = Math.abs(a.originalPitch - 60);
-      const distB = Math.abs(b.originalPitch - 60);
-      if (distA !== distB) return distA - distB;
-      return (b.end - b.start) - (a.end - a.start);
-    });
+    const { smplOffset, totalLength, samples } = res;
+    const selectedIndex = Math.max(0, Math.min(sampleIndex, samples.length - 1));
+    const targetSample = samples[selectedIndex];
 
-    const bestSample = samples[0];
-    const sampleCount = bestSample.end - bestSample.start;
-    const startByte = smplOffset + bestSample.start * 2;
+    const sampleCount = targetSample.end - targetSample.start;
+    const startByte = smplOffset + targetSample.start * 2;
 
     if (startByte + sampleCount * 2 > totalLength) {
       throw new Error('Sample boundaries exceed SF2 file length.');
@@ -270,8 +318,8 @@ class SoundfontService {
     const pcm16 = new Int16Array(arrayBuffer, startByte, sampleCount);
 
     // Calibrate sample rate relative to Middle C (60 / 261.63 Hz)
-    const pitchShiftRatio = Math.pow(2, (60 - bestSample.originalPitch) / 12);
-    const effectiveSampleRate = Math.round(bestSample.sampleRate * pitchShiftRatio);
+    const pitchShiftRatio = Math.pow(2, (60 - targetSample.originalPitch) / 12);
+    const effectiveSampleRate = Math.round(targetSample.sampleRate * pitchShiftRatio);
     const finalSampleRate = Math.max(8000, Math.min(192000, effectiveSampleRate));
 
     const audioBuffer = ctx.createBuffer(1, sampleCount, finalSampleRate);
@@ -287,19 +335,20 @@ class SoundfontService {
   /**
    * Get an already decoded buffer synchronously from memory cache
    */
-  getDecodedBuffer(name: string): AudioBuffer | undefined {
-    return this.decodedCache.get(name);
+  getDecodedBuffer(name: string, sampleIndex: number = 0): AudioBuffer | undefined {
+    return this.decodedCache.get(`${name}::${sampleIndex}`) || this.decodedCache.get(name);
   }
 
   /**
-   * Preload a soundfont from OPFS into the memory cache
+   * Preload a soundfont sample from OPFS into the memory cache
    */
-  async preload(name: string, ctx: AudioContext): Promise<void> {
+  async preload(name: string, ctx: AudioContext, sampleIndex: number = 0): Promise<void> {
     try {
-      if (this.decodedCache.has(name)) return;
-      await this.loadAndDecode(name, ctx);
+      const cacheKey = `${name}::${sampleIndex}`;
+      if (this.decodedCache.has(cacheKey)) return;
+      await this.loadAndDecode(name, ctx, sampleIndex);
     } catch (e) {
-      console.error(`Failed to preload soundfont ${name}:`, e);
+      console.error(`Failed to preload soundfont ${name} (sample ${sampleIndex}):`, e);
     }
   }
 

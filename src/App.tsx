@@ -1541,6 +1541,7 @@ function App() {
             vco1VelocitySensitivity={params.vco1VelocitySensitivity}
             vco1SoundfontEnabled={params.vco1SoundfontEnabled}
             vco1SoundfontName={params.vco1SoundfontName}
+            vco1SoundfontSampleIndex={params.vco1SoundfontSampleIndex ?? 0}
             updateParam={updateParam}
             isMidiMappingMode={isMidiMappingMode}
             handleMapClick={handleMapClick}
@@ -1558,6 +1559,7 @@ function App() {
             vco2VelocitySensitivity={params.vco2VelocitySensitivity}
             vco2SoundfontEnabled={params.vco2SoundfontEnabled}
             vco2SoundfontName={params.vco2SoundfontName}
+            vco2SoundfontSampleIndex={params.vco2SoundfontSampleIndex ?? 0}
             updateParam={updateParam}
             isMidiMappingMode={isMidiMappingMode}
             handleMapClick={handleMapClick}

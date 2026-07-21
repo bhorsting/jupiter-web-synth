@@ -275,6 +275,7 @@ interface VCO1SectionProps {
   vco1VelocitySensitivity: number;
   vco1SoundfontEnabled: boolean;
   vco1SoundfontName: string;
+  vco1SoundfontSampleIndex: number;
   updateParam: (key: keyof VoiceParams, val: any) => void;
   isMidiMappingMode: boolean;
   handleMapClick: (param: keyof VoiceParams) => void;
@@ -283,9 +284,10 @@ interface VCO1SectionProps {
 }
 
 export const VCO1Section: React.FC<VCO1SectionProps> = React.memo(({
-  vco1Range, crossMod, vco1PulseWidth, vco1Waveform, vco1PwmMode, vco1VelocitySensitivity, vco1SoundfontEnabled, vco1SoundfontName, updateParam, isMidiMappingMode, handleMapClick, getMappedCC, selectedMapParam
+  vco1Range, crossMod, vco1PulseWidth, vco1Waveform, vco1PwmMode, vco1VelocitySensitivity, vco1SoundfontEnabled, vco1SoundfontName, vco1SoundfontSampleIndex, updateParam, isMidiMappingMode, handleMapClick, getMappedCC, selectedMapParam
 }) => {
   const [localSoundfonts, setLocalSoundfonts] = React.useState<string[]>([]);
+  const [availableSamples, setAvailableSamples] = React.useState<Array<{ index: number; name: string }>>([]);
 
   React.useEffect(() => {
     const updateList = () => {
@@ -295,6 +297,14 @@ export const VCO1Section: React.FC<VCO1SectionProps> = React.memo(({
     window.addEventListener('focus', updateList);
     return () => window.removeEventListener('focus', updateList);
   }, []);
+
+  React.useEffect(() => {
+    if (vco1SoundfontName) {
+      soundfontService.getSamplesForFile(vco1SoundfontName).then(setAvailableSamples);
+    } else {
+      setAvailableSamples([]);
+    }
+  }, [vco1SoundfontName]);
 
   return (
     <Section title="VCO-1">
@@ -312,30 +322,55 @@ export const VCO1Section: React.FC<VCO1SectionProps> = React.memo(({
       </div>
 
       {vco1SoundfontEnabled && (
-        <div className="flex flex-col items-center w-28 pb-8 pr-2 border-r border-zinc-850 mr-2">
-          <span className="text-[10px] font-mono font-bold uppercase text-gray-400 mb-2 truncate w-full text-center">
-            Soundfont
-          </span>
-          <select
-            value={vco1SoundfontName}
-            onChange={(e) => updateParam('vco1SoundfontName', e.target.value)}
-            className="w-full bg-zinc-950 border border-zinc-800 text-zinc-300 rounded px-2 py-1.5 text-[10px] font-mono uppercase tracking-tight outline-none focus:border-cyan-500/50"
-          >
-            {localSoundfonts.length === 0 ? (
-              <option value="">No Offline SF</option>
-            ) : (
-              <>
-                <option value="">Select SF...</option>
-                {localSoundfonts.map(sf => (
-                  <option key={sf} value={sf}>{sf}</option>
+        <>
+          <div className="flex flex-col items-center w-28 pb-8 pr-2 border-r border-zinc-850 mr-2">
+            <span className="text-[10px] font-mono font-bold uppercase text-gray-400 mb-2 truncate w-full text-center">
+              Soundfont
+            </span>
+            <select
+              value={vco1SoundfontName}
+              onChange={(e) => {
+                updateParam('vco1SoundfontName', e.target.value);
+                updateParam('vco1SoundfontSampleIndex', 0);
+              }}
+              className="w-full bg-zinc-950 border border-zinc-800 text-zinc-300 rounded px-2 py-1.5 text-[10px] font-mono uppercase tracking-tight outline-none focus:border-cyan-500/50"
+            >
+              {localSoundfonts.length === 0 ? (
+                <option value="">No Offline SF</option>
+              ) : (
+                <>
+                  <option value="">Select SF...</option>
+                  {localSoundfonts.map(sf => (
+                    <option key={sf} value={sf}>{sf}</option>
+                  ))}
+                </>
+              )}
+            </select>
+            <span className="text-[8px] text-zinc-500 uppercase tracking-tight mt-1 text-center leading-normal">
+              Select SF file
+            </span>
+          </div>
+
+          {vco1SoundfontName && availableSamples.length > 0 && (
+            <div className="flex flex-col items-center w-36 pb-8 pr-2 border-r border-zinc-850 mr-2">
+              <span className="text-[10px] font-mono font-bold uppercase text-cyan-400 mb-2 truncate w-full text-center">
+                Sound ({availableSamples.length})
+              </span>
+              <select
+                value={vco1SoundfontSampleIndex}
+                onChange={(e) => updateParam('vco1SoundfontSampleIndex', parseInt(e.target.value, 10))}
+                className="w-full bg-zinc-950 border border-cyan-800/60 text-cyan-200 rounded px-2 py-1.5 text-[10px] font-mono uppercase tracking-tight outline-none focus:border-cyan-400"
+              >
+                {availableSamples.map(s => (
+                  <option key={s.index} value={s.index}>{s.name}</option>
                 ))}
-              </>
-            )}
-          </select>
-          <span className="text-[8px] text-zinc-500 uppercase tracking-tight mt-1 text-center leading-normal">
-            Select an offline soundfont.
-          </span>
-        </div>
+              </select>
+              <span className="text-[8px] text-cyan-500/80 uppercase tracking-tight mt-1 text-center leading-normal">
+                Select instrument
+              </span>
+            </div>
+          )}
+        </>
       )}
 
       <JupiterSelector 
@@ -426,6 +461,7 @@ interface VCO2SectionProps {
   vco2VelocitySensitivity: number;
   vco2SoundfontEnabled: boolean;
   vco2SoundfontName: string;
+  vco2SoundfontSampleIndex: number;
   updateParam: (key: keyof VoiceParams, val: any) => void;
   isMidiMappingMode: boolean;
   handleMapClick: (param: keyof VoiceParams) => void;
@@ -434,9 +470,10 @@ interface VCO2SectionProps {
 }
 
 export const VCO2Section: React.FC<VCO2SectionProps> = React.memo(({
-  vco2Range, vco2Freq, vco2Detune, vco2Waveform, vco2Sync, vco2PwmMode, vco2VelocitySensitivity, vco2SoundfontEnabled, vco2SoundfontName, updateParam, isMidiMappingMode, handleMapClick, getMappedCC, selectedMapParam
+  vco2Range, vco2Freq, vco2Detune, vco2Waveform, vco2Sync, vco2PwmMode, vco2VelocitySensitivity, vco2SoundfontEnabled, vco2SoundfontName, vco2SoundfontSampleIndex, updateParam, isMidiMappingMode, handleMapClick, getMappedCC, selectedMapParam
 }) => {
   const [localSoundfonts, setLocalSoundfonts] = React.useState<string[]>([]);
+  const [availableSamples, setAvailableSamples] = React.useState<Array<{ index: number; name: string }>>([]);
 
   React.useEffect(() => {
     const updateList = () => {
@@ -446,6 +483,14 @@ export const VCO2Section: React.FC<VCO2SectionProps> = React.memo(({
     window.addEventListener('focus', updateList);
     return () => window.removeEventListener('focus', updateList);
   }, []);
+
+  React.useEffect(() => {
+    if (vco2SoundfontName) {
+      soundfontService.getSamplesForFile(vco2SoundfontName).then(setAvailableSamples);
+    } else {
+      setAvailableSamples([]);
+    }
+  }, [vco2SoundfontName]);
 
   return (
     <Section title="VCO-2">
@@ -463,30 +508,55 @@ export const VCO2Section: React.FC<VCO2SectionProps> = React.memo(({
       </div>
 
       {vco2SoundfontEnabled && (
-        <div className="flex flex-col items-center w-28 pb-8 pr-2 border-r border-zinc-855 mr-2">
-          <span className="text-[10px] font-mono font-bold uppercase text-gray-400 mb-2 truncate w-full text-center">
-            Soundfont
-          </span>
-          <select
-            value={vco2SoundfontName}
-            onChange={(e) => updateParam('vco2SoundfontName', e.target.value)}
-            className="w-full bg-zinc-950 border border-zinc-800 text-zinc-300 rounded px-2 py-1.5 text-[10px] font-mono uppercase tracking-tight outline-none focus:border-cyan-500/50"
-          >
-            {localSoundfonts.length === 0 ? (
-              <option value="">No Offline SF</option>
-            ) : (
-              <>
-                <option value="">Select SF...</option>
-                {localSoundfonts.map(sf => (
-                  <option key={sf} value={sf}>{sf}</option>
+        <>
+          <div className="flex flex-col items-center w-28 pb-8 pr-2 border-r border-zinc-855 mr-2">
+            <span className="text-[10px] font-mono font-bold uppercase text-gray-400 mb-2 truncate w-full text-center">
+              Soundfont
+            </span>
+            <select
+              value={vco2SoundfontName}
+              onChange={(e) => {
+                updateParam('vco2SoundfontName', e.target.value);
+                updateParam('vco2SoundfontSampleIndex', 0);
+              }}
+              className="w-full bg-zinc-950 border border-zinc-800 text-zinc-300 rounded px-2 py-1.5 text-[10px] font-mono uppercase tracking-tight outline-none focus:border-cyan-500/50"
+            >
+              {localSoundfonts.length === 0 ? (
+                <option value="">No Offline SF</option>
+              ) : (
+                <>
+                  <option value="">Select SF...</option>
+                  {localSoundfonts.map(sf => (
+                    <option key={sf} value={sf}>{sf}</option>
+                  ))}
+                </>
+              )}
+            </select>
+            <span className="text-[8px] text-zinc-500 uppercase tracking-tight mt-1 text-center leading-normal">
+              Select SF file
+            </span>
+          </div>
+
+          {vco2SoundfontName && availableSamples.length > 0 && (
+            <div className="flex flex-col items-center w-36 pb-8 pr-2 border-r border-zinc-855 mr-2">
+              <span className="text-[10px] font-mono font-bold uppercase text-cyan-400 mb-2 truncate w-full text-center">
+                Sound ({availableSamples.length})
+              </span>
+              <select
+                value={vco2SoundfontSampleIndex}
+                onChange={(e) => updateParam('vco2SoundfontSampleIndex', parseInt(e.target.value, 10))}
+                className="w-full bg-zinc-950 border border-cyan-800/60 text-cyan-200 rounded px-2 py-1.5 text-[10px] font-mono uppercase tracking-tight outline-none focus:border-cyan-400"
+              >
+                {availableSamples.map(s => (
+                  <option key={s.index} value={s.index}>{s.name}</option>
                 ))}
-              </>
-            )}
-          </select>
-          <span className="text-[8px] text-zinc-500 uppercase tracking-tight mt-1 text-center leading-normal">
-            Select an offline soundfont.
-          </span>
-        </div>
+              </select>
+              <span className="text-[8px] text-cyan-500/80 uppercase tracking-tight mt-1 text-center leading-normal">
+                Select instrument
+              </span>
+            </div>
+          )}
+        </>
       )}
 
       <JupiterSelector 

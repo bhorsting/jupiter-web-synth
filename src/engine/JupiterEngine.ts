@@ -634,13 +634,13 @@ class Voice {
       vco2Range, vco2Freq, vco2Detune,
       portamentoTime, portamentoMode,
       vco1Waveform, vco2Waveform,
-      vco1SoundfontEnabled, vco1SoundfontName,
-      vco2SoundfontEnabled, vco2SoundfontName
+      vco1SoundfontEnabled, vco1SoundfontName, vco1SoundfontSampleIndex,
+      vco2SoundfontEnabled, vco2SoundfontName, vco2SoundfontSampleIndex
     } = this.params;
 
     // VCO1 instantiation
     if (vco1SoundfontEnabled && vco1SoundfontName) {
-      const buffer = soundfontService.getDecodedBuffer(vco1SoundfontName);
+      const buffer = soundfontService.getDecodedBuffer(vco1SoundfontName, vco1SoundfontSampleIndex ?? 0);
       if (buffer) {
         const src = this.ctx.createBufferSource();
         src.buffer = buffer;
@@ -662,7 +662,7 @@ class Voice {
 
     // VCO2 instantiation
     if (vco2SoundfontEnabled && vco2SoundfontName) {
-      const buffer = soundfontService.getDecodedBuffer(vco2SoundfontName);
+      const buffer = soundfontService.getDecodedBuffer(vco2SoundfontName, vco2SoundfontSampleIndex ?? 0);
       if (buffer) {
         const src = this.ctx.createBufferSource();
         src.buffer = buffer;
@@ -2633,6 +2633,14 @@ export class JupiterEngine {
   setParams(params: VoiceParams, targetPatchId?: string | null) {
     const oldParams = this.params;
     this.params = params;
+
+    if (params.vco1SoundfontEnabled && params.vco1SoundfontName) {
+      soundfontService.preload(params.vco1SoundfontName, this.ctx, params.vco1SoundfontSampleIndex ?? 0);
+    }
+    if (params.vco2SoundfontEnabled && params.vco2SoundfontName) {
+      soundfontService.preload(params.vco2SoundfontName, this.ctx, params.vco2SoundfontSampleIndex ?? 0);
+    }
+
     this.voices.forEach(voice => {
       if (!targetPatchId || voice.currentPatchId === targetPatchId) {
         voice.updateParams(params, this.perfSettings);

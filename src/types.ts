@@ -299,6 +299,7 @@ export interface VoiceParams {
   vco1VelocitySensitivity: number;
   vco1SoundfontEnabled: boolean;
   vco1SoundfontName: string;
+  vco1SoundfontSampleIndex: number;
   
   vco2Freq: number;
   vco2Range: 2 | 4 | 8 | 16;
@@ -310,6 +311,7 @@ export interface VoiceParams {
   vco2VelocitySensitivity: number;
   vco2SoundfontEnabled: boolean;
   vco2SoundfontName: string;
+  vco2SoundfontSampleIndex: number;
   
   crossMod: number;
   vcoMix: number;
@@ -493,6 +495,7 @@ export const DEFAULT_PARAMS: VoiceParams = {
   vco1VelocitySensitivity: 0,
   vco1SoundfontEnabled: false,
   vco1SoundfontName: '',
+  vco1SoundfontSampleIndex: 0,
   
   vco2Freq: 0,
   vco2Range: 8,
@@ -504,6 +507,7 @@ export const DEFAULT_PARAMS: VoiceParams = {
   vco2VelocitySensitivity: 0,
   vco2SoundfontEnabled: false,
   vco2SoundfontName: '',
+  vco2SoundfontSampleIndex: 0,
   
   crossMod: 0,
   vcoMix: 0.5,
