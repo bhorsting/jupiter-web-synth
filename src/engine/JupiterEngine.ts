@@ -500,9 +500,9 @@ class Voice {
         const val3 = levelToValue(L3);
         
         gainNode.gain.setValueAtTime(val4, time);
-        gainNode.gain.linearRampToValueAtTime(val1, time + t1);
-        gainNode.gain.linearRampToValueAtTime(val2, time + t1 + t2);
-        gainNode.gain.linearRampToValueAtTime(val3, time + t1 + t2 + t3);
+        gainNode.gain.linearRampToValueAtTime(val1, time + Math.max(0.002, t1));
+        gainNode.gain.linearRampToValueAtTime(val2, time + Math.max(0.002, t1) + t2);
+        gainNode.gain.linearRampToValueAtTime(val3, time + Math.max(0.002, t1) + t2 + t3);
         
         (gainNode as any).dx7ReleaseRate = R4;
         (gainNode as any).dx7L4 = L4;
@@ -1413,10 +1413,14 @@ class Voice {
       });
       
       releaseDuration = maxReleaseTime;
+
+      this.vca.gain.cancelScheduledValues(time);
+      this.vca.gain.setValueAtTime(this.vca.gain.value, time);
+      this.vca.gain.setTargetAtTime(0, time, Math.max(0.001, releaseDuration));
       
       if (this.dx7Oscs && this.dx7Oscs.length > 0) {
         this.dx7Oscs.forEach(osc => {
-          try { osc.stop(time + releaseDuration + 0.1); } catch (e) {}
+          try { osc.stop(time + releaseDuration * 3.0 + 0.2); } catch (e) {}
         });
       }
     } else if (this.activeSynthEngine === 'hammond') {
@@ -1484,7 +1488,8 @@ class Voice {
     this.currentPatchId = null;
     this.isReleasing = false;
     this.vca.gain.cancelScheduledValues(this.ctx.currentTime);
-    this.vca.gain.value = 0;
+    this.vca.gain.setValueAtTime(this.vca.gain.value, this.ctx.currentTime);
+    this.vca.gain.linearRampToValueAtTime(0, this.ctx.currentTime + 0.005);
   }
 
   public reconnectOutput(destination: AudioNode) {
@@ -3216,11 +3221,16 @@ export class JupiterEngine {
     );
     
     if (!voice) {
-      // Find a completely free voice
-      voice = this.voices.find(v => v.midiNote === null);
+      // Find all completely free voices (midiNote === null)
+      const freeVoices = this.voices.filter(v => v.midiNote === null);
       
-      if (!voice) {
-        // If no completely free voice, find a voice that is currently releasing the same midiNote and patch
+      if (freeVoices.length > 0) {
+        // Round-Robin / Least-Recently-Used allocation:
+        // Pick the free voice that was triggered furthest back in time (smallest startTime)
+        // This ensures notes continuously cycle through all available voice cards rather than re-using index 0
+        voice = freeVoices.slice().sort((a, b) => a.startTime - b.startTime)[0];
+      } else {
+        // If no completely free voice, find a voice currently releasing the same midiNote and patch
         voice = this.voices.find(v => 
           v.midiNote === midiNote && 
           v.isReleasing && 
@@ -3228,14 +3238,14 @@ export class JupiterEngine {
         );
         
         if (!voice) {
-          // Voice stealing: find the voice that has been active the longest (including ones in release)
+          // Voice stealing: find the voice active longest among releasing voices first, then active voices
           const releasingVoices = this.voices.filter(v => v.isReleasing);
           if (releasingVoices.length > 0) {
-              voice = releasingVoices.sort((a, b) => a.startTime - b.startTime)[0];
+            voice = releasingVoices.slice().sort((a, b) => a.startTime - b.startTime)[0];
           } else {
-              voice = this.voices.sort((a, b) => a.startTime - b.startTime)[0];
+            voice = this.voices.slice().sort((a, b) => a.startTime - b.startTime)[0];
           }
-          // Hard-stop voice to prevent stuck tail or duplicate state
+          // Hard-stop voice to clean up transient audio nodes cleanly before re-triggering
           voice.stop();
         }
       }
