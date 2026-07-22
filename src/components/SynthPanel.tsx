@@ -1,9 +1,166 @@
-import React from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { JupiterSlider, JupiterToggle, JupiterSelector, NumericKeypad } from './Controls';
 import { VoiceParams } from '../types';
-import { AnimatePresence } from 'motion/react';
-import { Activity } from 'lucide-react';
+import { AnimatePresence, motion } from 'motion/react';
+import { Activity, ChevronDown, Search, Check } from 'lucide-react';
 import { soundfontService } from '../services/SoundfontService';
+
+interface SynthSelectProps {
+  label: string;
+  badge?: string;
+  value: string | number;
+  onChange: (val: string) => void;
+  options: Array<{ value: string | number; label: string }>;
+  placeholder?: string;
+  accentColor?: 'cyan' | 'orange';
+}
+
+const SynthSelect: React.FC<SynthSelectProps> = ({
+  label,
+  badge,
+  value,
+  onChange,
+  options,
+  placeholder,
+  accentColor = 'cyan'
+}) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const [filterText, setFilterText] = useState('');
+  const containerRef = useRef<HTMLDivElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+
+  const isCyan = accentColor === 'cyan';
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setIsOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  useEffect(() => {
+    if (isOpen && searchInputRef.current) {
+      searchInputRef.current.focus();
+    }
+  }, [isOpen]);
+
+  const selectedOption = options.find(opt => String(opt.value) === String(value));
+  const displayText = selectedOption ? selectedOption.label : (placeholder || 'Select...');
+
+  const filteredOptions = filterText.trim()
+    ? options.filter(opt => opt.label.toLowerCase().includes(filterText.toLowerCase()))
+    : options;
+
+  return (
+    <div className="flex flex-col w-full relative" ref={containerRef}>
+      <div className="flex items-center justify-between mb-1">
+        <span className={`text-[9px] font-mono font-bold uppercase tracking-wider ${isCyan ? 'text-cyan-400' : 'text-zinc-400'}`}>
+          {label}
+        </span>
+        {badge && (
+          <span className={`text-[8px] font-mono px-1 py-0.2 rounded-none bg-black/60 border border-zinc-800 ${isCyan ? 'text-cyan-400/90' : 'text-zinc-500'}`}>
+            {badge}
+          </span>
+        )}
+      </div>
+
+      <button
+        type="button"
+        onClick={() => {
+          setIsOpen(!isOpen);
+          setFilterText('');
+        }}
+        className={`w-full flex items-center justify-between bg-zinc-950 border ${
+          isOpen
+            ? isCyan ? 'border-cyan-400 ring-1 ring-cyan-500/50' : 'border-zinc-400'
+            : isCyan ? 'border-cyan-800/60 hover:border-cyan-400' : 'border-zinc-800 hover:border-zinc-600'
+        } rounded-none px-2.5 py-1.5 text-[10px] font-mono uppercase tracking-tight text-left outline-none cursor-pointer transition-all shadow-inner`}
+      >
+        <span className={`truncate mr-1 ${selectedOption ? (isCyan ? 'text-cyan-100' : 'text-zinc-200') : 'text-zinc-500'}`}>
+          {displayText}
+        </span>
+        <ChevronDown
+          size={12}
+          className={`shrink-0 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''} ${
+            isCyan ? 'text-cyan-400' : 'text-zinc-400'
+          }`}
+        />
+      </button>
+
+      <AnimatePresence>
+        {isOpen && (
+          <motion.div
+            initial={{ opacity: 0, y: -4, scale: 0.98 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -4, scale: 0.98 }}
+            transition={{ duration: 0.12 }}
+            className="absolute left-0 right-0 top-full mt-1 z-50 bg-zinc-950/95 backdrop-blur-md border border-cyan-500/60 rounded-none shadow-2xl shadow-cyan-950/80 p-1.5 flex flex-col max-h-60 overflow-hidden"
+          >
+            {options.length > 8 && (
+              <div className="flex items-center px-2 py-1 mb-1 border-b border-zinc-800/80 bg-zinc-900/60 rounded-none">
+                <Search size={10} className="text-cyan-500 mr-1.5 shrink-0" />
+                <input
+                  ref={searchInputRef}
+                  type="text"
+                  placeholder="Filter..."
+                  value={filterText}
+                  onChange={(e) => setFilterText(e.target.value)}
+                  className="w-full bg-transparent text-[9px] font-mono text-cyan-200 placeholder-zinc-500 outline-none uppercase"
+                />
+              </div>
+            )}
+
+            <div className="overflow-y-auto max-h-48 space-y-0.5 pr-0.5 scrollbar-thin scrollbar-thumb-cyan-900/60">
+              {placeholder && !filterText && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    onChange('');
+                    setIsOpen(false);
+                  }}
+                  className="w-full text-left px-2 py-1 text-[9px] font-mono uppercase text-zinc-500 hover:bg-zinc-900 rounded-none transition-colors"
+                >
+                  {placeholder}
+                </button>
+              )}
+
+              {filteredOptions.length === 0 ? (
+                <div className="px-2 py-1.5 text-[9px] font-mono text-zinc-500 uppercase text-center">
+                  No matches
+                </div>
+              ) : (
+                filteredOptions.map((opt) => {
+                  const isSelected = String(opt.value) === String(value);
+                  return (
+                    <button
+                      key={opt.value}
+                      type="button"
+                      onClick={() => {
+                        onChange(String(opt.value));
+                        setIsOpen(false);
+                      }}
+                      className={`w-full flex items-center justify-between px-2 py-1.5 rounded-none text-[9.5px] font-mono uppercase tracking-tight transition-colors text-left ${
+                        isSelected
+                          ? 'bg-cyan-950/90 text-cyan-200 border-l-2 border-cyan-400 font-bold'
+                          : 'text-zinc-300 hover:bg-zinc-800/80 hover:text-cyan-200'
+                      }`}
+                    >
+                      <span className="truncate mr-1">{opt.label}</span>
+                      {isSelected && <Check size={10} className="text-cyan-400 shrink-0" />}
+                    </button>
+                  );
+                })
+              )}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+};
 
 interface SectionProps {
   title: string;
@@ -295,7 +452,11 @@ export const VCO1Section: React.FC<VCO1SectionProps> = React.memo(({
     };
     updateList();
     window.addEventListener('focus', updateList);
-    return () => window.removeEventListener('focus', updateList);
+    window.addEventListener('soundfontsUpdated', updateList);
+    return () => {
+      window.removeEventListener('focus', updateList);
+      window.removeEventListener('soundfontsUpdated', updateList);
+    };
   }, []);
 
   React.useEffect(() => {
@@ -322,55 +483,40 @@ export const VCO1Section: React.FC<VCO1SectionProps> = React.memo(({
       </div>
 
       {vco1SoundfontEnabled && (
-        <>
-          <div className="flex flex-col items-center w-28 pb-8 pr-2 border-r border-zinc-850 mr-2">
-            <span className="text-[10px] font-mono font-bold uppercase text-gray-400 mb-2 truncate w-full text-center">
-              Soundfont
-            </span>
-            <select
-              value={vco1SoundfontName}
-              onChange={(e) => {
-                updateParam('vco1SoundfontName', e.target.value);
-                updateParam('vco1SoundfontSampleIndex', 0);
-              }}
-              className="w-full bg-zinc-950 border border-zinc-800 text-zinc-300 rounded px-2 py-1.5 text-[10px] font-mono uppercase tracking-tight outline-none focus:border-cyan-500/50"
-            >
-              {localSoundfonts.length === 0 ? (
-                <option value="">No Offline SF</option>
-              ) : (
-                <>
-                  <option value="">Select SF...</option>
-                  {localSoundfonts.map(sf => (
-                    <option key={sf} value={sf}>{sf}</option>
-                  ))}
-                </>
-              )}
-            </select>
-            <span className="text-[8px] text-zinc-500 uppercase tracking-tight mt-1 text-center leading-normal">
-              Select SF file
-            </span>
-          </div>
+        <div className="flex flex-col gap-2.5 w-48 pb-2 pr-2 border-r border-zinc-850 mr-2 justify-start shrink-0">
+          <SynthSelect
+            label="Soundfont"
+            badge="SF2"
+            value={vco1SoundfontName}
+            onChange={(val) => {
+              updateParam('vco1SoundfontName', val);
+              updateParam('vco1SoundfontSampleIndex', 0);
+            }}
+            placeholder={localSoundfonts.length === 0 ? "No Offline SF" : "Select SF..."}
+            options={localSoundfonts.map(sf => ({ value: sf, label: sf }))}
+            accentColor="cyan"
+          />
 
-          {vco1SoundfontName && availableSamples.length > 0 && (
-            <div className="flex flex-col items-center w-36 pb-8 pr-2 border-r border-zinc-850 mr-2">
-              <span className="text-[10px] font-mono font-bold uppercase text-cyan-400 mb-2 truncate w-full text-center">
-                Sound ({availableSamples.length})
+          {vco1SoundfontName && availableSamples.length > 0 ? (
+            <SynthSelect
+              label="Sound"
+              badge={`${availableSamples.length}`}
+              value={vco1SoundfontSampleIndex}
+              onChange={(val) => updateParam('vco1SoundfontSampleIndex', parseInt(val, 10))}
+              options={availableSamples.map(s => ({ value: s.index, label: s.name }))}
+              accentColor="cyan"
+            />
+          ) : (
+            <div className="flex flex-col w-full opacity-40">
+              <span className="text-[9px] font-mono font-bold uppercase tracking-wider text-zinc-500 mb-1">
+                Sound
               </span>
-              <select
-                value={vco1SoundfontSampleIndex}
-                onChange={(e) => updateParam('vco1SoundfontSampleIndex', parseInt(e.target.value, 10))}
-                className="w-full bg-zinc-950 border border-cyan-800/60 text-cyan-200 rounded px-2 py-1.5 text-[10px] font-mono uppercase tracking-tight outline-none focus:border-cyan-400"
-              >
-                {availableSamples.map(s => (
-                  <option key={s.index} value={s.index}>{s.name}</option>
-                ))}
-              </select>
-              <span className="text-[8px] text-cyan-500/80 uppercase tracking-tight mt-1 text-center leading-normal">
-                Select instrument
-              </span>
+              <div className="w-full bg-zinc-950 border border-zinc-800/80 text-zinc-600 rounded-none px-2.5 py-1.5 text-[10px] font-mono uppercase tracking-tight">
+                {vco1SoundfontName ? 'Loading...' : 'Select SF first'}
+              </div>
             </div>
           )}
-        </>
+        </div>
       )}
 
       <JupiterSelector 
@@ -481,7 +627,11 @@ export const VCO2Section: React.FC<VCO2SectionProps> = React.memo(({
     };
     updateList();
     window.addEventListener('focus', updateList);
-    return () => window.removeEventListener('focus', updateList);
+    window.addEventListener('soundfontsUpdated', updateList);
+    return () => {
+      window.removeEventListener('focus', updateList);
+      window.removeEventListener('soundfontsUpdated', updateList);
+    };
   }, []);
 
   React.useEffect(() => {
@@ -508,55 +658,40 @@ export const VCO2Section: React.FC<VCO2SectionProps> = React.memo(({
       </div>
 
       {vco2SoundfontEnabled && (
-        <>
-          <div className="flex flex-col items-center w-28 pb-8 pr-2 border-r border-zinc-855 mr-2">
-            <span className="text-[10px] font-mono font-bold uppercase text-gray-400 mb-2 truncate w-full text-center">
-              Soundfont
-            </span>
-            <select
-              value={vco2SoundfontName}
-              onChange={(e) => {
-                updateParam('vco2SoundfontName', e.target.value);
-                updateParam('vco2SoundfontSampleIndex', 0);
-              }}
-              className="w-full bg-zinc-950 border border-zinc-800 text-zinc-300 rounded px-2 py-1.5 text-[10px] font-mono uppercase tracking-tight outline-none focus:border-cyan-500/50"
-            >
-              {localSoundfonts.length === 0 ? (
-                <option value="">No Offline SF</option>
-              ) : (
-                <>
-                  <option value="">Select SF...</option>
-                  {localSoundfonts.map(sf => (
-                    <option key={sf} value={sf}>{sf}</option>
-                  ))}
-                </>
-              )}
-            </select>
-            <span className="text-[8px] text-zinc-500 uppercase tracking-tight mt-1 text-center leading-normal">
-              Select SF file
-            </span>
-          </div>
+        <div className="flex flex-col gap-2.5 w-48 pb-2 pr-2 border-r border-zinc-855 mr-2 justify-start shrink-0">
+          <SynthSelect
+            label="Soundfont"
+            badge="SF2"
+            value={vco2SoundfontName}
+            onChange={(val) => {
+              updateParam('vco2SoundfontName', val);
+              updateParam('vco2SoundfontSampleIndex', 0);
+            }}
+            placeholder={localSoundfonts.length === 0 ? "No Offline SF" : "Select SF..."}
+            options={localSoundfonts.map(sf => ({ value: sf, label: sf }))}
+            accentColor="cyan"
+          />
 
-          {vco2SoundfontName && availableSamples.length > 0 && (
-            <div className="flex flex-col items-center w-36 pb-8 pr-2 border-r border-zinc-855 mr-2">
-              <span className="text-[10px] font-mono font-bold uppercase text-cyan-400 mb-2 truncate w-full text-center">
-                Sound ({availableSamples.length})
+          {vco2SoundfontName && availableSamples.length > 0 ? (
+            <SynthSelect
+              label="Sound"
+              badge={`${availableSamples.length}`}
+              value={vco2SoundfontSampleIndex}
+              onChange={(val) => updateParam('vco2SoundfontSampleIndex', parseInt(val, 10))}
+              options={availableSamples.map(s => ({ value: s.index, label: s.name }))}
+              accentColor="cyan"
+            />
+          ) : (
+            <div className="flex flex-col w-full opacity-40">
+              <span className="text-[9px] font-mono font-bold uppercase tracking-wider text-zinc-500 mb-1">
+                Sound
               </span>
-              <select
-                value={vco2SoundfontSampleIndex}
-                onChange={(e) => updateParam('vco2SoundfontSampleIndex', parseInt(e.target.value, 10))}
-                className="w-full bg-zinc-950 border border-cyan-800/60 text-cyan-200 rounded px-2 py-1.5 text-[10px] font-mono uppercase tracking-tight outline-none focus:border-cyan-400"
-              >
-                {availableSamples.map(s => (
-                  <option key={s.index} value={s.index}>{s.name}</option>
-                ))}
-              </select>
-              <span className="text-[8px] text-cyan-500/80 uppercase tracking-tight mt-1 text-center leading-normal">
-                Select instrument
-              </span>
+              <div className="w-full bg-zinc-950 border border-zinc-800/80 text-zinc-600 rounded-none px-2.5 py-1.5 text-[10px] font-mono uppercase tracking-tight">
+                {vco2SoundfontName ? 'Loading...' : 'Select SF first'}
+              </div>
             </div>
           )}
-        </>
+        </div>
       )}
 
       <JupiterSelector 

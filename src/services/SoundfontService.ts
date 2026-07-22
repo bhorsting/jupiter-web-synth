@@ -110,6 +110,9 @@ class SoundfontService {
       const root = await navigator.storage.getDirectory();
       await root.removeEntry(name);
       this.clearFileCache(name);
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new Event('soundfontsUpdated'));
+      }
     } catch (e) {
       console.error(`Failed to delete file ${name} from OPFS:`, e);
       throw e;
@@ -150,6 +153,47 @@ class SoundfontService {
     await writable.close();
 
     this.clearFileCache(name);
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new Event('soundfontsUpdated'));
+    }
+  }
+
+  /**
+   * Auto-sync soundfonts from Google Drive if API key and Folder ID are configured.
+   * Downloads any file from Drive that is not yet in OPFS.
+   */
+  async syncFromDrive(settings: PerformanceSettings, ctx?: AudioContext): Promise<{ syncedCount: number; driveFiles: SoundfontFile[]; downloadedFiles: string[] }> {
+    if (!settings.googleDriveApiKey || !settings.googleDriveFolderId) {
+      const downloadedFiles = await this.listDownloadedFiles();
+      return { syncedCount: 0, driveFiles: [], downloadedFiles };
+    }
+
+    const driveFiles = await this.listFromDrive(settings);
+    const downloadedFiles = await this.listDownloadedFiles();
+
+    const toDownload = driveFiles.filter(df => df.id && !downloadedFiles.includes(df.name));
+
+    let syncedCount = 0;
+    for (const file of toDownload) {
+      if (file.id) {
+        await this.downloadAndSave(file.id, file.name, settings);
+        if (ctx) {
+          try {
+            await this.preload(file.name, ctx);
+          } catch (e) {
+            console.warn(`Failed preloading synced file ${file.name}:`, e);
+          }
+        }
+        syncedCount++;
+      }
+    }
+
+    const updatedDownloaded = await this.listDownloadedFiles();
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new Event('soundfontsUpdated'));
+    }
+
+    return { syncedCount, driveFiles, downloadedFiles: updatedDownloaded };
   }
 
   /**

@@ -265,7 +265,7 @@ class Voice {
       let targetSustain = params.env2Sustain;
       if (params.vcaSource === 'env1') {
         targetSustain = params.env1Sustain;
-      } else if (params.vcaSource === 'lfo') {
+      } else if (params.vcaSource === 'lfo' || params.vco1SoundfontEnabled || params.vco2SoundfontEnabled) {
         targetSustain = 1.0;
       }
       this.vca.gain.setTargetAtTime(Math.max(0.0001, targetSustain * velocityScale), time, 0.05);
@@ -618,6 +618,9 @@ class Voice {
       return;
     }
 
+    // Kill any existing audio nodes on this voice before instantiating new ones
+    this.killTransientNodes(time);
+
     this.activeSynthEngine = 'jupiter';
     this.vco1 = null;
     this.vco2 = null;
@@ -651,27 +654,29 @@ class Voice {
         velocity
       );
 
+      const numZones1 = Math.max(1, zones.length);
+      const zoneGainScale1 = 1.0 / Math.sqrt(numZones1);
+
       for (const zone of zones) {
         if (!zone.audioBuffer) continue;
         const src = this.ctx.createBufferSource();
         src.buffer = zone.audioBuffer;
 
-        src.loop = true;
+        const shouldLoop = (zone.loopMode === 1 || zone.loopMode === 3);
+        src.loop = shouldLoop;
         const sr = zone.sampleRate || 44100;
         const sStart = zone.startSample;
         const lStart = zone.startLoopSample;
         const lEnd = zone.endLoopSample;
 
-        if ((zone.loopMode === 1 || zone.loopMode === 3) && lEnd > lStart + 16) {
+        if (shouldLoop && lEnd > lStart + 16) {
           src.loopStart = Math.max(0, (lStart - sStart) / sr);
           src.loopEnd = Math.min(zone.audioBuffer.duration, (lEnd - sStart) / sr);
-        } else {
-          src.loopStart = 0;
-          src.loopEnd = zone.audioBuffer.duration;
         }
 
         const zoneGain = this.ctx.createGain();
-        zoneGain.gain.setValueAtTime(zone.attenuation, time);
+        const targetGain = Math.min(1.5, zone.attenuation * zoneGainScale1 * 1.2);
+        zoneGain.gain.setValueAtTime(targetGain, time);
         src.connect(zoneGain);
         zoneGain.connect(this.vco1Gain);
 
@@ -729,27 +734,29 @@ class Voice {
         velocity
       );
 
+      const numZones2 = Math.max(1, zones.length);
+      const zoneGainScale2 = 1.0 / Math.sqrt(numZones2);
+
       for (const zone of zones) {
         if (!zone.audioBuffer) continue;
         const src = this.ctx.createBufferSource();
         src.buffer = zone.audioBuffer;
 
-        src.loop = true;
+        const shouldLoop = (zone.loopMode === 1 || zone.loopMode === 3);
+        src.loop = shouldLoop;
         const sr = zone.sampleRate || 44100;
         const sStart = zone.startSample;
         const lStart = zone.startLoopSample;
         const lEnd = zone.endLoopSample;
 
-        if ((zone.loopMode === 1 || zone.loopMode === 3) && lEnd > lStart + 16) {
+        if (shouldLoop && lEnd > lStart + 16) {
           src.loopStart = Math.max(0, (lStart - sStart) / sr);
           src.loopEnd = Math.min(zone.audioBuffer.duration, (lEnd - sStart) / sr);
-        } else {
-          src.loopStart = 0;
-          src.loopEnd = zone.audioBuffer.duration;
         }
 
         const zoneGain = this.ctx.createGain();
-        zoneGain.gain.setValueAtTime(zone.attenuation, time);
+        const targetGain = Math.min(1.5, zone.attenuation * zoneGainScale2 * 1.2);
+        zoneGain.gain.setValueAtTime(targetGain, time);
         src.connect(zoneGain);
         zoneGain.connect(this.vco2Gain);
 
@@ -1024,6 +1031,15 @@ class Voice {
       vcaAttack = 0.003;
       vcaDecay = 0.005;
       vcaSustain = 1.0;
+    }
+
+    // For Soundfonts, soundfont samples have natural recorded decay/sustain.
+    // Ensure sustain defaults to 1.0 unless explicitly using a custom ENV1.
+    if (vco1SoundfontEnabled || vco2SoundfontEnabled) {
+      if (this.params.vcaSource !== 'env1') {
+        vcaSustain = 1.0;
+        vcaDecay = 0.005;
+      }
     }
 
     // VCA Envelope - Smooth analog-style non-zero-resetting attack to prevent clicks and gasps
@@ -1438,6 +1454,15 @@ class Voice {
       this.filter.frequency.cancelScheduledValues(time);
       this.filter.frequency.setValueAtTime(this.filter.frequency.value, time);
       this.filter.frequency.setTargetAtTime(this.params.filterCutoff, time, Math.max(0.001, envRelease / 3));
+
+      // Schedule soundfont nodes to stop cleanly AFTER the release envelope completes
+      const fontStopTime = time + releaseDuration + 0.2;
+      this.vco1SoundfontNodes.forEach(node => {
+        try { node.src.stop(fontStopTime); } catch (e) {}
+      });
+      this.vco2SoundfontNodes.forEach(node => {
+        try { node.src.stop(fontStopTime); } catch (e) {}
+      });
     }
 
     if (this.stopTimer) {
@@ -2153,13 +2178,13 @@ export class JupiterEngine {
     this.compressorWet = this.ctx.createGain();
     this.compressor = this.ctx.createDynamicsCompressor();
     
-    // Limiter (Fixed safety)
+    // Limiter (Transparent peak protection safety)
     this.limiter = this.ctx.createDynamicsCompressor();
-    this.limiter.threshold.value = -0.5;
-    this.limiter.knee.value = 0;
-    this.limiter.ratio.value = 20;
-    this.limiter.attack.value = 0.001;
-    this.limiter.release.value = 0.1;
+    this.limiter.threshold.value = -3.0;
+    this.limiter.knee.value = 6;
+    this.limiter.ratio.value = 8;
+    this.limiter.attack.value = 0.005;
+    this.limiter.release.value = 0.15;
 
     // Internal master flow: Voices/FX -> MasterBus (summing) -> Master Chain (Dist/Trem/Les) -> Comp/Limiter -> Out
 

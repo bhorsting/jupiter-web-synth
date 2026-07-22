@@ -30,6 +30,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
   useEffect(() => {
     if (isOpen) {
       loadDownloadedList();
+      if (settings.googleDriveApiKey && settings.googleDriveFolderId) {
+        handleFetchDriveFiles();
+      }
     }
   }, [isOpen]);
 
@@ -37,10 +40,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
     setIsListing(true);
     setSyncError(null);
     try {
-      const list = await soundfontService.listFromDrive(settings);
-      setDriveFiles(list);
+      const engine = (window as any).jupiterEngine;
+      const res = await soundfontService.syncFromDrive(settings, engine?.ctx);
+      setDriveFiles(res.driveFiles);
+      setDownloadedFiles(res.downloadedFiles);
     } catch (err: any) {
-      setSyncError(err.message || 'Failed to list files from Google Drive');
+      setSyncError(err.message || 'Failed to sync files from Google Drive');
     } finally {
       setIsListing(false);
     }
@@ -136,7 +141,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
               animate={{ scale: 1, opacity: 1, y: 0 }}
               exit={{ scale: 0.95, opacity: 0, y: 20 }}
               onClick={e => e.stopPropagation()}
-              className="bg-[#1a1a1a] border border-zinc-800 w-full max-w-2xl rounded-xl overflow-hidden shadow-2xl flex flex-col max-h-[90vh]"
+              className="bg-[#1a1a1a] border border-zinc-800 w-full max-w-2xl rounded-none overflow-hidden shadow-2xl flex flex-col max-h-[90vh]"
             >
               {/* Header */}
               <div className="px-6 py-4 border-b border-zinc-800 flex items-center justify-between bg-zinc-900/50">
@@ -146,7 +151,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                 </div>
                 <button 
                   onClick={onClose}
-                  className="p-1 hover:bg-white/10 rounded-lg transition-colors text-zinc-400 hover:text-white"
+                  className="p-1 hover:bg-white/10 rounded-none transition-colors text-zinc-400 hover:text-white"
                 >
                   <X className="w-5 h-5" />
                 </button>
@@ -374,37 +379,37 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                     <button
                       onClick={handleFetchDriveFiles}
                       disabled={isListing || !settings.googleDriveApiKey || !settings.googleDriveFolderId}
-                      className="flex items-center gap-2 px-4 py-2 bg-zinc-900 border border-zinc-800 hover:border-cyan-500/40 text-cyan-400 text-xs font-bold uppercase tracking-wider transition-all rounded disabled:opacity-50 disabled:cursor-not-allowed"
+                      className="flex items-center gap-2 px-4 py-2 bg-zinc-900 border border-zinc-800 hover:border-cyan-500/40 text-cyan-400 text-xs font-bold uppercase tracking-wider transition-all rounded-none disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       {isListing ? (
                         <>
                           <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                          Fetching Folder...
+                          Syncing Soundfonts...
                         </>
                       ) : (
                         <>
                           <RefreshCw className="w-3.5 h-3.5" />
-                          Fetch Folder Files
+                          Sync Soundfonts
                         </>
                       )}
                     </button>
                     
                     <button
                       onClick={loadDownloadedList}
-                      className="px-4 py-2 bg-zinc-900 border border-zinc-800 hover:border-zinc-700 text-zinc-400 text-xs font-bold uppercase tracking-wider transition-all rounded"
+                      className="px-4 py-2 bg-zinc-900 border border-zinc-800 hover:border-zinc-700 text-zinc-400 text-xs font-bold uppercase tracking-wider transition-all rounded-none"
                     >
                       Refresh Local Files
                     </button>
                   </div>
 
                   {syncError && (
-                    <p className="text-xs text-red-400 bg-red-950/20 border border-red-900/30 p-2.5 rounded">
+                    <p className="text-xs text-red-400 bg-red-950/20 border border-red-900/30 p-2.5 rounded-none">
                       {syncError}
                     </p>
                   )}
 
                   {/* Combined Files List */}
-                  <div className="bg-black/20 border border-zinc-800 rounded-lg overflow-hidden">
+                  <div className="bg-black/20 border border-zinc-800 rounded-none overflow-hidden">
                     <div className="bg-zinc-900/40 px-3 py-2 border-b border-zinc-800 flex justify-between items-center">
                       <span className="text-[10px] uppercase tracking-widest text-zinc-400 font-bold">Active Soundfont Library</span>
                       <span className="text-[9px] text-zinc-500 font-mono">OPFS OFFLINE CACHE</span>
@@ -413,7 +418,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                     <div className="divide-y divide-zinc-900 max-h-52 overflow-y-auto custom-scrollbar">
                       {driveFiles.length === 0 && downloadedFiles.length === 0 && (
                         <div className="p-4 text-center text-zinc-600 text-xs uppercase tracking-wider">
-                          No files found. Configure Drive and Fetch to sync.
+                          No files found. Configure Drive and Sync to download soundfonts.
                         </div>
                       )}
 
@@ -433,12 +438,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                             <div className="flex items-center gap-2 shrink-0">
                               {isDownloaded ? (
                                 <>
-                                  <span className="text-[10px] text-emerald-400 font-bold uppercase bg-emerald-950/30 border border-emerald-900/40 px-2 py-0.5 rounded">
+                                  <span className="text-[10px] text-emerald-400 font-bold uppercase bg-emerald-950/30 border border-emerald-900/40 px-2 py-0.5 rounded-none">
                                     Downloaded
                                   </span>
                                   <button
                                     onClick={() => handleDeleteFile(file.name)}
-                                    className="p-1 hover:bg-red-950/40 hover:border-red-900/40 border border-transparent rounded text-zinc-500 hover:text-red-400 transition-colors"
+                                    className="p-1 hover:bg-red-950/40 hover:border-red-900/40 border border-transparent rounded-none text-zinc-500 hover:text-red-400 transition-colors"
                                     title="Delete from cache"
                                   >
                                     <Trash2 className="w-3.5 h-3.5" />
@@ -448,7 +453,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                                 <button
                                   onClick={() => handleDownload(file.id!, file.name)}
                                   disabled={isDownloading || !file.id}
-                                  className="flex items-center gap-1.5 px-2.5 py-1 bg-cyan-950/30 hover:bg-cyan-900/40 border border-cyan-900/40 hover:border-cyan-500/40 rounded text-cyan-400 text-[10px] font-bold uppercase tracking-wider transition-all disabled:opacity-50"
+                                  className="flex items-center gap-1.5 px-2.5 py-1 bg-cyan-950/30 hover:bg-cyan-900/40 border border-cyan-900/40 hover:border-cyan-500/40 rounded-none text-cyan-400 text-[10px] font-bold uppercase tracking-wider transition-all disabled:opacity-50"
                                 >
                                   {isDownloading ? (
                                     <>
@@ -482,7 +487,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                       <button
                         key={t}
                         onClick={() => updateSettings({ theme: t as any })}
-                        className={`px-3 py-3 rounded border text-[10px] uppercase font-bold transition-all ${
+                        className={`px-3 py-3 rounded-none border text-[10px] uppercase font-bold transition-all ${
                           settings.theme === t 
                             ? 'bg-orange-500/10 border-orange-500 text-orange-500' 
                             : 'bg-black/20 border-zinc-800 text-zinc-500 hover:border-zinc-700'
@@ -495,7 +500,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                 </section>
 
                 {/* Warning Card */}
-                <div className="bg-red-500/5 border border-red-500/20 rounded-lg p-3 flex gap-3 items-start">
+                <div className="bg-red-500/5 border border-red-500/20 rounded-none p-3 flex gap-3 items-start">
                   <ShieldAlert className="w-4 h-4 text-red-500 shrink-0 mt-0.5" />
                   <div>
                     <p className="text-[10px] text-red-200/60 leading-relaxed uppercase font-bold tracking-tight">
@@ -516,7 +521,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                 <div className="flex gap-3">
                   <button 
                     onClick={onClose}
-                    className="px-6 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-bold uppercase tracking-widest rounded-lg transition-all"
+                    className="px-6 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-bold uppercase tracking-widest rounded-none transition-all"
                   >
                     Close
                   </button>
