@@ -37,7 +37,7 @@ import { MidiDebugger, MidiDebugEvent } from './components/MidiDebugger';
 import { SettingsProvider, useSettings } from './contexts/SettingsContext';
 import { googleSheetsService } from './services/GoogleSheetsService';
 import { indexedDBService } from './services/IndexedDBService';
-import { soundfontService } from './services/SoundfontService';
+import { soundfontService, getGoogleDriveApiKey } from './services/SoundfontService';
 import { PRESET_PATCHES } from './constants/presetPatches';
 import { DURAN_PATCHES, DURAN_MULTIS, DURAN_SETLIST } from './constants/duranPresets';
 import 'react-simple-keyboard/build/css/index.css';
@@ -746,7 +746,7 @@ function App() {
   }, []);
 
   useEffect(() => {
-    if (settings.googleDriveApiKey && settings.googleDriveFolderId) {
+    if (getGoogleDriveApiKey(settings) && settings.googleDriveFolderId) {
       soundfontService.syncFromDrive(settings, engineRef.current?.ctx).then(res => {
         if (res.syncedCount > 0) {
           console.log(`App: Auto-downloaded and installed ${res.syncedCount} new soundfont(s) from Google Drive`);

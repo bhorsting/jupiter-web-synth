@@ -312,6 +312,10 @@ class Voice {
   }
 
   triggerAttack(midiNote: number, lastFreq: number, time: number, isLegato: boolean = false, velocity: number = 1) {
+    if (this.stopTimer) {
+      clearTimeout(this.stopTimer);
+      this.stopTimer = null;
+    }
     // Kill existing transient nodes if any
     this.killTransientNodes(time);
 
@@ -1213,6 +1217,10 @@ class Voice {
   }
 
   private killTransientNodes(time: number) {
+    if (this.stopTimer) {
+      clearTimeout(this.stopTimer);
+      this.stopTimer = null;
+    }
     if (this.vco1) {
       try { this.vco1.stop(time); } catch(e) {}
       this.vco1.disconnect();

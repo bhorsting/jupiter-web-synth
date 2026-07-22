@@ -35,6 +35,15 @@ export interface SoundfontPresetInfo {
   zones: SoundfontZone[];
 }
 
+export function getGoogleDriveApiKey(settings?: PerformanceSettings): string {
+  return (
+    process.env.GOOGLE_DRIVE_API_KEY ||
+    (import.meta as any).env?.VITE_GOOGLE_DRIVE_API_KEY ||
+    settings?.googleDriveApiKey ||
+    ''
+  );
+}
+
 class SoundfontService {
   private decodedCache: Map<string, AudioBuffer> = new Map();
   private fileBufferCache: Map<string, ArrayBuffer> = new Map();
@@ -45,7 +54,7 @@ class SoundfontService {
    * List all soundfont files from the configured Google Drive directory
    */
   async listFromDrive(settings: PerformanceSettings): Promise<SoundfontFile[]> {
-    const apiKey = settings.googleDriveApiKey;
+    const apiKey = getGoogleDriveApiKey(settings);
     const folderId = settings.googleDriveFolderId;
 
     if (!apiKey || !folderId) {
@@ -134,7 +143,7 @@ class SoundfontService {
    * Download a file from Drive and save to OPFS
    */
   async downloadAndSave(fileId: string, name: string, settings: PerformanceSettings): Promise<void> {
-    const apiKey = settings.googleDriveApiKey;
+    const apiKey = getGoogleDriveApiKey(settings);
     if (!apiKey) {
       throw new Error('Google Drive API Key is not configured.');
     }
@@ -163,7 +172,8 @@ class SoundfontService {
    * Downloads any file from Drive that is not yet in OPFS.
    */
   async syncFromDrive(settings: PerformanceSettings, ctx?: AudioContext): Promise<{ syncedCount: number; driveFiles: SoundfontFile[]; downloadedFiles: string[] }> {
-    if (!settings.googleDriveApiKey || !settings.googleDriveFolderId) {
+    const apiKey = getGoogleDriveApiKey(settings);
+    if (!apiKey || !settings.googleDriveFolderId) {
       const downloadedFiles = await this.listDownloadedFiles();
       return { syncedCount: 0, driveFiles: [], downloadedFiles };
     }

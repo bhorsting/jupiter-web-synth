@@ -31,6 +31,7 @@ export default defineConfig(({mode}) => {
     ],
     define: {
       'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY),
+      'process.env.GOOGLE_DRIVE_API_KEY': JSON.stringify(env.GOOGLE_DRIVE_API_KEY || env.VITE_GOOGLE_DRIVE_API_KEY || ''),
     },
     resolve: {
       alias: {

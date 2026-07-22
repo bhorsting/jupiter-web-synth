@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { X, Settings2, Sliders, Cpu, Volume2, Palette, ShieldAlert, Piano, RotateCw, Bluetooth, Cloud, RefreshCw, Trash2, Download } from 'lucide-react';
 import { useSettings } from '../contexts/SettingsContext';
-import { soundfontService } from '../services/SoundfontService';
+import { soundfontService, getGoogleDriveApiKey } from '../services/SoundfontService';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -30,7 +30,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
   useEffect(() => {
     if (isOpen) {
       loadDownloadedList();
-      if (settings.googleDriveApiKey && settings.googleDriveFolderId) {
+      if (getGoogleDriveApiKey(settings) && settings.googleDriveFolderId) {
         handleFetchDriveFiles();
       }
     }
@@ -352,33 +352,21 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                     <h3 className="text-xs font-bold uppercase tracking-wider">Soundfont / Sample Sync (Google Drive)</h3>
                   </div>
 
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="space-y-1">
-                      <label className="text-[10px] uppercase tracking-widest text-zinc-500 font-bold">Google Drive API Key</label>
-                      <input 
-                        type="password"
-                        placeholder="Enter API Key"
-                        value={settings.googleDriveApiKey || ''}
-                        onChange={(e) => updateSettings({ googleDriveApiKey: e.target.value })}
-                        className="w-full bg-black/40 border border-zinc-800 rounded px-3 py-2 text-xs text-zinc-300 outline-none focus:border-cyan-500/50"
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <label className="text-[10px] uppercase tracking-widest text-zinc-500 font-bold">Folder ID</label>
-                      <input 
-                        type="text"
-                        placeholder="Enter Folder ID"
-                        value={settings.googleDriveFolderId || ''}
-                        onChange={(e) => updateSettings({ googleDriveFolderId: e.target.value })}
-                        className="w-full bg-black/40 border border-zinc-800 rounded px-3 py-2 text-xs text-zinc-300 outline-none focus:border-cyan-500/50"
-                      />
-                    </div>
+                  <div className="space-y-1">
+                    <label className="text-[10px] uppercase tracking-widest text-zinc-500 font-bold">Folder ID</label>
+                    <input 
+                      type="text"
+                      placeholder="Enter Google Drive Folder ID"
+                      value={settings.googleDriveFolderId || ''}
+                      onChange={(e) => updateSettings({ googleDriveFolderId: e.target.value })}
+                      className="w-full bg-black/40 border border-zinc-800 rounded px-3 py-2 text-xs text-zinc-300 outline-none focus:border-cyan-500/50"
+                    />
                   </div>
 
                   <div className="flex gap-2">
                     <button
                       onClick={handleFetchDriveFiles}
-                      disabled={isListing || !settings.googleDriveApiKey || !settings.googleDriveFolderId}
+                      disabled={isListing || !getGoogleDriveApiKey(settings) || !settings.googleDriveFolderId}
                       className="flex items-center gap-2 px-4 py-2 bg-zinc-900 border border-zinc-800 hover:border-cyan-500/40 text-cyan-400 text-xs font-bold uppercase tracking-wider transition-all rounded-none disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       {isListing ? (
