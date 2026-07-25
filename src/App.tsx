@@ -28,7 +28,7 @@ import {
 } from './components/SynthPanel';
 import { DX7Panel } from './components/DX7Panel';
 import { DEFAULT_PARAMS, VoiceParams, Patch, MidiMapping, cleanVoiceParams, Multi, MultiSlot, Song, Setlist } from './types';
-import { Power, Save, FolderOpen, Sliders, Waves, Activity, Trash2, X, Keyboard as PianoIcon, Cloud, UploadCloud, DownloadCloud, Link, Maximize, Minimize, Settings2, Plus, Layers, Edit2 } from 'lucide-react';
+import { Power, Save, FolderOpen, Sliders, Waves, Activity, Trash2, X, Keyboard as PianoIcon, Cloud, UploadCloud, DownloadCloud, Link, Maximize, Minimize, Settings2, Plus, Layers, Edit2, Play, Pause, Square } from 'lucide-react';
 import React from 'react';
 import Keyboard from 'react-simple-keyboard';
 import { PianoKeyboard } from './components/PianoKeyboard';
@@ -40,6 +40,7 @@ import { SettingsProvider, useSettings } from './contexts/SettingsContext';
 import { googleSheetsService } from './services/GoogleSheetsService';
 import { indexedDBService } from './services/IndexedDBService';
 import { soundfontService, getGoogleDriveApiKey } from './services/SoundfontService';
+import { midiTrackService } from './services/MidiTrackService';
 import { PRESET_PATCHES } from './constants/presetPatches';
 import { DURAN_PATCHES, DURAN_MULTIS, DURAN_SETLIST } from './constants/duranPresets';
 import 'react-simple-keyboard/build/css/index.css';
@@ -101,6 +102,9 @@ function App() {
   const [setlists, setSetlists] = useState<Setlist[]>([]);
   const [activeSetlistId, setActiveSetlistId] = useState<string | null>(null);
   const [selectedSetlistId, setSelectedSetlistId] = useState<string | null>(null);
+  const [activeSong, setActiveSong] = useState<Song | null>(null);
+  const [isMidiPlaying, setIsMidiPlaying] = useState<boolean>(false);
+  const [midiProgress, setMidiProgress] = useState<{ current: number; duration: number }>({ current: 0, duration: 0 });
   const [newSongName, setNewSongName] = useState('');
   const [newSongType, setNewSongType] = useState<'patch' | 'multi'>('patch');
   const [newSongTargetId, setNewSongTargetId] = useState('');
@@ -179,6 +183,14 @@ function App() {
       setMidiLedActive(false);
       midiLedTimeoutRef.current = null;
     }, 100);
+  }, []);
+
+  useEffect(() => {
+    const unsub = midiTrackService.addProgressListener((cur, dur, playing) => {
+      setMidiProgress({ current: cur, duration: dur });
+      setIsMidiPlaying(playing);
+    });
+    return unsub;
   }, []);
 
   const triggerMidiLedFlashRef = useRef<(() => void) | null>(null);
@@ -677,30 +689,7 @@ function App() {
 
     const song = activeSetlist.songs[program];
     if (song) {
-      if (song.type === 'patch') {
-        const patch = patches.find(p => p.id === song.targetId);
-        if (patch) {
-          setParams(cleanVoiceParams(patch.params));
-          setActivePatchId(patch.id);
-          setActiveMultiId(null);
-          setMidiMappings(patch.midiMappings || []);
-        }
-      } else if (song.type === 'multi') {
-        const multi = multis.find(m => m.id === song.targetId);
-        if (multi) {
-          setActiveMultiId(multi.id);
-          setActivePatchId(null);
-          setSelectedSlotIndex(0);
-          if (multi.slots.length > 0) {
-            const firstSlot = multi.slots[0];
-            const patch = patches.find(p => p.id === firstSlot.patchId);
-            if (patch) {
-              setParams(cleanVoiceParams(patch.params));
-              setMidiMappings(patch.midiMappings || []);
-            }
-          }
-        }
-      }
+      handleLoadSong(song);
     }
   }, [setlists, activeSetlistId, patches, multis, settings.midiChannel, addMidiDebugEvent]);
 
@@ -1302,21 +1291,53 @@ function App() {
   };
 
   const handleLoadSong = (song: Song) => {
-    if (song.type === 'patch') {
-      const patch = patches.find(p => p.id === song.targetId);
-      if (patch) {
-        loadPatch(patch);
-      } else {
-        alert('Associated Patch not found!');
-      }
-    } else if (song.type === 'multi') {
+    setActiveSong(song);
+    if (song.type === 'multi') {
       const multi = multis.find(m => m.id === song.targetId);
       if (multi) {
         loadMulti(multi);
       } else {
-        alert('Associated Multi not found!');
+        showCustomAlert('NOTICE', 'Associated Multi not found!');
+      }
+    } else if (song.type === 'patch') {
+      // Switch to multi mode if a matching Multi exists or contains this patch
+      const matchingMulti = multis.find(m => m.id === song.targetId || m.slots.some(s => s.patchId === song.targetId));
+      if (matchingMulti) {
+        loadMulti(matchingMulti);
+      } else {
+        const patch = patches.find(p => p.id === song.targetId);
+        if (patch) {
+          loadPatch(patch);
+        } else {
+          showCustomAlert('NOTICE', 'Associated Patch not found!');
+        }
       }
     }
+  };
+
+  const handleToggleMainSongPlay = async () => {
+    if (!engineRef.current || !activeSong || !activeSong.midiFile) return;
+
+    handleLoadSong(activeSong);
+
+    if (isMidiPlaying) {
+      midiTrackService.pausePlayback(engineRef.current);
+    } else {
+      await midiTrackService.startPlayback(
+        activeSong.midiFile,
+        engineRef.current,
+        activeSong.midiTrackOverrides,
+        midiProgress.current
+      );
+    }
+  };
+
+  const handleStopMainSongPlay = () => {
+    if (engineRef.current) {
+      midiTrackService.stopPlayback(engineRef.current);
+    }
+    setIsMidiPlaying(false);
+    setMidiProgress({ current: 0, duration: 0 });
   };
 
   const handleCreateMulti = async () => {
@@ -1976,6 +1997,42 @@ function App() {
           </div>
         </div>
 
+        {/* Main Screen Song Playback Widget (if song selected) */}
+        {activeSong && (
+          <div className="flex items-center gap-1.5 px-2 py-1 bg-amber-500/10 border border-amber-500/30 text-[9px] font-mono text-amber-300 ml-1 sm:ml-2 shrink-0 self-center">
+            <div className="flex flex-col min-w-0 max-w-[80px] sm:max-w-[120px] leading-tight">
+              <span className="font-bold truncate text-[8px] uppercase tracking-wider text-amber-200" title={activeSong.name}>
+                {activeSong.name}
+              </span>
+              {activeSong.midiFile ? (
+                <span className="text-[7px] text-amber-400/80 font-mono">
+                  {isMidiPlaying ? 'PLAYING' : 'READY'}
+                </span>
+              ) : (
+                <span className="text-[7px] text-zinc-500 font-mono">NO MIDI</span>
+              )}
+            </div>
+            {activeSong.midiFile && (
+              <div className="flex items-center gap-0.5 shrink-0">
+                <button
+                  onClick={handleToggleMainSongPlay}
+                  className="p-1 bg-amber-600 hover:bg-amber-500 text-white font-bold transition-all shrink-0 rounded-none flex items-center justify-center"
+                  title={isMidiPlaying ? "Pause Song Backing" : "Play Song Backing"}
+                >
+                  {isMidiPlaying ? <Pause size={10} /> : <Play size={10} />}
+                </button>
+                <button
+                  onClick={handleStopMainSongPlay}
+                  className="p-1 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 transition-all shrink-0 rounded-none flex items-center justify-center"
+                  title="Stop Song Backing"
+                >
+                  <Square size={10} />
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
         <div className="flex items-center gap-1 sm:gap-2 ml-2 h-full">
           <div className="flex items-center gap-1.5 h-full">
             <div className="flex h-full items-center px-2 sm:px-3 border-l border-white/5 gap-2 select-none" title="MIDI Input Status Indicator">
@@ -2394,9 +2451,9 @@ function App() {
                 )}
 
                 {libraryTab === 'SETLISTS' && (
-                  <div className="flex flex-col lg:flex-row gap-6 items-start mt-4">
-                    {/* Left Pane: Setlists List */}
-                    <div className="w-full lg:w-1/3 flex flex-col gap-4 bg-zinc-900/40 p-4 border border-zinc-800">
+                  <div className="flex flex-col gap-6 items-start mt-4 w-full">
+                    {/* Top Pane: Setlists List */}
+                    <div className="w-full flex flex-col gap-4 bg-zinc-900/40 p-4 border border-zinc-800">
                       <div className="flex justify-between items-center pb-2 border-b border-zinc-800">
                         <span className="text-xs font-bold uppercase tracking-widest text-zinc-400">Available Setlists</span>
                         <button
@@ -2472,8 +2529,8 @@ function App() {
                       </div>
                     </div>
 
-                    {/* Right Pane: Selected Setlist Songs */}
-                    <div className="flex-1 w-full bg-zinc-900/20 p-5 border border-zinc-800 flex flex-col gap-5">
+                    {/* Bottom Pane: Selected Setlist Songs */}
+                    <div className="w-full bg-zinc-900/20 p-5 border border-zinc-800 flex flex-col gap-5">
                       {selectedSetlistId ? (() => {
                         const currentSetlist = setlists.find(s => s.id === selectedSetlistId);
                         if (!currentSetlist) return null;
@@ -2652,6 +2709,7 @@ function App() {
                                           engine={engineRef.current}
                                           onUpdateSong={(updated) => handleUpdateSongInSetlist(currentSetlist.id, updated)}
                                           onAddPatchesAndMulti={handleAddPatchesAndMultiFromMidi}
+                                          onLoadSong={handleLoadSong}
                                         />
                                       </div>
                                     );

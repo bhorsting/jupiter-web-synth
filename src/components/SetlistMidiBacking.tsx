@@ -124,9 +124,6 @@ const SearchableSoundSelect: React.FC<SearchableSoundSelectProps> = ({ value, on
     </div>
   );
 };
-import { midiTrackService, ParsedMidiFile } from '../services/MidiTrackService';
-import { soundfontService } from '../services/SoundfontService';
-import { JupiterEngine } from '../engine/JupiterEngine';
 
 interface SetlistMidiBackingProps {
   song: Song;
@@ -136,6 +133,7 @@ interface SetlistMidiBackingProps {
   engine: JupiterEngine | null;
   onUpdateSong: (updatedSong: Song) => void;
   onAddPatchesAndMulti: (newPatches: Patch[], newMulti: Multi) => void;
+  onLoadSong?: (song: Song) => void;
 }
 
 export const SetlistMidiBacking: React.FC<SetlistMidiBackingProps> = ({
@@ -144,6 +142,7 @@ export const SetlistMidiBacking: React.FC<SetlistMidiBackingProps> = ({
   engine,
   onUpdateSong,
   onAddPatchesAndMulti,
+  onLoadSong,
 }) => {
   const [midiFiles, setMidiFiles] = useState<string[]>([]);
   const [parsedMidi, setParsedMidi] = useState<ParsedMidiFile | null>(null);
@@ -204,6 +203,9 @@ export const SetlistMidiBacking: React.FC<SetlistMidiBackingProps> = ({
       midiTrackService.pausePlayback(engine);
       setIsPlaying(false);
     } else {
+      if (onLoadSong) {
+        onLoadSong(song);
+      }
       await midiTrackService.startPlayback(
         song.midiFile,
         engine,
