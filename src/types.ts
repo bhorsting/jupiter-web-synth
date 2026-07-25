@@ -494,7 +494,7 @@ export const DEFAULT_PARAMS: VoiceParams = {
   vco1PwmMode: 'manual',
   vco1VelocitySensitivity: 0,
   vco1SoundfontEnabled: false,
-  vco1SoundfontName: '',
+  vco1SoundfontName: 'GeneralUser-GS.sf2',
   vco1SoundfontSampleIndex: 0,
   
   vco2Freq: 0,
@@ -506,7 +506,7 @@ export const DEFAULT_PARAMS: VoiceParams = {
   vco2Sync: false,
   vco2VelocitySensitivity: 0,
   vco2SoundfontEnabled: false,
-  vco2SoundfontName: '',
+  vco2SoundfontName: 'GeneralUser-GS.sf2',
   vco2SoundfontSampleIndex: 0,
   
   crossMod: 0,

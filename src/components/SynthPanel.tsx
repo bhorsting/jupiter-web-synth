@@ -443,7 +443,7 @@ interface VCO1SectionProps {
 export const VCO1Section: React.FC<VCO1SectionProps> = React.memo(({
   vco1Range, crossMod, vco1PulseWidth, vco1Waveform, vco1PwmMode, vco1VelocitySensitivity, vco1SoundfontEnabled, vco1SoundfontName, vco1SoundfontSampleIndex, updateParam, isMidiMappingMode, handleMapClick, getMappedCC, selectedMapParam
 }) => {
-  const [localSoundfonts, setLocalSoundfonts] = React.useState<string[]>([]);
+  const [localSoundfonts, setLocalSoundfonts] = React.useState<string[]>(['GeneralUser-GS.sf2']);
   const [availableSamples, setAvailableSamples] = React.useState<Array<{ index: number; name: string }>>([]);
 
   React.useEffect(() => {
@@ -458,6 +458,14 @@ export const VCO1Section: React.FC<VCO1SectionProps> = React.memo(({
       window.removeEventListener('soundfontsUpdated', updateList);
     };
   }, []);
+
+  React.useEffect(() => {
+    if (vco1SoundfontEnabled && !vco1SoundfontName) {
+      const defaultSf = localSoundfonts.includes('GeneralUser-GS.sf2') ? 'GeneralUser-GS.sf2' : (localSoundfonts[0] || 'GeneralUser-GS.sf2');
+      updateParam('vco1SoundfontName', defaultSf);
+      updateParam('vco1SoundfontSampleIndex', 0);
+    }
+  }, [vco1SoundfontEnabled, vco1SoundfontName, localSoundfonts, updateParam]);
 
   React.useEffect(() => {
     if (vco1SoundfontName) {
@@ -618,7 +626,7 @@ interface VCO2SectionProps {
 export const VCO2Section: React.FC<VCO2SectionProps> = React.memo(({
   vco2Range, vco2Freq, vco2Detune, vco2Waveform, vco2Sync, vco2PwmMode, vco2VelocitySensitivity, vco2SoundfontEnabled, vco2SoundfontName, vco2SoundfontSampleIndex, updateParam, isMidiMappingMode, handleMapClick, getMappedCC, selectedMapParam
 }) => {
-  const [localSoundfonts, setLocalSoundfonts] = React.useState<string[]>([]);
+  const [localSoundfonts, setLocalSoundfonts] = React.useState<string[]>(['GeneralUser-GS.sf2']);
   const [availableSamples, setAvailableSamples] = React.useState<Array<{ index: number; name: string }>>([]);
 
   React.useEffect(() => {
@@ -633,6 +641,14 @@ export const VCO2Section: React.FC<VCO2SectionProps> = React.memo(({
       window.removeEventListener('soundfontsUpdated', updateList);
     };
   }, []);
+
+  React.useEffect(() => {
+    if (vco2SoundfontEnabled && !vco2SoundfontName) {
+      const defaultSf = localSoundfonts.includes('GeneralUser-GS.sf2') ? 'GeneralUser-GS.sf2' : (localSoundfonts[0] || 'GeneralUser-GS.sf2');
+      updateParam('vco2SoundfontName', defaultSf);
+      updateParam('vco2SoundfontSampleIndex', 0);
+    }
+  }, [vco2SoundfontEnabled, vco2SoundfontName, localSoundfonts, updateParam]);
 
   React.useEffect(() => {
     if (vco2SoundfontName) {

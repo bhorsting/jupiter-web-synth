@@ -258,17 +258,19 @@ export const JupiterToggle: React.FC<ToggleProps> = React.memo(({
   return (
     <div className="flex flex-col items-center w-12 pt-2 pb-8 relative">
       <button 
-        onClick={() => {
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
           if (isMapMode) {
             onMapClick?.();
           } else {
             onChange(!active);
           }
         }}
-        className={`w-10 aspect-square transition-all flex items-center justify-center relative ${
+        className={`w-10 aspect-square transition-all flex items-center justify-center relative cursor-pointer ${
           active 
             ? `${color} shadow-[0_0_15px_rgba(255,255,255,0.1)] border border-white/20` 
-            : 'bg-[#222] border border-transparent'
+            : 'bg-[#222] border border-transparent hover:bg-zinc-800'
         } ${
           isMapMode 
             ? isSelected 

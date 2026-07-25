@@ -35,6 +35,14 @@ export interface SoundfontPresetInfo {
   zones: SoundfontZone[];
 }
 
+export const DEFAULT_SOUNDFONTS: Record<string, { name: string; url: string; size?: number }> = {
+  'GeneralUser-GS.sf2': {
+    name: 'GeneralUser-GS.sf2',
+    url: 'https://raw.githubusercontent.com/mrbumpy409/GeneralUser-GS/main/GeneralUser-GS.sf2',
+    size: 32319396,
+  },
+};
+
 export function getGoogleDriveApiKey(settings?: PerformanceSettings): string {
   return (
     process.env.GOOGLE_DRIVE_API_KEY ||
@@ -49,6 +57,7 @@ class SoundfontService {
   private fileBufferCache: Map<string, ArrayBuffer> = new Map();
   private sampleListCache: Map<string, Array<{ index: number; name: string }>> = new Map();
   private parsedSF2Cache: Map<string, SoundfontPresetInfo[]> = new Map();
+  private downloadPromises: Map<string, Promise<ArrayBuffer>> = new Map();
 
   /**
    * List all soundfont files from the configured Google Drive directory
@@ -90,7 +99,7 @@ class SoundfontService {
   }
 
   /**
-   * List all files currently downloaded in OPFS
+   * List all files currently downloaded in OPFS (including built-in default soundfonts)
    */
   async listDownloadedFiles(): Promise<string[]> {
     try {
@@ -104,10 +113,16 @@ class SoundfontService {
           files.push(value.name);
         }
       }
+      // Include built-in default soundfonts if not already in OPFS
+      for (const defaultSf of Object.keys(DEFAULT_SOUNDFONTS)) {
+        if (!files.includes(defaultSf)) {
+          files.push(defaultSf);
+        }
+      }
       return files;
     } catch (e) {
       console.error('Failed to list downloaded files from OPFS:', e);
-      return [];
+      return Object.keys(DEFAULT_SOUNDFONTS);
     }
   }
 
@@ -207,18 +222,59 @@ class SoundfontService {
   }
 
   /**
-   * Get raw ArrayBuffer from OPFS or memory cache
+   * Get raw ArrayBuffer from OPFS or memory cache (or download default soundfont on demand)
    */
   private async getFileBuffer(name: string): Promise<ArrayBuffer> {
     if (this.fileBufferCache.has(name)) {
       return this.fileBufferCache.get(name)!;
     }
-    const root = await navigator.storage.getDirectory();
-    const fileHandle = await root.getFileHandle(name);
-    const file = await fileHandle.getFile();
-    const arrayBuffer = await file.arrayBuffer();
-    this.fileBufferCache.set(name, arrayBuffer);
-    return arrayBuffer;
+    if (this.downloadPromises.has(name)) {
+      return this.downloadPromises.get(name)!;
+    }
+
+    const fetchPromise = (async () => {
+      try {
+        const root = await navigator.storage.getDirectory();
+        const fileHandle = await root.getFileHandle(name);
+        const file = await fileHandle.getFile();
+        const arrayBuffer = await file.arrayBuffer();
+        this.fileBufferCache.set(name, arrayBuffer);
+        return arrayBuffer;
+      } catch (opfsErr) {
+        // If file not in OPFS, check if it is a default soundfont and fetch on demand
+        if (DEFAULT_SOUNDFONTS[name]) {
+          console.log(`Downloading default soundfont ${name} from ${DEFAULT_SOUNDFONTS[name].url}...`);
+          const res = await fetch(DEFAULT_SOUNDFONTS[name].url);
+          if (!res.ok) {
+            throw new Error(`Failed to download default soundfont ${name}: ${res.statusText}`);
+          }
+          const arrayBuffer = await res.arrayBuffer();
+          this.fileBufferCache.set(name, arrayBuffer);
+
+          // Save to OPFS in background so future reads are instant
+          try {
+            const root = await navigator.storage.getDirectory();
+            const fileHandle = await root.getFileHandle(name, { create: true });
+            const writable = await fileHandle.createWritable();
+            await writable.write(arrayBuffer);
+            await writable.close();
+            if (typeof window !== 'undefined') {
+              window.dispatchEvent(new Event('soundfontsUpdated'));
+            }
+          } catch (writeErr) {
+            console.warn(`Could not cache default soundfont ${name} to OPFS:`, writeErr);
+          }
+
+          return arrayBuffer;
+        }
+        throw opfsErr;
+      } finally {
+        this.downloadPromises.delete(name);
+      }
+    })();
+
+    this.downloadPromises.set(name, fetchPromise);
+    return fetchPromise;
   }
 
   /**
@@ -908,9 +964,10 @@ class SoundfontService {
   }
 
   /**
-   * Quick check if file exists in OPFS
+   * Quick check if file exists in OPFS or is default soundfont
    */
   async existsInOPFS(name: string): Promise<boolean> {
+    if (DEFAULT_SOUNDFONTS[name]) return true;
     try {
       const root = await navigator.storage.getDirectory();
       await root.getFileHandle(name);

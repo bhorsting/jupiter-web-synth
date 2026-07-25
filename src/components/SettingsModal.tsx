@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { X, Settings2, Sliders, Cpu, Volume2, Palette, ShieldAlert, Piano, RotateCw, Bluetooth, Cloud, RefreshCw, Trash2, Download } from 'lucide-react';
 import { useSettings } from '../contexts/SettingsContext';
-import { soundfontService, getGoogleDriveApiKey } from '../services/SoundfontService';
+import { soundfontService, getGoogleDriveApiKey, DEFAULT_SOUNDFONTS } from '../services/SoundfontService';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -88,8 +88,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
   };
 
   const mergedFilesMap = new Map<string, { id?: string; name: string; size?: number }>();
+  Object.values(DEFAULT_SOUNDFONTS).forEach(sf => {
+    mergedFilesMap.set(sf.name, { name: sf.name, size: sf.size });
+  });
   downloadedFiles.forEach(name => {
-    mergedFilesMap.set(name, { name });
+    if (!mergedFilesMap.has(name)) {
+      mergedFilesMap.set(name, { name });
+    }
   });
   driveFiles.forEach(df => {
     mergedFilesMap.set(df.name, { id: df.id, name: df.name, size: df.size });
