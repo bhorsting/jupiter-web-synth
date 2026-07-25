@@ -879,8 +879,8 @@ function App() {
     setIsSyncing(true);
     setSyncError(null);
     try {
-      await googleSheetsService.saveToSheet(patches, multis, settings.googleSheetUrl);
-      showCustomAlert('SYNC COMPLETE', 'Library (Patches & Multis) synced to Google Sheets successfully!');
+      await googleSheetsService.saveToSheet(patches, multis, setlists, settings.googleSheetUrl);
+      showCustomAlert('SYNC COMPLETE', 'Library (Patches, Multis & Setlists) synced to Google Sheets successfully!');
     } catch (error: any) {
       console.error(error);
       setSyncError(error.message || 'Failed to sync');
@@ -893,15 +893,16 @@ function App() {
     if (!settings.googleSheetUrl) return;
     showCustomConfirm(
       'OVERWRITE LOCAL LIBRARY',
-      'This will overwrite local library with patches and multis from Google Sheets. Continue?',
+      'This will overwrite local library with patches, multis, and setlists from Google Sheets. Continue?',
       async () => {
         setIsSyncing(true);
         setSyncError(null);
         try {
           const result = await googleSheetsService.loadFromSheet(settings.googleSheetUrl);
-          setPatches(result.patches);
-          setMultis(result.multis);
-          showCustomAlert('SYNC COMPLETE', 'Library (Patches & Multis) updated from Google Sheets!');
+          if (result.patches && result.patches.length > 0) setPatches(result.patches);
+          if (result.multis && result.multis.length > 0) setMultis(result.multis);
+          if (result.setlists && result.setlists.length > 0) setSetlists(result.setlists);
+          showCustomAlert('SYNC COMPLETE', 'Library (Patches, Multis & Setlists) updated from Google Sheets!');
         } catch (error: any) {
           console.error(error);
           setSyncError(error.message || 'Failed to load');

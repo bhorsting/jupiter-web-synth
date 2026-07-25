@@ -1,6 +1,129 @@
-import React, { useEffect, useState } from 'react';
-import { Play, Square, Pause, Music, Sliders, Wand2, Volume2, VolumeX, ChevronDown, ChevronUp } from 'lucide-react';
+import React, { useEffect, useState, useRef } from 'react';
+import { Play, Square, Pause, Music, Sliders, Wand2, Volume2, VolumeX, ChevronDown, ChevronUp, Search, X } from 'lucide-react';
 import { Song, Patch, Multi } from '../types';
+import { midiTrackService, ParsedMidiFile } from '../services/MidiTrackService';
+import { soundfontService } from '../services/SoundfontService';
+import { JupiterEngine } from '../engine/JupiterEngine';
+
+interface SearchableSoundSelectProps {
+  value: string;
+  onChange: (patchId: string) => void;
+  patches: Patch[];
+}
+
+const SearchableSoundSelect: React.FC<SearchableSoundSelectProps> = ({ value, onChange, patches }) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const [search, setSearch] = useState('');
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  const selectedPatch = patches.find(p => p.id === value);
+  const selectedLabel = selectedPatch ? selectedPatch.name : 'Default Soundfont';
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setIsOpen(false);
+      }
+    };
+    if (isOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [isOpen]);
+
+  const filteredPatches = patches.filter(p => {
+    const query = search.toLowerCase();
+    const nameMatch = p.name.toLowerCase().includes(query);
+    const engineMatch = p.engineType ? p.engineType.toLowerCase().includes(query) : false;
+    return nameMatch || engineMatch;
+  });
+
+  return (
+    <div className="relative inline-block text-left" ref={dropdownRef}>
+      <button
+        type="button"
+        onClick={() => setIsOpen(!isOpen)}
+        className="bg-zinc-900 border border-zinc-800 text-[9px] font-mono text-zinc-300 px-2 py-1 focus:border-amber-500 outline-none w-[130px] sm:w-[150px] flex items-center justify-between gap-1 truncate rounded-none hover:bg-zinc-800 transition-colors"
+        title={selectedLabel}
+      >
+        <span className="truncate text-left text-amber-400/90 font-bold">{selectedLabel}</span>
+        <ChevronDown className="w-3 h-3 text-zinc-500 shrink-0" />
+      </button>
+
+      {isOpen && (
+        <div className="absolute right-0 mt-1 w-56 bg-zinc-950 border border-zinc-700 shadow-2xl z-50 p-1.5 space-y-1.5 max-h-60 flex flex-col">
+          <div className="relative flex items-center">
+            <Search className="w-3 h-3 absolute left-2 text-zinc-500 pointer-events-none" />
+            <input
+              type="text"
+              autoFocus
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search patch..."
+              className="w-full bg-zinc-900 border border-zinc-800 text-[10px] text-zinc-200 pl-6 pr-6 py-1 focus:border-amber-500 outline-none font-mono"
+            />
+            {search && (
+              <button
+                type="button"
+                onClick={() => setSearch('')}
+                className="absolute right-1.5 text-zinc-500 hover:text-white"
+              >
+                <X className="w-3 h-3" />
+              </button>
+            )}
+          </div>
+
+          <div className="overflow-y-auto flex-1 custom-scrollbar space-y-0.5 max-h-40">
+            <button
+              type="button"
+              onClick={() => {
+                onChange('');
+                setIsOpen(false);
+                setSearch('');
+              }}
+              className={`w-full text-left px-2 py-1 text-[9px] font-mono hover:bg-zinc-800 transition-colors ${
+                value === '' ? 'bg-amber-500/20 text-amber-400 font-bold' : 'text-zinc-400'
+              }`}
+            >
+              Default Soundfont
+            </button>
+
+            {filteredPatches.length === 0 ? (
+              <div className="px-2 py-1.5 text-[9px] text-zinc-600 font-mono italic text-center">
+                No patches found
+              </div>
+            ) : (
+              filteredPatches.map((p) => (
+                <button
+                  key={p.id}
+                  type="button"
+                  onClick={() => {
+                    onChange(p.id);
+                    setIsOpen(false);
+                    setSearch('');
+                  }}
+                  className={`w-full text-left px-2 py-1 text-[9px] font-mono hover:bg-amber-500/10 hover:text-amber-300 transition-colors truncate flex items-center justify-between gap-2 ${
+                    value === p.id ? 'bg-amber-500/20 text-amber-400 font-bold' : 'text-zinc-300'
+                  }`}
+                  title={p.name}
+                >
+                  <span className="truncate">{p.name}</span>
+                  {p.engineType && (
+                    <span className="text-[7px] uppercase tracking-wider px-1 py-0.5 bg-zinc-800 text-zinc-400 shrink-0">
+                      {p.engineType}
+                    </span>
+                  )}
+                </button>
+              ))
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
 import { midiTrackService, ParsedMidiFile } from '../services/MidiTrackService';
 import { soundfontService } from '../services/SoundfontService';
 import { JupiterEngine } from '../engine/JupiterEngine';
@@ -271,18 +394,11 @@ export const SetlistMidiBacking: React.FC<SetlistMidiBackingProps> = ({
                         </div>
                       </div>
 
-                      <select
+                      <SearchableSoundSelect
                         value={override?.patchId || ''}
-                        onChange={(e) => handleTrackPatchChange(track.index, e.target.value)}
-                        className="bg-zinc-900 border border-zinc-800 text-[9px] font-mono text-zinc-300 p-1 focus:border-amber-500 outline-none max-w-[110px] truncate"
-                      >
-                        <option value="">Default Soundfont</option>
-                        {patches.map((p) => (
-                          <option key={p.id} value={p.id}>
-                            {p.name}
-                          </option>
-                        ))}
-                      </select>
+                        onChange={(patchId) => handleTrackPatchChange(track.index, patchId)}
+                        patches={patches}
+                      />
                     </div>
                   );
                 })}

@@ -682,6 +682,12 @@ export function cleanVoiceParams(rawParams: any): VoiceParams {
     if (typedKey === 'dx7Voice') {
       if (rawParams.dx7Voice && typeof rawParams.dx7Voice === 'object') {
         params.dx7Voice = rawParams.dx7Voice;
+      } else if (typeof rawParams.dx7Voice === 'string' && rawParams.dx7Voice.startsWith('{')) {
+        try {
+          params.dx7Voice = JSON.parse(rawParams.dx7Voice);
+        } catch {
+          params.dx7Voice = createDefaultDX7Voice();
+        }
       }
       return;
     }

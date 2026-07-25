@@ -1,4 +1,4 @@
-import { Patch, Multi, cleanVoiceParams } from '../types';
+import { Patch, Multi, Setlist, cleanVoiceParams } from '../types';
 
 const CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID;
 const SCOPES = 'https://www.googleapis.com/auth/spreadsheets';
@@ -84,6 +84,11 @@ class GoogleSheetsService {
         addSheet: { properties: { title: 'Multis' } }
       });
     }
+    if (!existingSheetTitles.includes('Setlists')) {
+      requests.push({
+        addSheet: { properties: { title: 'Setlists' } }
+      });
+    }
     
     if (requests.length > 0) {
       const batchRes = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${id}:batchUpdate`, {
@@ -100,7 +105,21 @@ class GoogleSheetsService {
     }
   }
 
-  async saveToSheet(patches: Patch[], multis: Multi[], url: string): Promise<void> {
+  async saveToSheet(
+    patches: Patch[],
+    multis: Multi[],
+    arg3: string | Setlist[],
+    arg4?: string
+  ): Promise<void> {
+    let url: string;
+    let setlists: Setlist[] = [];
+    if (typeof arg3 === 'string') {
+      url = arg3;
+    } else {
+      setlists = arg3 || [];
+      url = arg4 || '';
+    }
+
     const id = this.extractSheetId(url);
     if (!id) throw new Error('Invalid Sheet URL');
 
@@ -114,7 +133,17 @@ class GoogleSheetsService {
 
       const values = patches.map(p => {
         const midiMappingsJson = JSON.stringify(p.midiMappings || []);
-        return [p.id, p.name, midiMappingsJson, ...paramKeys.map(key => p.params[key as keyof typeof p.params])];
+        return [
+          p.id,
+          p.name,
+          midiMappingsJson,
+          ...paramKeys.map(key => {
+            const val = p.params[key as keyof typeof p.params];
+            if (val === undefined || val === null) return '';
+            if (typeof val === 'object') return JSON.stringify(val);
+            return val;
+          })
+        ];
       });
 
       // Clear Patches sheet
@@ -167,9 +196,38 @@ class GoogleSheetsService {
       const err = await resMultis.json();
       throw new Error(err.error?.message || 'Failed to sync Multis to Google Sheets');
     }
+
+    // 3. Save Setlists to "Setlists" sheet
+    if (setlists && setlists.length > 0) {
+      const setlistHeaders = ['ID', 'Name', 'Songs'];
+      const setlistValues = setlists.map(s => {
+        const songsJson = JSON.stringify(s.songs || []);
+        return [s.id, s.name, songsJson];
+      });
+
+      await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${id}/values/Setlists!A:Z:clear`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` }
+      });
+
+      const resSetlists = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${id}/values/Setlists!A1?valueInputOption=RAW`, {
+        method: 'PUT',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          values: [setlistHeaders, ...setlistValues]
+        })
+      });
+      if (!resSetlists.ok) {
+        const err = await resSetlists.json();
+        throw new Error(err.error?.message || 'Failed to sync Setlists to Google Sheets');
+      }
+    }
   }
 
-  async loadFromSheet(url: string): Promise<{ patches: Patch[], multis: Multi[] }> {
+  async loadFromSheet(url: string): Promise<{ patches: Patch[], multis: Multi[], setlists: Setlist[] }> {
     const id = this.extractSheetId(url);
     if (!id) throw new Error('Invalid Sheet URL');
 
@@ -226,7 +284,21 @@ class GoogleSheetsService {
         for (let i = paramsStartColIndex; i < patchHeaders.length; i++) {
           const key = patchHeaders[i];
           const value = row[i];
-          params[key] = isNaN(Number(value)) ? value : Number(value);
+          if (value === undefined || value === null || value === '') continue;
+
+          if (value === 'true') {
+            params[key] = true;
+          } else if (value === 'false') {
+            params[key] = false;
+          } else if (typeof value === 'string' && (value.startsWith('{') || value.startsWith('['))) {
+            try {
+              params[key] = JSON.parse(value);
+            } catch {
+              params[key] = value;
+            }
+          } else {
+            params[key] = isNaN(Number(value)) ? value : Number(value);
+          }
         }
 
         return {
@@ -271,8 +343,42 @@ class GoogleSheetsService {
       }
     }
 
-    return { patches, multis };
+    // Load Setlists
+    let setlists: Setlist[] = [];
+    const setlistsResponse = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${id}/values/Setlists!A1:Z`, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+
+    if (setlistsResponse.ok) {
+      const setlistsData = await setlistsResponse.json();
+      if (setlistsData.values && setlistsData.values.length >= 2) {
+        const setlistRows = setlistsData.values.slice(1);
+        setlists = setlistRows.map((row: any[], index: number) => {
+          const setlistId = row[0];
+          const name = row[1] || 'Unnamed Setlist';
+          const songsStr = row[2];
+          let songs: any[] = [];
+
+          try {
+            if (songsStr) {
+              songs = JSON.parse(songsStr);
+            }
+          } catch (e) {
+            console.warn('Failed to parse songs for setlist row', index, e);
+          }
+
+          return {
+            id: setlistId,
+            name,
+            songs
+          } as Setlist;
+        });
+      }
+    }
+
+    return { patches, multis, setlists };
   }
 }
 
 export const googleSheetsService = new GoogleSheetsService();
+
