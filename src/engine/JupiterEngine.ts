@@ -1957,7 +1957,8 @@ interface ArpState {
 }
 
 export class JupiterEngine {
-  private ctx: AudioContext | null = null;
+  public ctx: AudioContext | null = null;
+  public getCtx(): AudioContext | null { return this.ctx; }
   private voices: Voice[] = [];
   private lastFrequency: number = 0;
   private params: VoiceParams;

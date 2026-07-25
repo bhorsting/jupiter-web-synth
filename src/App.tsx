@@ -33,6 +33,8 @@ import React from 'react';
 import Keyboard from 'react-simple-keyboard';
 import { PianoKeyboard } from './components/PianoKeyboard';
 import { SettingsModal } from './components/SettingsModal';
+import { SetlistMidiBacking } from './components/SetlistMidiBacking';
+import { GroupedPresetsView } from './components/GroupedPresetsView';
 import { MidiDebugger, MidiDebugEvent } from './components/MidiDebugger';
 import { SettingsProvider, useSettings } from './contexts/SettingsContext';
 import { googleSheetsService } from './services/GoogleSheetsService';
@@ -1262,6 +1264,42 @@ function App() {
     setSetlists(updated);
   };
 
+  const handleUpdatePatchGroup = (patchId: string, groupName: string | undefined) => {
+    const updated = patches.map(p => p.id === patchId ? { ...p, group: groupName } : p);
+    setPatches(updated);
+    indexedDBService.savePatches(updated);
+  };
+
+  const handleUpdateMultiGroup = (multiId: string, groupName: string | undefined) => {
+    const updated = multis.map(m => m.id === multiId ? { ...m, group: groupName } : m);
+    setMultis(updated);
+    indexedDBService.saveAppState({ patches, activePatchId, activeMultiId, currentScreen, showKeyboard, isMidiLogVisible, setlists, activeSetlistId, multis: updated });
+  };
+
+  const handleUpdateSongInSetlist = (setlistId: string, updatedSong: Song) => {
+    const updated = setlists.map(s => {
+      if (s.id === setlistId) {
+        return {
+          ...s,
+          songs: s.songs.map(sg => sg.id === updatedSong.id ? updatedSong : sg)
+        };
+      }
+      return s;
+    });
+    setSetlists(updated);
+    indexedDBService.saveAppState({ patches, activePatchId, activeMultiId, currentScreen, showKeyboard, isMidiLogVisible, setlists: updated, activeSetlistId, multis });
+  };
+
+  const handleAddPatchesAndMultiFromMidi = (newPatches: Patch[], newMulti: Multi) => {
+    const updatedPatches = [...patches, ...newPatches];
+    const updatedMultis = [...multis, newMulti];
+    setPatches(updatedPatches);
+    setMultis(updatedMultis);
+    indexedDBService.savePatches(updatedPatches);
+    indexedDBService.saveAppState({ patches: updatedPatches, activePatchId, activeMultiId: newMulti.id, currentScreen, showKeyboard, isMidiLogVisible, setlists, activeSetlistId, multis: updatedMultis });
+    loadMulti(newMulti);
+  };
+
   const handleLoadSong = (song: Song) => {
     if (song.type === 'patch') {
       const patch = patches.find(p => p.id === song.targetId);
@@ -2327,102 +2365,31 @@ function App() {
                   </button>
                 </div>
 
-                {libraryTab === 'PATCHES' && (
-                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 gap-3">
-                    {patches.filter(p => p.name.toLowerCase().includes(searchQuery.toLowerCase())).length === 0 ? (
-                      <div className="col-span-full py-12 text-center bg-zinc-900 border border-dashed border-zinc-800 text-zinc-500 uppercase tracking-widest text-[10px] font-bold">
-                        No matching patches found
-                      </div>
-                    ) : (
-                      patches
-                        .filter(p => p.name.toLowerCase().includes(searchQuery.toLowerCase()))
-                        .map(patch => (
-                        <div 
-                          key={patch.id}
-                          className={`p-3.5 border transition-all cursor-pointer flex flex-col gap-2.5 group ${
-                            activePatchId === patch.id 
-                              ? 'bg-orange-600/10 border-orange-500' 
-                              : 'bg-zinc-900/50 border-zinc-800 hover:border-zinc-600'
-                          }`}
-                          onClick={() => loadPatch(patch)}
-                        >
-                          <div className="flex justify-between items-center">
-                            <span className="text-zinc-500 font-mono text-[9px]">P-{patch.id.slice(-4)}</span>
-                            <div className="flex gap-0.5">
-                              <button 
-                                onClick={(e) => { e.stopPropagation(); startRenamePatch(patch.id, patch.name); }}
-                                className="opacity-0 group-hover:opacity-100 p-1 hover:bg-white/10 text-zinc-400 hover:text-white rounded-none transition-all"
-                                title="Rename Patch"
-                              >
-                                <Edit2 size={11} />
-                              </button>
-                              <button 
-                                onClick={(e) => { e.stopPropagation(); deletePatch(patch.id); }}
-                                className="opacity-0 group-hover:opacity-100 p-1 hover:bg-red-500/20 text-red-500 rounded-none transition-all"
-                                title="Delete Patch"
-                              >
-                                <Trash2 size={11} />
-                              </button>
-                            </div>
-                          </div>
-                          <h3 className="text-xs sm:text-sm font-bold uppercase truncate leading-none py-0.5">{patch.name}</h3>
-                          <div className="flex gap-1.5 mt-0.5">
-                             <div className={`w-1 h-3 ${patch.params.vco1Waveform === 'sawtooth' ? 'bg-orange-500' : 'bg-blue-500'}`} />
-                             <div className={`w-1 h-3 ${patch.params.filterCutoff > 5000 ? 'bg-zinc-300' : 'bg-zinc-700'}`} />
-                          </div>
-                        </div>
-                      ))
-                    )}
-                  </div>
-                )}
-
-                {libraryTab === 'MULTIS' && (
-                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 gap-3">
-                    {multis.filter(m => m.name.toLowerCase().includes(searchQuery.toLowerCase())).length === 0 ? (
-                      <div className="col-span-full py-12 text-center bg-zinc-900 border border-dashed border-zinc-800 text-zinc-500 uppercase tracking-widest text-[10px] font-bold">
-                        No matching multis found
-                      </div>
-                    ) : (
-                      multis
-                        .filter(m => m.name.toLowerCase().includes(searchQuery.toLowerCase()))
-                        .map(multi => (
-                        <div 
-                          key={multi.id}
-                          className={`p-3.5 border transition-all cursor-pointer flex flex-col gap-2.5 group ${
-                            activeMultiId === multi.id 
-                              ? 'bg-orange-600/10 border-orange-500' 
-                              : 'bg-zinc-900/50 border-zinc-800 hover:border-zinc-600'
-                          }`}
-                          onClick={() => loadMulti(multi)}
-                        >
-                          <div className="flex justify-between items-center">
-                            <span className="text-zinc-500 font-mono text-[9px]">M-{multi.id.slice(-4)}</span>
-                            <div className="flex gap-0.5">
-                              <button 
-                                onClick={(e) => { e.stopPropagation(); startRenameMulti(multi.id, multi.name); }}
-                                className="opacity-0 group-hover:opacity-100 p-1 hover:bg-white/10 text-zinc-400 hover:text-white rounded-none transition-all"
-                                title="Rename Multi"
-                              >
-                                <Edit2 size={11} />
-                              </button>
-                              <button 
-                                onClick={(e) => { e.stopPropagation(); handleDeleteMulti(multi.id); }}
-                                className="opacity-0 group-hover:opacity-100 p-1 hover:bg-red-500/20 text-red-500 rounded-none transition-all"
-                                title="Delete Multi"
-                              >
-                                <Trash2 size={11} />
-                              </button>
-                            </div>
-                          </div>
-                          <h3 className="text-xs sm:text-sm font-bold uppercase truncate leading-none py-0.5">{multi.name}</h3>
-                          <div className="flex items-center gap-1.5 text-zinc-500 text-[8px] font-bold uppercase tracking-widest mt-0.5">
-                            <Layers size={9} />
-                            <span>{multi.slots.length} Part{multi.slots.length > 1 ? 's' : ''}</span>
-                          </div>
-                        </div>
-                      ))
-                    )}
-                  </div>
+                {(libraryTab === 'PATCHES' || libraryTab === 'MULTIS') && (
+                  <GroupedPresetsView
+                    type={libraryTab}
+                    patches={patches}
+                    multis={multis}
+                    activePatchId={activePatchId}
+                    activeMultiId={activeMultiId}
+                    searchQuery={searchQuery}
+                    onSelectPatch={loadPatch}
+                    onSelectMulti={loadMulti}
+                    onRenamePatch={(id, name) => startRenamePatch(id, name)}
+                    onDeletePatch={deletePatch}
+                    onRenameMulti={(id, name) => startRenameMulti(id, name)}
+                    onDeleteMulti={handleDeleteMulti}
+                    onUpdatePatchGroup={handleUpdatePatchGroup}
+                    onUpdateMultiGroup={handleUpdateMultiGroup}
+                    showCustomPrompt={(title, message, defaultValue, onConfirm) => {
+                      setPromptConfig({
+                        title,
+                        message,
+                        defaultValue,
+                        onConfirm,
+                      });
+                    }}
+                  />
                 )}
 
                 {libraryTab === 'SETLISTS' && (
@@ -2597,7 +2564,7 @@ function App() {
                                   No songs in this setlist. Add some above!
                                 </div>
                               ) : (
-                                <div className="flex flex-col gap-2 max-h-[400px] overflow-y-auto pr-1">
+                                <div className="flex flex-col gap-2 max-h-[600px] overflow-y-auto pr-1">
                                   {currentSetlist.songs.map((song, index) => {
                                     const targetName = song.type === 'patch' 
                                       ? patches.find(p => p.id === song.targetId)?.name 
@@ -2610,69 +2577,81 @@ function App() {
                                     return (
                                       <div
                                         key={song.id}
-                                        className={`p-3 bg-zinc-950/60 border flex items-center justify-between transition-all ${
+                                        className={`p-3 bg-zinc-950/60 border flex flex-col gap-2 transition-all ${
                                           isActiveSong
                                             ? 'border-orange-500 bg-orange-500/5'
                                             : 'border-zinc-800 hover:border-zinc-700'
                                         }`}
                                       >
-                                        <div className="flex items-center gap-4 min-w-0">
-                                          {/* Program Change indicator */}
-                                          <div className="flex flex-col items-center justify-center bg-zinc-900 border border-zinc-800 px-2 py-1 shrink-0 font-mono text-center">
-                                            <span className="text-[8px] text-zinc-500 uppercase tracking-widest font-bold">MIDI PC</span>
-                                            <span className="text-xs font-bold text-orange-500">{index}</span>
-                                          </div>
+                                        <div className="flex items-center justify-between">
+                                          <div className="flex items-center gap-4 min-w-0">
+                                            {/* Program Change indicator */}
+                                            <div className="flex flex-col items-center justify-center bg-zinc-900 border border-zinc-800 px-2 py-1 shrink-0 font-mono text-center">
+                                              <span className="text-[8px] text-zinc-500 uppercase tracking-widest font-bold">MIDI PC</span>
+                                              <span className="text-xs font-bold text-orange-500">{index}</span>
+                                            </div>
 
-                                          <div className="flex flex-col gap-0.5 min-w-0">
-                                            <span className="font-bold text-sm uppercase truncate text-zinc-100">{song.name}</span>
-                                            <div className="flex items-center gap-1.5 text-[9px] text-zinc-400 font-bold uppercase tracking-widest">
-                                              <span className={`px-1 text-[8px] tracking-widest ${
-                                                song.type === 'patch' 
-                                                  ? 'bg-blue-500/10 text-blue-400 border border-blue-500/20' 
-                                                  : 'bg-purple-500/10 text-purple-400 border border-purple-500/20'
-                                              }`}>
-                                                {song.type}
-                                              </span>
-                                              <span className="truncate">{targetName || 'UNKNOWN'}</span>
+                                            <div className="flex flex-col gap-0.5 min-w-0">
+                                              <span className="font-bold text-sm uppercase truncate text-zinc-100">{song.name}</span>
+                                              <div className="flex items-center gap-1.5 text-[9px] text-zinc-400 font-bold uppercase tracking-widest">
+                                                <span className={`px-1 text-[8px] tracking-widest ${
+                                                  song.type === 'patch' 
+                                                    ? 'bg-blue-500/10 text-blue-400 border border-blue-500/20' 
+                                                    : 'bg-purple-500/10 text-purple-400 border border-purple-500/20'
+                                                }`}>
+                                                  {song.type}
+                                                </span>
+                                                <span className="truncate">{targetName || 'UNKNOWN'}</span>
+                                              </div>
                                             </div>
                                           </div>
+
+                                          <div className="flex items-center gap-1 shrink-0">
+                                            <button
+                                              onClick={() => handleLoadSong(song)}
+                                              className={`px-3 py-1.5 text-[9px] font-bold uppercase tracking-widest transition-all ${
+                                                isActiveSong
+                                                  ? 'bg-orange-600 text-white'
+                                                  : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-300'
+                                              }`}
+                                            >
+                                              {isActiveSong ? 'Loaded' : 'Load'}
+                                            </button>
+                                            <button
+                                              onClick={() => handleMoveSong(currentSetlist.id, song.id, 'up')}
+                                              disabled={index === 0}
+                                              className="p-1.5 hover:bg-white/10 text-zinc-400 hover:text-white disabled:opacity-20 disabled:pointer-events-none transition-all"
+                                              title="Move Up"
+                                            >
+                                              ▲
+                                            </button>
+                                            <button
+                                              onClick={() => handleMoveSong(currentSetlist.id, song.id, 'down')}
+                                              disabled={index === currentSetlist.songs.length - 1}
+                                              className="p-1.5 hover:bg-white/10 text-zinc-400 hover:text-white disabled:opacity-20 disabled:pointer-events-none transition-all"
+                                              title="Move Down"
+                                            >
+                                              ▼
+                                            </button>
+                                            <button
+                                              onClick={() => handleDeleteSongFromSetlist(currentSetlist.id, song.id)}
+                                              className="p-1.5 hover:bg-red-500/20 text-red-500 hover:text-red-400 transition-all"
+                                              title="Remove Song"
+                                            >
+                                              <Trash2 size={13} />
+                                            </button>
+                                          </div>
                                         </div>
 
-                                        <div className="flex items-center gap-1 shrink-0">
-                                          <button
-                                            onClick={() => handleLoadSong(song)}
-                                            className={`px-3 py-1.5 text-[9px] font-bold uppercase tracking-widest transition-all ${
-                                              isActiveSong
-                                                ? 'bg-orange-600 text-white'
-                                                : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-300'
-                                            }`}
-                                          >
-                                            {isActiveSong ? 'Loaded' : 'Load'}
-                                          </button>
-                                          <button
-                                            onClick={() => handleMoveSong(currentSetlist.id, song.id, 'up')}
-                                            disabled={index === 0}
-                                            className="p-1.5 hover:bg-white/10 text-zinc-400 hover:text-white disabled:opacity-20 disabled:pointer-events-none transition-all"
-                                            title="Move Up"
-                                          >
-                                            ▲
-                                          </button>
-                                          <button
-                                            onClick={() => handleMoveSong(currentSetlist.id, song.id, 'down')}
-                                            disabled={index === currentSetlist.songs.length - 1}
-                                            className="p-1.5 hover:bg-white/10 text-zinc-400 hover:text-white disabled:opacity-20 disabled:pointer-events-none transition-all"
-                                            title="Move Down"
-                                          >
-                                            ▼
-                                          </button>
-                                          <button
-                                            onClick={() => handleDeleteSongFromSetlist(currentSetlist.id, song.id)}
-                                            className="p-1.5 hover:bg-red-500/20 text-red-500 hover:text-red-400 transition-all"
-                                            title="Remove Song"
-                                          >
-                                            <Trash2 size={13} />
-                                          </button>
-                                        </div>
+                                        <SetlistMidiBacking
+                                          song={song}
+                                          setlistId={currentSetlist.id}
+                                          patches={patches}
+                                          multis={multis}
+                                          engine={engineRef.current}
+                                          onUpdateSong={(updated) => handleUpdateSongInSetlist(currentSetlist.id, updated)}
+                                          onAddPatchesAndMulti={handleAddPatchesAndMultiFromMidi}
+                                        />
                                       </div>
                                     );
                                   })}

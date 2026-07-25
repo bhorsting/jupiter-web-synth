@@ -352,9 +352,28 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
 
                 {/* Soundfont & Google Drive Section */}
                 <section className="space-y-4 pt-6 border-t border-zinc-800">
-                  <div className="flex items-center gap-2 text-cyan-400">
-                    <Cloud className="w-4 h-4" />
-                    <h3 className="text-xs font-bold uppercase tracking-wider">Soundfont / Sample Sync (Google Drive)</h3>
+                  <div className="flex items-center justify-between text-cyan-400">
+                    <div className="flex items-center gap-2">
+                      <Cloud className="w-4 h-4" />
+                      <h3 className="text-xs font-bold uppercase tracking-wider">Soundfont & MIDI Library (Google Drive Sync)</h3>
+                    </div>
+                    <label className="cursor-pointer px-2.5 py-1 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-zinc-300 text-[10px] font-bold uppercase tracking-wider transition-all flex items-center gap-1.5 rounded-none">
+                      <Download className="w-3 h-3" /> Upload Local (.sf2, .mid)
+                      <input
+                        type="file"
+                        accept=".sf2,.mid,.midi,.sft,.wav,.mp3"
+                        className="hidden"
+                        onChange={async (e) => {
+                          const file = e.target.files?.[0];
+                          if (file) {
+                            const buf = await file.arrayBuffer();
+                            await soundfontService.saveFileToOPFS(file.name, buf);
+                            const downloaded = await soundfontService.listDownloadedFiles();
+                            setDownloadedFiles(downloaded);
+                          }
+                        }}
+                      />
+                    </label>
                   </div>
 
                   <div className="space-y-1">
@@ -377,12 +396,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                       {isListing ? (
                         <>
                           <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                          Syncing Soundfonts...
+                          Syncing Files...
                         </>
                       ) : (
                         <>
                           <RefreshCw className="w-3.5 h-3.5" />
-                          Sync Soundfonts
+                          Sync Drive Files
                         </>
                       )}
                     </button>
@@ -404,26 +423,36 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                   {/* Combined Files List */}
                   <div className="bg-black/20 border border-zinc-800 rounded-none overflow-hidden">
                     <div className="bg-zinc-900/40 px-3 py-2 border-b border-zinc-800 flex justify-between items-center">
-                      <span className="text-[10px] uppercase tracking-widest text-zinc-400 font-bold">Active Soundfont Library</span>
-                      <span className="text-[9px] text-zinc-500 font-mono">OPFS OFFLINE CACHE</span>
+                      <span className="text-[10px] uppercase tracking-widest text-zinc-400 font-bold">Active Offline Library</span>
+                      <span className="text-[9px] text-zinc-500 font-mono">OPFS LOCAL CACHE ({downloadedFiles.length} FILES)</span>
                     </div>
 
                     <div className="divide-y divide-zinc-900 max-h-52 overflow-y-auto custom-scrollbar">
                       {driveFiles.length === 0 && downloadedFiles.length === 0 && (
                         <div className="p-4 text-center text-zinc-600 text-xs uppercase tracking-wider">
-                          No files found. Configure Drive and Sync to download soundfonts.
+                          No files found. Configure Drive and Sync or upload a local .sf2 / .mid file.
                         </div>
                       )}
 
                       {mergedFiles.map(file => {
                         const isDownloaded = downloadedFiles.includes(file.name);
                         const isDownloading = downloadingFileId === file.id;
+                        const isMidi = file.name.toLowerCase().endsWith('.mid') || file.name.toLowerCase().endsWith('.midi');
 
                         return (
                           <div key={file.id || file.name} className="px-3 py-2 flex items-center justify-between hover:bg-zinc-900/20 transition-colors">
                             <div className="flex flex-col min-w-0">
-                              <span className="text-xs text-zinc-300 font-medium truncate">{file.name}</span>
-                              <span className="text-[9px] text-zinc-500 font-mono">
+                              <div className="flex items-center gap-2">
+                                <span className={`text-[8px] font-bold uppercase px-1.5 py-0.5 border ${
+                                  isMidi 
+                                    ? 'bg-amber-950/40 border-amber-800/40 text-amber-400' 
+                                    : 'bg-cyan-950/40 border-cyan-800/40 text-cyan-400'
+                                }`}>
+                                  {isMidi ? 'MIDI' : 'SF2'}
+                                </span>
+                                <span className="text-xs text-zinc-300 font-medium truncate">{file.name}</span>
+                              </div>
+                              <span className="text-[9px] text-zinc-500 font-mono mt-0.5">
                                 {file.size ? formatSize(file.size) : 'Local offline copy'}
                               </span>
                             </div>

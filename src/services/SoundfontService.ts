@@ -82,10 +82,17 @@ class SoundfontService {
     const data = await response.json();
     const driveFiles = data.files || [];
 
-    // Filter files: .sft, .sf2, .wav, .mp3
+    // Filter files: .sft, .sf2, .wav, .mp3, .mid, .midi
     const filtered = driveFiles.filter((f: any) => {
       const name = f.name.toLowerCase();
-      return name.endsWith('.sft') || name.endsWith('.sf2') || name.endsWith('.wav') || name.endsWith('.mp3');
+      return (
+        name.endsWith('.sft') ||
+        name.endsWith('.sf2') ||
+        name.endsWith('.wav') ||
+        name.endsWith('.mp3') ||
+        name.endsWith('.mid') ||
+        name.endsWith('.midi')
+      );
     });
 
     const downloadedNames = await this.listDownloadedFiles();
@@ -123,6 +130,37 @@ class SoundfontService {
     } catch (e) {
       console.error('Failed to list downloaded files from OPFS:', e);
       return Object.keys(DEFAULT_SOUNDFONTS);
+    }
+  }
+
+  /**
+   * List only MIDI files currently downloaded in OPFS
+   */
+  async listDownloadedMidiFiles(): Promise<string[]> {
+    const files = await this.listDownloadedFiles();
+    return files.filter(f => {
+      const lower = f.toLowerCase();
+      return lower.endsWith('.mid') || lower.endsWith('.midi');
+    });
+  }
+
+  /**
+   * Save a file ArrayBuffer directly to OPFS
+   */
+  async saveFileToOPFS(name: string, arrayBuffer: ArrayBuffer): Promise<void> {
+    try {
+      const root = await navigator.storage.getDirectory();
+      const fileHandle = await root.getFileHandle(name, { create: true });
+      const writable = await fileHandle.createWritable();
+      await writable.write(arrayBuffer);
+      await writable.close();
+      this.fileBufferCache.set(name, arrayBuffer);
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new Event('soundfontsUpdated'));
+      }
+    } catch (e) {
+      console.error(`Failed to save file ${name} to OPFS:`, e);
+      throw e;
     }
   }
 
@@ -224,7 +262,7 @@ class SoundfontService {
   /**
    * Get raw ArrayBuffer from OPFS or memory cache (or download default soundfont on demand)
    */
-  private async getFileBuffer(name: string): Promise<ArrayBuffer> {
+  async getFileBuffer(name: string): Promise<ArrayBuffer> {
     if (this.fileBufferCache.has(name)) {
       return this.fileBufferCache.get(name)!;
     }

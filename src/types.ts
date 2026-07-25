@@ -449,6 +449,7 @@ export interface Patch {
   name: string;
   params: VoiceParams;
   midiMappings?: MidiMapping[];
+  group?: string;
 }
 
 export interface MultiSlot {
@@ -467,6 +468,13 @@ export interface Multi {
   id: string;
   name: string;
   slots: MultiSlot[];
+  group?: string;
+}
+
+export interface MidiTrackOverride {
+  patchId?: string;
+  mute?: boolean;
+  volume?: number;
 }
 
 export interface Song {
@@ -474,6 +482,8 @@ export interface Song {
   name: string;
   type: 'patch' | 'multi';
   targetId: string;
+  midiFile?: string;
+  midiTrackOverrides?: Record<number, MidiTrackOverride>;
 }
 
 export interface Setlist {
