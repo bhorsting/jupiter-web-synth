@@ -182,17 +182,49 @@ export const SetlistMidiBacking: React.FC<SetlistMidiBackingProps> = ({
     }
   }, [song.midiFile]);
 
+  const isPlayingRef = useRef<boolean>(false);
+  const lastProgressRef = useRef<number>(0);
+  const activeTracksKeyRef = useRef<string>('');
+  const leadInKeyRef = useRef<string>('');
+
   useEffect(() => {
     const unsub = midiTrackService.addProgressListener((cur, dur, playing, activeTracks, lInInfo) => {
       if (song.midiFile && midiTrackService.getPlayingFileName() === song.midiFile) {
-        setProgress({ current: cur, duration: dur });
-        setIsPlaying(playing);
-        setActiveTrackIndexes(activeTracks || new Set());
-        setLeadInState(lInInfo || null);
+        if (playing !== isPlayingRef.current) {
+          isPlayingRef.current = playing;
+          setIsPlaying(playing);
+        }
+
+        const now = Date.now();
+        if (now - lastProgressRef.current >= 250 || playing !== isPlayingRef.current) {
+          lastProgressRef.current = now;
+          setProgress({ current: cur, duration: dur });
+        }
+
+        const tracksKey = activeTracks ? Array.from(activeTracks).sort().join(',') : '';
+        if (tracksKey !== activeTracksKeyRef.current) {
+          activeTracksKeyRef.current = tracksKey;
+          setActiveTrackIndexes(activeTracks || new Set());
+        }
+
+        const lKey = lInInfo ? `${lInInfo.currentBar}:${lInInfo.currentBeat}:${lInInfo.isLeadIn}` : '';
+        if (lKey !== leadInKeyRef.current) {
+          leadInKeyRef.current = lKey;
+          setLeadInState(lInInfo || null);
+        }
       } else {
-        setIsPlaying(false);
-        setActiveTrackIndexes(new Set());
-        setLeadInState(null);
+        if (isPlayingRef.current) {
+          isPlayingRef.current = false;
+          setIsPlaying(false);
+        }
+        if (activeTracksKeyRef.current !== '') {
+          activeTracksKeyRef.current = '';
+          setActiveTrackIndexes(new Set());
+        }
+        if (leadInKeyRef.current !== '') {
+          leadInKeyRef.current = '';
+          setLeadInState(null);
+        }
       }
     });
     return unsub;

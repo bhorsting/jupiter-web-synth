@@ -187,10 +187,20 @@ function App() {
     }, 100);
   }, []);
 
+  const isMidiPlayingRef = useRef<boolean>(false);
+  const lastMidiProgressUpdateRef = useRef<number>(0);
+
   useEffect(() => {
     const unsub = midiTrackService.addProgressListener((cur, dur, playing) => {
-      setMidiProgress({ current: cur, duration: dur });
-      setIsMidiPlaying(playing);
+      if (playing !== isMidiPlayingRef.current) {
+        isMidiPlayingRef.current = playing;
+        setIsMidiPlaying(playing);
+      }
+      const now = Date.now();
+      if (now - lastMidiProgressUpdateRef.current >= 250 || playing !== isMidiPlayingRef.current) {
+        lastMidiProgressUpdateRef.current = now;
+        setMidiProgress({ current: cur, duration: dur });
+      }
     });
     return unsub;
   }, []);

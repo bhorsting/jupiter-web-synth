@@ -1221,47 +1221,68 @@ class Voice {
       clearTimeout(this.stopTimer);
       this.stopTimer = null;
     }
+    const stopTime = time + 0.01;
+
     if (this.vco1) {
-      try { this.vco1.stop(time); } catch(e) {}
-      this.vco1.disconnect();
+      const oscToDisconnect = this.vco1;
+      try { oscToDisconnect.stop(stopTime); } catch(e) {}
+      setTimeout(() => {
+        try { oscToDisconnect.disconnect(); } catch(err) {}
+      }, 20);
       this.vco1 = null;
     }
     if (this.vco1SoundfontNodes.length > 0) {
       this.vco1SoundfontNodes.forEach(node => {
-        try { node.src.stop(time); } catch(e) {}
-        node.src.disconnect();
-        node.gain.disconnect();
+        try { node.src.stop(stopTime); } catch(e) {}
+        setTimeout(() => {
+          try { node.src.disconnect(); } catch(err) {}
+          try { node.gain.disconnect(); } catch(err) {}
+        }, 20);
       });
       this.vco1SoundfontNodes = [];
       this.vco1SoundfontSource = null;
     }
     if (this.subOsc) {
-      try { this.subOsc.stop(time); } catch(e) {}
-      this.subOsc.disconnect();
+      const oscToDisconnect = this.subOsc;
+      try { oscToDisconnect.stop(stopTime); } catch(e) {}
+      setTimeout(() => {
+        try { oscToDisconnect.disconnect(); } catch(err) {}
+      }, 20);
       this.subOsc = null;
     }
     if (this.vco2) {
-      try { this.vco2.stop(time); } catch(e) {}
-      this.vco2.disconnect();
+      const oscToDisconnect = this.vco2;
+      try { oscToDisconnect.stop(stopTime); } catch(e) {}
+      setTimeout(() => {
+        try { oscToDisconnect.disconnect(); } catch(err) {}
+      }, 20);
       this.vco2 = null;
     }
     if (this.vco2SoundfontNodes.length > 0) {
       this.vco2SoundfontNodes.forEach(node => {
-        try { node.src.stop(time); } catch(e) {}
-        node.src.disconnect();
-        node.gain.disconnect();
+        try { node.src.stop(stopTime); } catch(e) {}
+        setTimeout(() => {
+          try { node.src.disconnect(); } catch(err) {}
+          try { node.gain.disconnect(); } catch(err) {}
+        }, 20);
       });
       this.vco2SoundfontNodes = [];
       this.vco2SoundfontSource = null;
     }
     if (this.vco1Noise) {
-      try { this.vco1Noise.stop(time); } catch(e) {}
-      this.vco1Noise.disconnect();
+      const srcToDisconnect = this.vco1Noise;
+      try { srcToDisconnect.stop(stopTime); } catch(e) {}
+      setTimeout(() => {
+        try { srcToDisconnect.disconnect(); } catch(err) {}
+      }, 20);
       this.vco1Noise = null;
     }
     if (this.vco2Noise) {
-      try { this.vco2Noise.stop(time); } catch(e) {}
-      this.vco2Noise.disconnect();
+      const srcToDisconnect = this.vco2Noise;
+      try { srcToDisconnect.stop(stopTime); } catch(e) {}
+      setTimeout(() => {
+        try { srcToDisconnect.disconnect(); } catch(err) {}
+      }, 20);
       this.vco2Noise = null;
     }
     if (this.hammondOscs && this.hammondOscs.length > 0) {
@@ -1490,14 +1511,16 @@ class Voice {
       clearTimeout(this.stopTimer);
       this.stopTimer = null;
     }
-    this.killTransientNodes(this.ctx.currentTime);
+    const now = this.ctx.currentTime;
+    this.vca.gain.cancelScheduledValues(now);
+    this.vca.gain.setValueAtTime(this.vca.gain.value, now);
+    this.vca.gain.linearRampToValueAtTime(0, now + 0.005);
+
+    this.killTransientNodes(now);
     this.midiNote = null;
     this.originalMidiNote = null;
     this.currentPatchId = null;
     this.isReleasing = false;
-    this.vca.gain.cancelScheduledValues(this.ctx.currentTime);
-    this.vca.gain.setValueAtTime(this.vca.gain.value, this.ctx.currentTime);
-    this.vca.gain.linearRampToValueAtTime(0, this.ctx.currentTime + 0.005);
   }
 
   public reconnectOutput(destination: AudioNode) {
