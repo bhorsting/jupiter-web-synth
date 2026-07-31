@@ -162,9 +162,14 @@ class MidiTrackService {
     engine: JupiterEngine,
     trackOverrides?: Record<number, { patchId?: string; mute?: boolean; solo?: boolean; volume?: number }>,
     startOffset: number = 0,
-    leadInBars: number = 0
+    leadInBars: number = 0,
+    patches?: Patch[]
   ): Promise<boolean> {
     this.stopPlayback(engine);
+
+    if (patches && patches.length > 0) {
+      engine.setLibraryPatches(patches);
+    }
 
     try {
       const buffer = await soundfontService.getFileBuffer(fileName);
@@ -238,6 +243,9 @@ class MidiTrackService {
         }
 
         const trackVol = override?.volume ?? 1.0;
+        const assignedPatchId = override?.patchId;
+        const assignedPatch = (assignedPatchId && patches) ? patches.find(p => p.id === assignedPatchId) : undefined;
+        const patchParams = assignedPatch ? assignedPatch.params : undefined;
 
         track.notes.forEach(note => {
           if (note.time >= startOffset) {
@@ -245,12 +253,12 @@ class MidiTrackService {
             const delayEndMs = Math.max(0, (note.time + note.duration + leadInDurationSeconds - startOffset) * 1000);
 
             const startT = window.setTimeout(() => {
-              engine.noteOn(note.midi, note.velocity * trackVol);
+              engine.noteOn(note.midi, note.velocity * trackVol, assignedPatchId, patchParams);
               this.activeTrackNotesCount.set(trackIdx, (this.activeTrackNotesCount.get(trackIdx) || 0) + 1);
             }, delayStartMs);
 
             const endT = window.setTimeout(() => {
-              engine.noteOff(note.midi);
+              engine.noteOff(note.midi, assignedPatchId);
               const cur = this.activeTrackNotesCount.get(trackIdx) || 1;
               if (cur <= 1) {
                 this.activeTrackNotesCount.delete(trackIdx);

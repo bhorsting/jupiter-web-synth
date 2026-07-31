@@ -226,7 +226,8 @@ export const SetlistMidiBacking: React.FC<SetlistMidiBackingProps> = ({
         engine,
         song.midiTrackOverrides,
         progress.current,
-        song.leadInBars || 0
+        song.leadInBars || 0,
+        patches
       );
       setIsPlaying(true);
     }
@@ -274,7 +275,8 @@ export const SetlistMidiBacking: React.FC<SetlistMidiBackingProps> = ({
         engine,
         overrides,
         progress.current,
-        song.leadInBars || 0
+        song.leadInBars || 0,
+        patches
       );
     }
   };
@@ -293,7 +295,8 @@ export const SetlistMidiBacking: React.FC<SetlistMidiBackingProps> = ({
         engine,
         overrides,
         progress.current,
-        song.leadInBars || 0
+        song.leadInBars || 0,
+        patches
       );
     }
   };
@@ -311,7 +314,8 @@ export const SetlistMidiBacking: React.FC<SetlistMidiBackingProps> = ({
         engine,
         overrides,
         progress.current,
-        song.leadInBars || 0
+        song.leadInBars || 0,
+        patches
       );
     }
   };

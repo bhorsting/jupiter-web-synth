@@ -1969,6 +1969,10 @@ export class JupiterEngine {
   private libraryPatches: Patch[] = [];
   private slotFXChains: SlotFXChain[] = [];
 
+  setLibraryPatches(patches: Patch[]) {
+    this.libraryPatches = patches;
+  }
+
   setActiveMulti(multi: Multi | null, patches: Patch[]) {
     const prevMulti = this.activeMulti;
     this.activeMulti = multi;
@@ -3202,7 +3206,12 @@ export class JupiterEngine {
     });
   }
 
-  noteOn(midiNote: number, velocity: number = 0.8) {
+  noteOn(
+    midiNote: number, 
+    velocity: number = 0.8, 
+    patchId?: string | null, 
+    patchParams?: VoiceParams
+  ) {
     if (!this.ctx) this.init();
     if (!this.ctx) return;
     
@@ -3269,8 +3278,16 @@ export class JupiterEngine {
       return;
     }
 
-    if (this.params.arpEnabled) {
-      const key = "single";
+    let targetParams = patchParams;
+    if (!targetParams && patchId) {
+      const p = this.libraryPatches.find(item => item.id === patchId);
+      if (p) targetParams = p.params;
+    }
+
+    const effectiveParams = targetParams || this.params;
+
+    if (effectiveParams.arpEnabled) {
+      const key = patchId ? `patch_${patchId}` : "single";
       let arp = this.activeArps.get(key);
       if (!arp) {
         arp = {
@@ -3280,8 +3297,8 @@ export class JupiterEngine {
           arpIndex: -1,
           arpDirection: 1,
           slotIndex: -1,
-          patchId: null,
-          patchParams: this.params
+          patchId: patchId || null,
+          patchParams: effectiveParams
         };
         this.activeArps.set(key, arp);
       }
@@ -3290,11 +3307,11 @@ export class JupiterEngine {
         arp.heldNotes.sort((a, b) => a - b);
         arp.playedNotes.push(midiNote);
       }
-      this.startArpInstance(key, -1, null, this.params);
+      this.startArpInstance(key, -1, patchId || null, effectiveParams);
       return;
     }
 
-    this.internalNoteOn(midiNote, velocity);
+    this.internalNoteOn(midiNote, velocity, patchId, effectiveParams);
   }
 
   private internalNoteOn(
@@ -3386,7 +3403,7 @@ export class JupiterEngine {
     return voice;
   }
 
-  noteOff(midiNote: number) {
+  noteOff(midiNote: number, patchId?: string | null) {
     if (this.activeMulti) {
       this.activeMulti.slots.forEach((slot, index) => {
         const key = `slot_${index}`;
@@ -3404,6 +3421,7 @@ export class JupiterEngine {
       // EXCEPT voices belonging to slot(s) where arpeggiator is active
       const matchingVoices = this.voices.filter(v => {
         if (v.originalMidiNote !== midiNote) return false;
+        if (patchId && v.currentPatchId !== patchId) return false;
         if (v.currentPatchId && this.activeMulti) {
           const slotIndex = this.activeMulti.slots.findIndex(s => s.patchId === v.currentPatchId);
           if (slotIndex !== -1) {
@@ -3427,18 +3445,21 @@ export class JupiterEngine {
       return;
     }
 
-    const singleArp = this.activeArps.get("single");
+    const arpKey = patchId ? `patch_${patchId}` : "single";
+    const singleArp = this.activeArps.get(arpKey);
     if (singleArp) {
       singleArp.heldNotes = singleArp.heldNotes.filter(n => n !== midiNote);
       singleArp.playedNotes = singleArp.playedNotes.filter(n => n !== midiNote);
       if (singleArp.heldNotes.length === 0) {
-        this.stopArpInstance("single");
+        this.stopArpInstance(arpKey);
       }
       return;
     }
 
     // Match even releasing voices to keep noteOff idempotent and prevent state desync
-    const matchingVoices = this.voices.filter(v => v.midiNote === midiNote);
+    const matchingVoices = this.voices.filter(v => 
+      v.midiNote === midiNote && (!patchId || v.currentPatchId === patchId)
+    );
     if (matchingVoices.length > 0 && this.ctx) {
       matchingVoices.forEach(voice => {
         if (!voice.isReleasing) {
