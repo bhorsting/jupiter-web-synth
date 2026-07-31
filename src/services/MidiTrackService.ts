@@ -163,7 +163,8 @@ class MidiTrackService {
     trackOverrides?: Record<number, { patchId?: string; mute?: boolean; solo?: boolean; volume?: number }>,
     startOffset: number = 0,
     leadInBars: number = 0,
-    patches?: Patch[]
+    patches?: Patch[],
+    autoGMMode: boolean = false
   ): Promise<boolean> {
     this.stopPlayback(engine);
 
@@ -174,11 +175,22 @@ class MidiTrackService {
         for (const override of Object.values(trackOverrides)) {
           if (override?.patchId) {
             const p = patches.find(item => item.id === override.patchId);
-            if (p?.params?.vco1SoundfontEnabled && p.params.vco1SoundfontName) {
-              try {
-                await soundfontService.getPresetsForFile(p.params.vco1SoundfontName, engine.getCtx() || undefined);
-              } catch (e) {
-                console.warn('Failed to pre-cache SF2 preset:', e);
+            if (p?.params) {
+              if (p.params.vco1SoundfontEnabled && p.params.vco1SoundfontName) {
+                try {
+                  await soundfontService.getPresetsForFile(p.params.vco1SoundfontName, engine.getCtx() || undefined);
+                  await soundfontService.getFileBuffer(p.params.vco1SoundfontName, p.params.vco1SoundfontSampleIndex ?? 0);
+                } catch (e) {
+                  console.warn('Failed to pre-cache VCO1 SF2:', e);
+                }
+              }
+              if (p.params.vco2SoundfontEnabled && p.params.vco2SoundfontName) {
+                try {
+                  await soundfontService.getPresetsForFile(p.params.vco2SoundfontName, engine.getCtx() || undefined);
+                  await soundfontService.getFileBuffer(p.params.vco2SoundfontName, p.params.vco2SoundfontSampleIndex ?? 0);
+                } catch (e) {
+                  console.warn('Failed to pre-cache VCO2 SF2:', e);
+                }
               }
             }
           }
@@ -260,7 +272,24 @@ class MidiTrackService {
         const trackVol = override?.volume ?? 1.0;
         const assignedPatchId = override?.patchId;
         const assignedPatch = (assignedPatchId && patches) ? patches.find(p => p.id === assignedPatchId) : undefined;
-        const patchParams = assignedPatch ? assignedPatch.params : undefined;
+        let patchParams = assignedPatch ? assignedPatch.params : undefined;
+
+        if (!assignedPatchId && !patchParams) {
+          if (!autoGMMode) {
+            // Auto GM Mode disabled by default: skip unassigned tracks until user selects sound
+            return;
+          } else {
+            // Auto GM Mode is enabled: auto-map GM instrument sample preset
+            const sampleIndex = Math.min(Math.max(0, track.instrumentNumber || 0), 127);
+            patchParams = {
+              ...DEFAULT_PARAMS,
+              vco1SoundfontEnabled: true,
+              vco1SoundfontName: 'GeneralUser-GS.sf2',
+              vco1SoundfontSampleIndex: sampleIndex,
+              masterVolume: 0.8,
+            };
+          }
+        }
 
         track.notes.forEach(note => {
           if (note.time >= startOffset) {

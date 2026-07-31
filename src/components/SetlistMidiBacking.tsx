@@ -18,7 +18,7 @@ const SearchableSoundSelect: React.FC<SearchableSoundSelectProps> = ({ value, on
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   const selectedPatch = patches.find(p => p.id === value);
-  const selectedLabel = selectedPatch ? selectedPatch.name : 'Default Soundfont';
+  const selectedLabel = selectedPatch ? selectedPatch.name : '-- Select Sound --';
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -46,10 +46,12 @@ const SearchableSoundSelect: React.FC<SearchableSoundSelectProps> = ({ value, on
       <button
         type="button"
         onClick={() => setIsOpen(!isOpen)}
-        className="bg-zinc-900 border border-zinc-800 text-[9px] font-mono text-zinc-300 px-2 py-1 focus:border-amber-500 outline-none w-[120px] sm:w-[140px] flex items-center justify-between gap-1 truncate rounded-none hover:bg-zinc-800 transition-colors"
+        className="bg-zinc-900 border border-zinc-800 text-[9px] font-mono text-zinc-300 px-2 py-1 focus:border-amber-500 outline-none w-[130px] sm:w-[150px] flex items-center justify-between gap-1 truncate rounded-none hover:bg-zinc-800 transition-colors"
         title={selectedLabel}
       >
-        <span className="truncate text-left text-amber-400/90 font-bold">{selectedLabel}</span>
+        <span className={`truncate text-left font-bold ${selectedPatch ? 'text-amber-400/90' : 'text-zinc-500 font-normal italic'}`}>
+          {selectedLabel}
+        </span>
         <ChevronDown className="w-3 h-3 text-zinc-500 shrink-0" />
       </button>
 
@@ -88,7 +90,7 @@ const SearchableSoundSelect: React.FC<SearchableSoundSelectProps> = ({ value, on
                 value === '' ? 'bg-amber-500/20 text-amber-400 font-bold' : 'text-zinc-400'
               }`}
             >
-              Default Soundfont
+              -- None (Muted) --
             </button>
 
             {filteredPatches.length === 0 ? (
@@ -227,7 +229,8 @@ export const SetlistMidiBacking: React.FC<SetlistMidiBackingProps> = ({
         song.midiTrackOverrides,
         progress.current,
         song.leadInBars || 0,
-        patches
+        patches,
+        song.autoGMMode ?? false
       );
       setIsPlaying(true);
     }
@@ -276,7 +279,8 @@ export const SetlistMidiBacking: React.FC<SetlistMidiBackingProps> = ({
         overrides,
         progress.current,
         song.leadInBars || 0,
-        patches
+        patches,
+        song.autoGMMode ?? false
       );
     }
   };
@@ -296,7 +300,8 @@ export const SetlistMidiBacking: React.FC<SetlistMidiBackingProps> = ({
         overrides,
         progress.current,
         song.leadInBars || 0,
-        patches
+        patches,
+        song.autoGMMode ?? false
       );
     }
   };
@@ -315,7 +320,8 @@ export const SetlistMidiBacking: React.FC<SetlistMidiBackingProps> = ({
         overrides,
         progress.current,
         song.leadInBars || 0,
-        patches
+        patches,
+        song.autoGMMode ?? false
       );
     }
   };
@@ -327,6 +333,7 @@ export const SetlistMidiBacking: React.FC<SetlistMidiBackingProps> = ({
   };
 
   const currentLeadIn = song.leadInBars || 0;
+  const isAutoGM = song.autoGMMode ?? false;
 
   return (
     <div className="mt-3 p-3 bg-zinc-950/80 border border-zinc-800/80 rounded-none text-xs space-y-2.5">
@@ -372,15 +379,44 @@ export const SetlistMidiBacking: React.FC<SetlistMidiBackingProps> = ({
           </select>
 
           {song.midiFile && (
-            <button
-              onClick={handleGenerateGM}
-              disabled={isGenerating}
-              className="px-2.5 py-1 bg-amber-600/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-400 text-[9px] font-bold uppercase tracking-wider flex items-center gap-1 transition-all rounded-none"
-              title="Auto-create General MIDI Patches and Multi for each track"
-            >
-              <Wand2 className="w-3 h-3" />
-              {isGenerating ? 'Generating...' : 'Auto GM Multi'}
-            </button>
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => {
+                  const newAutoGM = !isAutoGM;
+                  onUpdateSong({ ...song, autoGMMode: newAutoGM });
+                  if (isPlaying && engine) {
+                    midiTrackService.startPlayback(
+                      song.midiFile!,
+                      engine,
+                      song.midiTrackOverrides,
+                      progress.current,
+                      song.leadInBars || 0,
+                      patches,
+                      newAutoGM
+                    );
+                  }
+                }}
+                className={`px-2 py-1 text-[9px] font-bold uppercase tracking-wider border transition-all ${
+                  isAutoGM
+                    ? 'bg-amber-500 text-black border-amber-500'
+                    : 'bg-zinc-900 text-zinc-400 border-zinc-800 hover:text-white'
+                }`}
+                title="When Auto GM is OFF, only tracks with assigned custom patches will play sound."
+              >
+                Auto GM: {isAutoGM ? 'ON' : 'OFF'}
+              </button>
+
+              <button
+                onClick={handleGenerateGM}
+                disabled={isGenerating}
+                className="px-2.5 py-1 bg-amber-600/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-400 text-[9px] font-bold uppercase tracking-wider flex items-center gap-1 transition-all rounded-none"
+                title="Auto-create General MIDI Patches and Multi for each track"
+              >
+                <Wand2 className="w-3 h-3" />
+                {isGenerating ? 'Generating...' : 'Auto GM Multi'}
+              </button>
+            </div>
           )}
         </div>
       </div>

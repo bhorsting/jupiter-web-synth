@@ -486,6 +486,7 @@ export interface Song {
   midiFile?: string;
   midiTrackOverrides?: Record<number, MidiTrackOverride>;
   leadInBars?: number;
+  autoGMMode?: boolean;
 }
 
 export interface Setlist {
