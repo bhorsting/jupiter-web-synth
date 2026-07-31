@@ -2472,7 +2472,7 @@ function App() {
 
           {currentScreen === 'PATCHES' && (
             <div className="absolute inset-0 bg-synth-bg p-4 sm:p-8 overflow-y-auto">
-              <div className="max-w-4xl mx-auto">
+              <div className="w-full">
                 <div className="flex justify-between items-center mb-8 sm:mb-12 border-b border-synth-border pb-6">
                     <div className="flex items-center gap-4">
                       <h2 className="text-xl sm:text-3xl font-bold tracking-tight uppercase">Synth Library</h2>
