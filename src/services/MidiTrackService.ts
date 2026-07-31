@@ -169,6 +169,21 @@ class MidiTrackService {
 
     if (patches && patches.length > 0) {
       engine.setLibraryPatches(patches);
+
+      if (trackOverrides) {
+        for (const override of Object.values(trackOverrides)) {
+          if (override?.patchId) {
+            const p = patches.find(item => item.id === override.patchId);
+            if (p?.params?.vco1SoundfontEnabled && p.params.vco1SoundfontName) {
+              try {
+                await soundfontService.getPresetsForFile(p.params.vco1SoundfontName, engine.getCtx() || undefined);
+              } catch (e) {
+                console.warn('Failed to pre-cache SF2 preset:', e);
+              }
+            }
+          }
+        }
+      }
     }
 
     try {

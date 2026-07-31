@@ -3220,7 +3220,7 @@ export class JupiterEngine {
       this.ctx.resume();
     }
     
-    if (this.activeMulti) {
+    if (this.activeMulti && !patchId && !patchParams) {
       const incomingVel127 = Math.round(velocity * 127);
       
       this.activeMulti.slots.forEach((slot, index) => {
@@ -3404,7 +3404,7 @@ export class JupiterEngine {
   }
 
   noteOff(midiNote: number, patchId?: string | null) {
-    if (this.activeMulti) {
+    if (this.activeMulti && !patchId) {
       this.activeMulti.slots.forEach((slot, index) => {
         const key = `slot_${index}`;
         const arp = this.activeArps.get(key);
