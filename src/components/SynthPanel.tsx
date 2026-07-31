@@ -4,6 +4,7 @@ import { VoiceParams } from '../types';
 import { AnimatePresence, motion } from 'motion/react';
 import { Activity, ChevronDown, Search, Check } from 'lucide-react';
 import { soundfontService } from '../services/SoundfontService';
+import { useSettings } from '../contexts/SettingsContext';
 
 interface SynthSelectProps {
   label: string;
@@ -1038,29 +1039,44 @@ export const MetronomeSection = React.memo<MetronomeSectionProps>(({
   handleMapClick,
   getMappedCC,
   selectedMapParam,
-}) => (
-  <Section title="METRONOME">
-    <div className="flex flex-col gap-2 items-center justify-center p-1">
-      <JupiterToggle 
-        label="On/Off" 
-        active={metronomeEnabled} 
-        onChange={(v) => updateParam('metronomeEnabled', v)} 
-        color="bg-zinc-700"
+}) => {
+  const { settings, updateSettings } = useSettings();
+  return (
+    <Section title="METRONOME">
+      <div className="flex flex-col gap-1.5 items-center justify-center p-1">
+        <JupiterToggle 
+          label="On/Off" 
+          active={metronomeEnabled} 
+          onChange={(v) => updateParam('metronomeEnabled', v)} 
+          color="bg-zinc-700"
+        />
+        <button
+          type="button"
+          onClick={() => updateSettings({ enableSurround51: !settings.enableSurround51 })}
+          className={`mt-1 px-1.5 py-0.5 text-[8px] font-mono font-bold uppercase tracking-wider border transition-all ${
+            settings.enableSurround51
+              ? 'bg-amber-500/20 text-amber-400 border-amber-500/60 shadow-[0_0_8px_rgba(245,158,11,0.2)]'
+              : 'bg-zinc-900 text-zinc-500 border-zinc-800 hover:text-zinc-400'
+          }`}
+          title="Enable 5.1 Surround Audio output (Synth to Front L/R, Click to Rear L/R)"
+        >
+          5.1 OUT: {settings.enableSurround51 ? 'ON' : 'OFF'}
+        </button>
+      </div>
+      <JupiterSlider 
+        label="Volume" 
+        value={metronomeVolume} 
+        min={0} max={1} 
+        onChange={(v) => updateParam('metronomeVolume', v)} 
+        color="bg-zinc-600"
+        isMapMode={isMidiMappingMode}
+        onMapClick={() => handleMapClick('metronomeVolume')}
+        mappedCC={getMappedCC('metronomeVolume')}
+        isSelected={selectedMapParam === 'metronomeVolume'}
       />
-    </div>
-    <JupiterSlider 
-      label="Volume" 
-      value={metronomeVolume} 
-      min={0} max={1} 
-      onChange={(v) => updateParam('metronomeVolume', v)} 
-      color="bg-zinc-600"
-      isMapMode={isMidiMappingMode}
-      onMapClick={() => handleMapClick('metronomeVolume')}
-      mappedCC={getMappedCC('metronomeVolume')}
-      isSelected={selectedMapParam === 'metronomeVolume'}
-    />
-  </Section>
-));
+    </Section>
+  );
+});
 
 export const VCASection = React.memo<{
   vcaLevel: number;

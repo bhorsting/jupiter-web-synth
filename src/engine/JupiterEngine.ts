@@ -2109,6 +2109,11 @@ export class JupiterEngine {
   private recordingChunks: Blob[] = [];
   private isRecording: boolean = false;
 
+  // 5.1 Surround Routing & Backing Track State
+  private surroundMerger: ChannelMergerNode | null = null;
+  private synthSplitter: ChannelSplitterNode | null = null;
+  private isBackingTrackActive: boolean = false;
+
   constructor(params: VoiceParams, perfSettings: PerformanceSettings) {
     this.params = params;
     this.perfSettings = perfSettings;
@@ -2230,12 +2235,13 @@ export class JupiterEngine {
 
     this.limiter.connect(this.volumeGain!);
     this.volumeGain!.connect(this.analyser);
-    this.analyser.connect(this.ctx.destination);
 
     // Dedicated clean sound path for metronome, bypassing all FX/compressor/master volumes
     this.metronomeGain = this.ctx.createGain();
     this.metronomeGain.gain.setValueAtTime(this.params.metronomeVolume, this.ctx.currentTime);
-    this.metronomeGain.connect(this.ctx.destination);
+
+    // Set up 5.1 vs Stereo Audio Routing
+    this.updateAudioRouting();
 
     // Audio stream capture destination for clean synth output (excluding metronome)
     this.recordingDestination = this.ctx.createMediaStreamDestination();
@@ -2909,6 +2915,7 @@ export class JupiterEngine {
       settings.sampleRate !== this.perfSettings.sampleRate || 
       settings.latencyHint !== this.perfSettings.latencyHint;
 
+    const surroundChanged = this.perfSettings?.enableSurround51 !== settings.enableSurround51;
     this.perfSettings = settings;
 
     if (needsRestart && this.ctx) {
@@ -2916,6 +2923,14 @@ export class JupiterEngine {
     } else {
       this.updateVoiceCount();
       this.voices.forEach(v => v.updateParams(this.params, this.perfSettings));
+      if (surroundChanged) {
+        this.updateAudioRouting();
+        if (this.isBackingTrackActive && this.perfSettings.enableSurround51) {
+          if (!this.metronomeTimer) {
+            this.startMetronome();
+          }
+        }
+      }
     }
   }
 
@@ -3028,6 +3043,73 @@ export class JupiterEngine {
     
     osc.start(time);
     osc.stop(time + 0.08);
+  }
+
+  public updateAudioRouting() {
+    if (!this.ctx || !this.analyser || !this.metronomeGain) return;
+
+    try { this.analyser.disconnect(); } catch (e) {}
+    try { this.metronomeGain.disconnect(); } catch (e) {}
+    if (this.synthSplitter) {
+      try { this.synthSplitter.disconnect(); } catch (e) {}
+      this.synthSplitter = null;
+    }
+    if (this.surroundMerger) {
+      try { this.surroundMerger.disconnect(); } catch (e) {}
+      this.surroundMerger = null;
+    }
+
+    const isSurround = !!this.perfSettings?.enableSurround51;
+
+    if (isSurround) {
+      try {
+        this.ctx.destination.channelCountMode = 'explicit';
+        this.ctx.destination.channelInterpretation = 'discrete';
+        const maxCh = this.ctx.destination.maxChannelCount || 6;
+        this.ctx.destination.channelCount = Math.max(6, maxCh);
+      } catch (e) {
+        console.warn("Could not set 5.1 destination channelCount:", e);
+      }
+
+      this.surroundMerger = this.ctx.createChannelMerger(6);
+      this.surroundMerger.channelCountMode = 'explicit';
+      this.surroundMerger.channelInterpretation = 'discrete';
+      this.surroundMerger.connect(this.ctx.destination);
+
+      // Route synth output (analyser) to Front Left (Ch 0) & Front Right (Ch 1)
+      this.synthSplitter = this.ctx.createChannelSplitter(2);
+      this.analyser.connect(this.synthSplitter);
+      this.synthSplitter.connect(this.surroundMerger, 0, 0); // Front Left
+      this.synthSplitter.connect(this.surroundMerger, 1, 1); // Front Right
+
+      // Route metronome/click output to Rear Left (Ch 4) & Rear Right (Ch 5)
+      this.metronomeGain.connect(this.surroundMerger, 0, 4); // Rear Left
+      this.metronomeGain.connect(this.surroundMerger, 0, 5); // Rear Right
+    } else {
+      try {
+        this.ctx.destination.channelCountMode = 'max';
+        this.ctx.destination.channelCount = Math.min(2, this.ctx.destination.maxChannelCount);
+      } catch (e) {}
+
+      this.analyser.connect(this.ctx.destination);
+      this.metronomeGain.connect(this.ctx.destination);
+    }
+  }
+
+  public setBackingTrackActive(active: boolean, bpm?: number) {
+    this.isBackingTrackActive = active;
+    if (active) {
+      if (bpm && bpm > 0) {
+        this.params.bpm = bpm;
+      }
+      if (this.params.metronomeEnabled || this.perfSettings?.enableSurround51) {
+        this.startMetronome();
+      }
+    } else {
+      if (!this.params.metronomeEnabled) {
+        this.stopMetronome();
+      }
+    }
   }
 
   // --- Recording Interface ---

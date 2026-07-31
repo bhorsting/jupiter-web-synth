@@ -28,11 +28,12 @@ import {
 } from './components/SynthPanel';
 import { DX7Panel } from './components/DX7Panel';
 import { DEFAULT_PARAMS, VoiceParams, Patch, MidiMapping, cleanVoiceParams, Multi, MultiSlot, Song, Setlist } from './types';
-import { Power, Save, FolderOpen, Sliders, Waves, Activity, Trash2, X, Keyboard as PianoIcon, Cloud, UploadCloud, DownloadCloud, Link, Maximize, Minimize, Settings2, Plus, Layers, Edit2, Play, Pause, Square } from 'lucide-react';
+import { Power, Save, FolderOpen, Sliders, Waves, Activity, Trash2, X, Keyboard as PianoIcon, Cloud, UploadCloud, DownloadCloud, Link, Maximize, Minimize, Settings2, Plus, Layers, Edit2, Play, Pause, Square, Radio } from 'lucide-react';
 import React from 'react';
 import Keyboard from 'react-simple-keyboard';
 import { PianoKeyboard } from './components/PianoKeyboard';
 import { SettingsModal } from './components/SettingsModal';
+import { LivePerformanceView } from './components/LivePerformanceView';
 import { SetlistMidiBacking } from './components/SetlistMidiBacking';
 import { GroupedPresetsView } from './components/GroupedPresetsView';
 import { MidiDebugger, MidiDebugEvent } from './components/MidiDebugger';
@@ -90,7 +91,8 @@ function App() {
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
   const [isMidiMappingMode, setIsMidiMappingMode] = useState(false);
-  const [selectedMapParam, setSelectedMapParam] = useState<keyof VoiceParams | null>(null);
+  const [selectedMapParam, setSelectedMapParam] = useState<keyof VoiceParams | 'songPlayPause' | null>(null);
+  const [appMode, setAppMode] = useState<'LIVE' | 'SONG' | 'EDIT'>('LIVE');
   const [midiMappings, setMidiMappings] = useState<MidiMapping[]>([]);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isMidiLogVisible, setIsMidiLogVisible] = useState(false);
@@ -308,6 +310,11 @@ function App() {
         if (appState.currentScreen) setCurrentScreen(appState.currentScreen);
         if (appState.showKeyboard !== undefined) setShowKeyboard(appState.showKeyboard);
         if (appState.isMidiLogVisible !== undefined) setIsMidiLogVisible(appState.isMidiLogVisible);
+        if (appState.appMode) {
+          setAppMode(appState.appMode);
+        } else if (appState.isSongMode !== undefined) {
+          setAppMode(appState.isSongMode ? 'SONG' : 'EDIT');
+        }
         finalSetlists = appState.setlists || [];
         activeSetId = appState.activeSetlistId || null;
       } else {
@@ -351,6 +358,7 @@ function App() {
       currentScreen,
       showKeyboard,
       isMidiLogVisible,
+      appMode,
       setlists,
       activeSetlistId
     });
@@ -361,7 +369,7 @@ function App() {
     } else {
       localStorage.removeItem('jupiter_last_patch_id');
     }
-  }, [activePatchId, activeMultiId, params, midiMappings, currentScreen, showKeyboard, isMidiLogVisible, isRestored, setlists, activeSetlistId]);
+  }, [activePatchId, activeMultiId, params, midiMappings, currentScreen, showKeyboard, isMidiLogVisible, appMode, isRestored, setlists, activeSetlistId]);
 
   // Save multis whenever they change
   useEffect(() => {
@@ -587,11 +595,47 @@ function App() {
     updateParam(key, mappedValue);
   }, [updateParam]);
 
+  const handleToggleMainSongPlayRef = useRef<() => void>(() => {});
+
   const handleMidiCC = React.useCallback((cc: number, value: number, channel: number) => {
     console.log(`[MIDI EVENT] CC message received: cc=${cc}, value=${value}, channel=${channel}. isMidiMappingMode=${isMidiMappingMode}, selectedMapParam=${selectedMapParam}`);
     
     if (isMidiMappingMode) {
+      if ((selectedMapParam as string) === 'songPlayPause') {
+        console.log(`[MIDI LEARN] Assigning CC ${cc} (Ch ${channel + 1}) to global Song Play/Pause`);
+        updateSettings({ songPlayPauseCc: cc, songPlayPauseChannel: channel });
+        
+        // Remove this CC from patch mappings so it is unavailable for overrides
+        setMidiMappings(prev => prev.filter(m => m.cc !== cc));
+        if (activePatchId) {
+          setPatches(currentPatches => 
+            currentPatches.map(p => p.id === activePatchId ? { 
+              ...p, 
+              midiMappings: (p.midiMappings || []).filter(m => m.cc !== cc)
+            } : p)
+          );
+        }
+
+        // Save to sheet if connected
+        if (settings.googleSheetUrl && googleSheetsService.isConnected()) {
+          googleSheetsService.saveToSheet(patches, multis, setlists, settings.googleSheetUrl, {
+            ...settings,
+            songPlayPauseCc: cc,
+            songPlayPauseChannel: channel
+          }).catch(e => console.warn('Failed to auto-save global MIDI mapping to sheet', e));
+        }
+
+        setSelectedMapParam(null);
+        return;
+      }
+
       if (selectedMapParam) {
+        // Block patch mapping if CC is reserved for Song Play/Pause
+        if (settings.songPlayPauseCc !== null && settings.songPlayPauseCc !== undefined && cc === settings.songPlayPauseCc) {
+          showCustomAlert('RESERVED MIDI CC', `CC ${cc} is reserved globally for Song Play/Pause and cannot be mapped to patch parameters.`);
+          return;
+        }
+
         console.log(`[MIDI LEARN] Assigning CC ${cc} (Ch ${channel + 1}) to parameter ${selectedMapParam}`);
         
         const newMapping = { parameter: selectedMapParam, cc, channel };
@@ -620,7 +664,27 @@ function App() {
       return;
     }
 
-    // Normal operation: route to slider / toggle / selector
+    // Normal operation: Check global Song Play/Pause MIDI CC FIRST
+    if (
+      settings.songPlayPauseCc !== null &&
+      settings.songPlayPauseCc !== undefined &&
+      cc === settings.songPlayPauseCc
+    ) {
+      if (
+        settings.songPlayPauseChannel === null ||
+        settings.songPlayPauseChannel === undefined ||
+        settings.songPlayPauseChannel === 0 ||
+        settings.songPlayPauseChannel === channel
+      ) {
+        if (value >= 64 || value > 0) {
+          handleToggleMainSongPlayRef.current();
+        }
+        // MUST RETURN TO MAKE UNAVAILABLE FOR OVERRIDES
+        return;
+      }
+    }
+
+    // Route to slider / toggle / selector
     const mapping = midiMappings.find(m => m.cc === cc && m.channel === channel);
     if (mapping) {
       const paramKey = mapping.parameter;
@@ -631,7 +695,7 @@ function App() {
     if (cc === 1) {
       engineRef.current?.setModWheel(value);
     }
-  }, [isMidiMappingMode, selectedMapParam, activePatchId, midiMappings]);
+  }, [isMidiMappingMode, selectedMapParam, activePatchId, midiMappings, settings, updateSettings, patches, multis, setlists, showCustomAlert]);
 
   const addMidiDebugEvent = React.useCallback((
     type: 'Note On' | 'Note Off' | 'CC' | 'Pitch Bend' | 'Panic',
@@ -1315,25 +1379,74 @@ function App() {
     }
   };
 
-  const handleToggleMainSongPlay = async () => {
-    if (!engineRef.current || !activeSong || !activeSong.midiFile) return;
+  const handleToggleMainSongPlay = async (targetSong?: Song) => {
+    try {
+      if (engineRef.current) {
+        await engineRef.current.resume();
+      }
 
-    handleLoadSong(activeSong);
+      let songToPlay = targetSong || activeSong;
+      if (!songToPlay) {
+        const activeSetlist = setlists.find(s => s.id === activeSetlistId) || setlists[0];
+        if (activeSetlist && activeSetlist.songs && activeSetlist.songs.length > 0) {
+          songToPlay = activeSetlist.songs[0];
+        }
+      }
 
-    if (isMidiPlaying) {
-      midiTrackService.pausePlayback(engineRef.current);
-    } else {
-      await midiTrackService.startPlayback(
-        activeSong.midiFile,
-        engineRef.current,
-        activeSong.midiTrackOverrides,
-        midiProgress.current
-      );
+      if (!engineRef.current || !songToPlay) {
+        showCustomAlert('NOTICE', 'No song is currently loaded in the setlist.');
+        return;
+      }
+
+      if (activeSong?.id !== songToPlay.id) {
+        handleLoadSong(songToPlay);
+      }
+
+      if (!songToPlay.midiFile) {
+        // Trigger brief audio test note on synth engine so user gets instant sound feedback on mobile
+        engineRef.current.noteOn(60, 0.7);
+        setTimeout(() => engineRef.current?.noteOff(60), 300);
+
+        showCustomAlert(
+          'NOTICE',
+          `No MIDI backing track attached to "${songToPlay.name}". The synth sound preset is loaded and playable! You can attach a MIDI file in Library > Setlists.`
+        );
+        return;
+      }
+
+      if (isMidiPlaying && midiTrackService.getPlayingFileName() === songToPlay.midiFile) {
+        midiTrackService.pausePlayback(engineRef.current);
+        setIsMidiPlaying(false);
+      } else {
+        const success = await midiTrackService.startPlayback(
+          songToPlay.midiFile,
+          engineRef.current,
+          songToPlay.midiTrackOverrides,
+          midiProgress.current
+        );
+        if (success) {
+          setIsMidiPlaying(true);
+        } else {
+          showCustomAlert(
+            'NOTICE',
+            `Backing track "${songToPlay.midiFile}" is not cached locally on this device. Upload or select a MIDI file in Library > Setlists.`
+          );
+          setIsMidiPlaying(false);
+        }
+      }
+    } catch (err: any) {
+      console.error('Error toggling song play:', err);
+      showCustomAlert('ERROR', `Playback error: ${err?.message || err}`);
     }
   };
 
-  const handleStopMainSongPlay = () => {
+  useEffect(() => {
+    handleToggleMainSongPlayRef.current = handleToggleMainSongPlay;
+  }, [handleToggleMainSongPlay]);
+
+  const handleStopMainSongPlay = async () => {
     if (engineRef.current) {
+      await engineRef.current.resume();
       midiTrackService.stopPlayback(engineRef.current);
     }
     setIsMidiPlaying(false);
@@ -1925,135 +2038,139 @@ function App() {
   return (
     <div className={`w-screen h-[100dvh] overflow-hidden bg-synth-bg text-white font-sans select-none flex flex-col theme-${settings.theme}`}>
       {/* Dynamic Header */}
-      <div className="flex flex-col sm:flex-row bg-synth-panel border-b border-synth-border shrink-0 z-20">
-        {/* Mobile-only Top Patch Title Row */}
-        <div className="flex sm:hidden h-[34px] items-center justify-between px-3 border-b border-synth-border/40 bg-black/20 shrink-0">
-          <div className="flex items-center gap-2">
-            <div className={`w-1.5 h-1.5 rounded-full ${engineReady ? 'bg-red-600 shadow-[0_0_8px_red]' : 'bg-zinc-800'}`} />
-            <h1 className="text-[11px] font-bold tracking-wider text-white uppercase truncate max-w-[150px]">
+      <div className="flex flex-wrap items-center justify-between px-2 py-1.5 sm:px-3 w-full min-w-0 gap-1.5 sm:gap-2 bg-synth-panel border-b border-synth-border shrink-0 z-20">
+        {/* Mobile Patch Title & Status */}
+        <div className="flex sm:hidden items-center gap-2 border-r border-synth-border/40 pr-2">
+          <div className={`w-1.5 h-1.5 rounded-full ${engineReady ? 'bg-red-600 shadow-[0_0_8px_red]' : 'bg-zinc-800'}`} />
+          <h1 className="text-[10px] font-bold tracking-wider text-white uppercase truncate max-w-[110px]">
+            {activeMultiId 
+              ? `MULTI: ${multis.find(m => m.id === activeMultiId)?.name || 'UNKNOWN'}`
+              : activePatchId 
+                ? patches.find(p => p.id === activePatchId)?.name 
+                : 'UNSAVED'}
+          </h1>
+          <span className="text-[7px] text-zinc-600 font-mono">v{APP_VERSION}</span>
+        </div>
+
+        {/* Desktop Title Block */}
+        <div className="hidden sm:flex items-center gap-2 shrink-0 pr-2 border-r border-white/5">
+          <div className={`w-2 h-2 ${engineReady ? 'bg-red-600 shadow-[0_0_8px_red]' : 'bg-zinc-800'}`} />
+          <div className="flex flex-col gap-0.5 justify-center">
+            <h1 className="text-[11px] sm:text-xs font-bold tracking-tighter text-white uppercase truncate max-w-[140px] leading-none">
               {activeMultiId 
                 ? `MULTI: ${multis.find(m => m.id === activeMultiId)?.name || 'UNKNOWN'}`
                 : activePatchId 
                   ? patches.find(p => p.id === activePatchId)?.name 
                   : 'UNSAVED'}
             </h1>
-            <span className="text-[7px] text-zinc-600 font-mono tracking-wider">v{APP_VERSION}</span>
-          </div>
-          
-          <div className="flex items-center gap-1 font-mono text-[9px] text-zinc-500">
-            <Activity size={10} className={activeNotes.length > 0 ? 'text-green-500 animate-pulse' : ''} />
-            <span>{activeNotes.length} ACTIVE NOTES</span>
+            <span className="text-[7px] text-zinc-600 font-mono tracking-widest leading-none">v{APP_VERSION}</span>
           </div>
         </div>
 
-        {/* Header Action Row (Primary across sm and containing controls) */}
-        <div className="h-[50px] flex items-center justify-between px-2 sm:px-3 w-full min-w-0">
-          <div className="flex items-center h-full flex-1 min-w-0">
-            {/* Desktop-only Patch Name & LED */}
-            <div className="hidden sm:flex mr-4 items-center gap-2 shrink-0">
-               <div className={`w-1.5 h-1.5 sm:w-2 sm:h-2 ${engineReady ? 'bg-red-600 shadow-[0_0_8px_red]' : 'bg-zinc-800'}`} />
-               <div className="flex flex-col gap-0.5 justify-center">
-                 <h1 className="text-[10px] sm:text-xs font-bold tracking-tighter text-white uppercase truncate max-w-[80px] sm:max-w-[150px] leading-none">
-                   {activeMultiId 
-                     ? `MULTI: ${multis.find(m => m.id === activeMultiId)?.name || 'UNKNOWN'}`
-                     : activePatchId 
-                       ? patches.find(p => p.id === activePatchId)?.name 
-                       : 'UNSAVED'}
-                 </h1>
-                 <span className="text-[7px] text-zinc-600 font-mono tracking-widest leading-none">v{APP_VERSION}</span>
-               </div>
-            </div>
-            
-            <nav className="flex h-full min-w-0">
-              <NavButton target="SYNTH" label="Synthesizer" icon={Sliders} />
-              <NavButton target="ARP" label="Arpeggio" icon={Activity} />
-              <NavButton target="FX" label="Master FX" icon={Waves} />
-              <NavButton target="PATCHES" label="Library" icon={FolderOpen} />
-            </nav>
- 
-          <div 
-            className="hidden lg:flex ml-4 h-full items-center border-l border-white/5 pl-4 overflow-hidden cursor-pointer group relative hover:bg-white/5 transition-colors min-w-[120px]"
-            onClick={() => setIsMidiLogVisible(!isMidiLogVisible)}
-            title={isMidiLogVisible ? "Click to hide MIDI logs" : "Click to show MIDI logs"}
+        {/* Live Mode vs Song Mode vs Edit Mode Toggle */}
+        <div className="flex items-center bg-black/50 p-0.5 rounded-none border border-zinc-800 shrink-0">
+          <button
+            onClick={() => {
+              setAppMode('LIVE');
+              if (!activeSetlistId && setlists.length > 0) {
+                setActiveSetlistId(setlists[0].id);
+              }
+            }}
+            className={`flex items-center gap-1.5 px-2.5 py-1 text-[9px] font-bold uppercase tracking-wider transition-all rounded-none ${
+              appMode === 'LIVE'
+                ? 'bg-red-600 text-white font-black shadow-[0_0_12px_rgba(220,38,38,0.5)]'
+                : 'text-zinc-400 hover:text-white hover:bg-white/5'
+            }`}
           >
-            {!isMidiLogVisible && (
-              <div className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity z-10">
-                <span className="text-[6px] font-bold text-white uppercase tracking-widest">SHOW MIDI</span>
-              </div>
-            )}
-            <div className={`flex gap-2 font-mono text-[8px] uppercase tracking-widest whitespace-nowrap transition-opacity ${isMidiLogVisible ? 'text-zinc-600 opacity-100' : 'text-zinc-800 opacity-30 select-none'}`}>
-              {midiLogs.length === 0 ? (
-                <span>MIDI IDLE...</span>
-              ) : isMidiLogVisible ? (
-                midiLogs.slice(0, 3).map(log => (
-                  <span key={log.id} className="animate-in fade-in slide-in-from-left-2 duration-300 first:text-orange-500">
-                    [{log.text.substring(0, 15)}]
-                  </span>
-                ))
-              ) : (
-                <span>MIDI MONITOR OFF</span>
-              )}
+            <Radio size={10} className="animate-pulse" />
+            <span>LIVE MODE</span>
+          </button>
+          <button
+            onClick={() => {
+              setAppMode('SONG');
+              if (!activeMultiId && multis.length > 0) {
+                loadMulti(multis[0]);
+              }
+            }}
+            className={`flex items-center gap-1.5 px-2.5 py-1 text-[9px] font-bold uppercase tracking-wider transition-all rounded-none ${
+              appMode === 'SONG'
+                ? 'bg-amber-500 text-black font-black shadow-[0_0_10px_rgba(245,158,11,0.4)]'
+                : 'text-zinc-400 hover:text-white hover:bg-white/5'
+            }`}
+          >
+            <Play size={10} className="fill-current" />
+            <span>SONG MODE</span>
+          </button>
+          <button
+            onClick={() => setAppMode('EDIT')}
+            className={`flex items-center gap-1.5 px-2.5 py-1 text-[9px] font-bold uppercase tracking-wider transition-all rounded-none ${
+              appMode === 'EDIT'
+                ? 'bg-orange-500 text-black font-black shadow-[0_0_10px_rgba(249,115,22,0.4)]'
+                : 'text-zinc-400 hover:text-white hover:bg-white/5'
+            }`}
+          >
+            <Sliders size={10} />
+            <span>EDIT MODE</span>
+          </button>
+        </div>
+
+        {/* Primary Navigation Buttons */}
+        <nav className="flex items-center gap-0.5 shrink-0 flex-wrap">
+          <NavButton target="SYNTH" label="Synthesizer" icon={Sliders} />
+          <NavButton target="ARP" label="Arpeggio" icon={Activity} />
+          <NavButton target="FX" label="Master FX" icon={Waves} />
+          <NavButton target="PATCHES" label="Library" icon={FolderOpen} />
+        </nav>
+
+        {/* Desktop MIDI Monitor log */}
+        <div 
+          className="hidden lg:flex items-center border-l border-white/5 pl-3 overflow-hidden cursor-pointer group relative hover:bg-white/5 transition-colors min-w-[100px]"
+          onClick={() => setIsMidiLogVisible(!isMidiLogVisible)}
+          title={isMidiLogVisible ? "Click to hide MIDI logs" : "Click to show MIDI logs"}
+        >
+          {!isMidiLogVisible && (
+            <div className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity z-10">
+              <span className="text-[6px] font-bold text-white uppercase tracking-widest">SHOW MIDI</span>
             </div>
+          )}
+          <div className={`flex gap-2 font-mono text-[8px] uppercase tracking-widest whitespace-nowrap transition-opacity ${isMidiLogVisible ? 'text-zinc-600 opacity-100' : 'text-zinc-800 opacity-30 select-none'}`}>
+            {midiLogs.length === 0 ? (
+              <span>MIDI IDLE...</span>
+            ) : isMidiLogVisible ? (
+              midiLogs.slice(0, 2).map(log => (
+                <span key={log.id} className="animate-in fade-in slide-in-from-left-2 duration-300 first:text-orange-500">
+                  [{log.text.substring(0, 14)}]
+                </span>
+              ))
+            ) : (
+              <span>MIDI OFF</span>
+            )}
           </div>
         </div>
 
-        {/* Main Screen Song Playback Widget (if song selected) */}
-        {activeSong && (
-          <div className="flex items-center gap-1.5 px-2 py-1 bg-amber-500/10 border border-amber-500/30 text-[9px] font-mono text-amber-300 ml-1 sm:ml-2 shrink-0 self-center">
-            <div className="flex flex-col min-w-0 max-w-[80px] sm:max-w-[120px] leading-tight">
-              <span className="font-bold truncate text-[8px] uppercase tracking-wider text-amber-200" title={activeSong.name}>
-                {activeSong.name}
-              </span>
-              {activeSong.midiFile ? (
-                <span className="text-[7px] text-amber-400/80 font-mono">
-                  {isMidiPlaying ? 'PLAYING' : 'READY'}
-                </span>
-              ) : (
-                <span className="text-[7px] text-zinc-500 font-mono">NO MIDI</span>
-              )}
-            </div>
-            {activeSong.midiFile && (
-              <div className="flex items-center gap-0.5 shrink-0">
-                <button
-                  onClick={handleToggleMainSongPlay}
-                  className="p-1 bg-amber-600 hover:bg-amber-500 text-white font-bold transition-all shrink-0 rounded-none flex items-center justify-center"
-                  title={isMidiPlaying ? "Pause Song Backing" : "Play Song Backing"}
-                >
-                  {isMidiPlaying ? <Pause size={10} /> : <Play size={10} />}
-                </button>
-                <button
-                  onClick={handleStopMainSongPlay}
-                  className="p-1 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 transition-all shrink-0 rounded-none flex items-center justify-center"
-                  title="Stop Song Backing"
-                >
-                  <Square size={10} />
-                </button>
-              </div>
-            )}
+        {/* Action Controls Group - Automatically wraps onto second row on small screens */}
+        <div className="flex flex-wrap items-center gap-1 sm:gap-1.5 shrink-0">
+          <div className="flex items-center px-2 border-l border-white/5 gap-1.5 select-none" title="MIDI Input Status Indicator">
+            <span className="text-[8px] sm:text-[9px] uppercase tracking-widest text-zinc-500 font-bold">MIDI IN</span>
+            <div 
+              className={`w-2 h-2 rounded-full transition-all duration-100 ${
+                midiLedActive 
+                  ? 'bg-orange-500 shadow-[0_0_8px_#f97316] scale-110' 
+                  : 'bg-zinc-800 shadow-none scale-100'
+              }`}
+            />
           </div>
-        )}
 
-        <div className="flex items-center gap-1 sm:gap-2 ml-2 h-full">
-          <div className="flex items-center gap-1.5 h-full">
-            <div className="flex h-full items-center px-2 sm:px-3 border-l border-white/5 gap-2 select-none" title="MIDI Input Status Indicator">
-              <span className="text-[8px] sm:text-[9px] uppercase tracking-widest text-zinc-500 font-bold">MIDI IN</span>
-              <div 
-                className={`w-2 h-2 sm:w-2.5 sm:h-2.5 rounded-full transition-all duration-100 ${
-                  midiLedActive 
-                    ? 'bg-orange-500 shadow-[0_0_8px_#f97316] scale-110' 
-                    : 'bg-zinc-800 shadow-none scale-100'
-                }`}
-              />
-            </div>
-            <button 
-              onClick={savePatch}
-              className="p-1.5 sm:p-2 h-full hover:bg-white/5 text-zinc-400 hover:text-white transition-colors border-l border-white/5"
-            >
-              <Save size={14} />
-            </button>
-          </div>
-          
-          <div className="flex items-center gap-1 font-mono text-[9px] text-zinc-500 border-l border-synth-border pl-2 sm:pl-3">
+          <button 
+            onClick={savePatch}
+            className="p-1.5 sm:px-2 py-1 text-[9px] font-bold hover:bg-white/5 text-zinc-400 hover:text-white transition-colors border-l border-white/5 flex items-center gap-1"
+            title="Save Patch"
+          >
+            <Save size={12} />
+            <span className="hidden sm:inline">SAVE</span>
+          </button>
+
+          <div className="flex items-center gap-1 font-mono text-[8px] text-zinc-500 border-l border-synth-border px-1.5">
             <Activity size={10} className={activeNotes.length > 0 ? 'text-green-500' : ''} />
             <span>{activeNotes.length}</span>
           </div>
@@ -2064,134 +2181,264 @@ function App() {
                 setIsMidiMappingMode(!isMidiMappingMode);
                 setSelectedMapParam(null);
               }}
-              className={`flex items-center gap-1.5 px-2 sm:px-3 h-full border-l border-synth-border transition-all uppercase text-[9px] font-bold tracking-widest ${
+              className={`flex items-center gap-1 px-2 py-1 border-l border-synth-border transition-all uppercase text-[9px] font-bold tracking-widest ${
                 isMidiMappingMode ? 'bg-blue-600 text-white' : 'text-zinc-500 hover:bg-white/5'
               }`}
+              title="Toggle MIDI Learn Mode"
             >
               <Link size={10} />
-              <span className="hidden lg:inline">MAP</span>
+              <span>MAP</span>
             </button>
           )}
 
           <button 
             onClick={() => setShowKeyboard(!showKeyboard)}
-            className={`flex items-center gap-1.5 px-2 sm:px-3 h-full border-l border-synth-border transition-all uppercase text-[9px] font-bold tracking-widest ${
+            className={`flex items-center gap-1 px-2 py-1 border-l border-synth-border transition-all uppercase text-[9px] font-bold tracking-widest ${
               showKeyboard ? 'bg-orange-500 text-white' : 'text-zinc-500 hover:bg-white/5'
             }`}
           >
             <PianoIcon size={10} />
-            <span className="hidden lg:inline">KEYS</span>
+            <span>KEYS</span>
           </button>
 
           <button 
             onClick={() => setIsMidiDebuggerOpen(!isMidiDebuggerOpen)}
-            className={`flex items-center gap-1.5 px-2 sm:px-3 h-full border-l border-synth-border transition-all uppercase text-[9px] font-bold tracking-widest ${
+            className={`flex items-center gap-1 px-2 py-1 border-l border-synth-border transition-all uppercase text-[9px] font-bold tracking-widest ${
               isMidiDebuggerOpen ? 'bg-orange-600 text-white' : 'text-zinc-500 hover:bg-white/5'
             }`}
           >
             <Activity size={10} />
-            <span className="hidden lg:inline">MIDI DEBUG</span>
+            <span className="hidden md:inline">DEBUG</span>
           </button>
 
           <button 
             onClick={handlePanic}
-            className="flex items-center gap-1.5 px-2 sm:px-3 h-full border-l border-synth-border transition-all uppercase text-[9px] font-bold tracking-widest text-red-500 hover:bg-red-500/10"
+            className="flex items-center gap-1 px-2 py-1 border-l border-synth-border transition-all uppercase text-[9px] font-bold tracking-widest text-red-500 hover:bg-red-500/10"
+            title="Silence All Notes"
           >
             <X size={10} />
-            <span className="hidden lg:inline">PANIC</span>
+            <span>PANIC</span>
           </button>
 
           <button 
             onClick={() => setIsSettingsOpen(true)}
-            className="flex items-center gap-1.5 px-2 sm:px-3 h-full border-l border-synth-border transition-all uppercase text-[9px] font-bold tracking-widest text-zinc-500 hover:bg-white/5"
+            className="flex items-center gap-1 px-2 py-1 border-l border-synth-border transition-all uppercase text-[9px] font-bold tracking-widest text-zinc-500 hover:bg-white/5"
+            title="Audio & MIDI Configuration"
           >
             <Settings2 size={10} />
-            <span className="hidden lg:inline">CONFIG</span>
+            <span>CONFIG</span>
           </button>
 
           <button 
             onClick={toggleFullscreen}
-            className="flex items-center gap-1.5 px-2 sm:px-3 h-full border-l border-synth-border transition-all uppercase text-[9px] font-bold tracking-widest text-zinc-500 hover:bg-white/5"
+            className="flex items-center gap-1 px-2 py-1 border-l border-synth-border transition-all uppercase text-[9px] font-bold tracking-widest text-zinc-500 hover:bg-white/5"
           >
             {isFullscreen ? <Minimize size={10} /> : <Maximize size={10} />}
-            <span className="hidden lg:inline">FS</span>
+            <span>FS</span>
           </button>
         </div>
       </div>
-    </div>
 
       {/* Main Content Area */}
       <div className="flex-1 relative flex flex-col overflow-hidden">
-        {['SYNTH', 'ARP', 'FX'].includes(currentScreen) && (
-          <div className="bg-[#0b0b0c] border-b border-synth-border px-4 py-2 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shrink-0 select-none">
-            <div className="flex items-center gap-3">
-              <span className="text-[10px] font-mono font-bold tracking-widest uppercase text-zinc-500">Mode:</span>
-              <div className="flex gap-1.5">
-                <button
-                  onClick={() => {
-                    setActiveMultiId(null);
-                    if (patches.length > 0 && !activePatchId) {
-                      loadPatch(patches[0]);
-                    }
-                  }}
-                  className={`px-3 py-1 text-[10px] font-bold uppercase tracking-widest border transition-all ${
-                    !activeMultiId
-                      ? 'bg-orange-500/15 border-orange-500 text-orange-500 font-black shadow-[0_0_8px_rgba(249,115,22,0.15)]'
-                      : 'bg-zinc-900/40 border-zinc-800 text-zinc-500 hover:text-zinc-400 hover:border-zinc-700'
-                  }`}
-                >
-                  ● Single Patch Mode
-                </button>
-                <button
-                  onClick={() => {
-                    if (multis.length > 0) {
-                      loadMulti(multis[0]);
-                    } else {
-                      handleCreateMulti();
-                    }
-                  }}
-                  className={`px-3 py-1 text-[10px] font-bold uppercase tracking-widest border transition-all ${
-                    activeMultiId
-                      ? 'bg-orange-500/15 border-orange-500 text-orange-500 font-black shadow-[0_0_8px_rgba(249,115,22,0.15)]'
-                      : 'bg-zinc-900/40 border-zinc-800 text-zinc-500 hover:text-zinc-400 hover:border-zinc-700'
-                  }`}
-                >
-                  ● Multi-Layer Mode
-                </button>
-              </div>
-            </div>
-            
-            {activeMultiId ? (
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="text-[10px] font-mono text-zinc-400 uppercase tracking-widest">
-                  Active Multi: <span className="text-white font-bold font-sans">{multis.find(m => m.id === activeMultiId)?.name}</span>
-                </span>
-                <div className="flex flex-wrap gap-1.5">
-                  {(multis.find(m => m.id === activeMultiId)?.slots || []).map((slot, index) => {
-                    const slPatch = patches.find(p => p.id === slot.patchId);
-                    return (
+        {appMode === 'LIVE' ? (
+          <LivePerformanceView
+            setlists={setlists}
+            activeSetlistId={activeSetlistId}
+            setActiveSetlistId={setActiveSetlistId}
+            activeSong={activeSong}
+            isMidiPlaying={isMidiPlaying}
+            midiProgress={midiProgress}
+            handleLoadSong={handleLoadSong}
+            handleToggleMainSongPlay={handleToggleMainSongPlay}
+            handleStopMainSongPlay={handleStopMainSongPlay}
+            patches={patches}
+            multis={multis}
+            activePatchId={activePatchId}
+            activeMultiId={activeMultiId}
+            isMidiMappingMode={isMidiMappingMode}
+            selectedMapParam={selectedMapParam}
+            setSelectedMapParam={setSelectedMapParam}
+            songPlayPauseCc={settings.songPlayPauseCc}
+          />
+        ) : (
+          <>
+            {['SYNTH', 'ARP', 'FX'].includes(currentScreen) && (
+              <div className="bg-[#0b0b0c] border-b border-synth-border px-3 sm:px-4 py-2 flex flex-col md:flex-row items-start md:items-center justify-between gap-3 shrink-0 select-none">
+                {appMode === 'SONG' ? (
+                  /* SONG MODE PERFORMANCE SUB-HEADER */
+                  <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between w-full gap-3">
+                    <div className="flex flex-wrap items-center gap-3">
+                      <span className="text-[10px] font-mono font-bold tracking-widest uppercase text-amber-500 bg-amber-500/10 border border-amber-500/30 px-2 py-0.5 rounded-none">
+                        SONG MODE
+                      </span>
+                      
+                      {/* Styled Combo Selector for Multi Patches */}
+                      <div className="flex items-center gap-2 bg-black/40 border border-amber-500/40 px-2.5 py-1 rounded-none">
+                        <span className="text-[9px] font-mono text-amber-400 font-bold uppercase tracking-wider shrink-0">
+                          EDIT MULTI PATCH:
+                        </span>
+                        <select
+                          value={selectedSlotIndex}
+                          onChange={(e) => {
+                            const newIdx = Number(e.target.value);
+                            setSelectedSlotIndex(newIdx);
+                            const curMulti = multis.find(m => m.id === activeMultiId) || multis[0];
+                            if (curMulti && curMulti.slots[newIdx]) {
+                              const p = patches.find(pt => pt.id === curMulti.slots[newIdx].patchId);
+                              if (p) setParams(cleanVoiceParams(p.params));
+                            }
+                          }}
+                          className="bg-zinc-900 border border-amber-500/60 text-amber-300 font-mono text-[11px] font-bold px-2.5 py-0.5 rounded-none focus:outline-none focus:border-amber-400 cursor-pointer max-w-[220px] sm:max-w-[300px] truncate"
+                        >
+                          {((multis.find(m => m.id === activeMultiId) || multis[0])?.slots || []).map((slot, index) => {
+                            const slPatch = patches.find(p => p.id === slot.patchId);
+                            return (
+                              <option key={index} value={index} className="bg-zinc-900 text-amber-200">
+                                Part {index + 1}: {slPatch?.name || 'Empty'} (Ch {slot.channel || index + 1})
+                              </option>
+                            );
+                          })}
+                        </select>
+                      </div>
+                    </div>
+
+                    {/* Big Song Play / Pause / Stop Buttons - ONLY IN SONG MODE */}
+                    <div className="flex items-center gap-2 shrink-0">
+                      <div className="flex items-center">
+                        <button
+                          onClick={() => {
+                            if (isMidiMappingMode) {
+                              setSelectedMapParam('songPlayPause');
+                            } else {
+                              handleToggleMainSongPlay();
+                            }
+                          }}
+                          className={`h-11 sm:h-12 px-5 sm:px-6 flex items-center gap-2 font-mono text-xs sm:text-sm font-black uppercase tracking-widest transition-all rounded-none border shadow-lg ${
+                            isMidiMappingMode && selectedMapParam === 'songPlayPause'
+                              ? 'bg-blue-600 text-white border-blue-400 animate-pulse ring-2 ring-blue-300 shadow-[0_0_15px_rgba(37,99,235,0.7)]'
+                              : isMidiPlaying
+                                ? 'bg-amber-500 text-black border-amber-400 shadow-[0_0_15px_rgba(245,158,11,0.5)]'
+                                : 'bg-emerald-600 hover:bg-emerald-500 text-white border-emerald-400 shadow-[0_0_15px_rgba(16,185,129,0.4)]'
+                          }`}
+                          title={isMidiMappingMode ? "Click to assign MIDI CC to Play/Pause button" : "Play / Pause Song"}
+                        >
+                          {isMidiPlaying ? (
+                            <>
+                              <Pause size={18} className="fill-current" />
+                              <span>PAUSE SONG</span>
+                            </>
+                          ) : (
+                            <>
+                              <Play size={18} className="fill-current" />
+                              <span>PLAY SONG</span>
+                            </>
+                          )}
+                        </button>
+
+                        {isMidiMappingMode ? (
+                          <button
+                            onClick={() => setSelectedMapParam('songPlayPause')}
+                            className={`ml-2 px-2.5 py-1 text-[9px] font-mono font-bold uppercase tracking-wider rounded-none border transition-all ${
+                              selectedMapParam === 'songPlayPause'
+                                ? 'bg-blue-500 text-white border-white animate-pulse'
+                                : 'bg-zinc-800 text-blue-400 border-blue-500/50 hover:bg-blue-600 hover:text-white'
+                            }`}
+                          >
+                            {selectedMapParam === 'songPlayPause' ? 'LEARNING CC...' : settings.songPlayPauseCc !== null && settings.songPlayPauseCc !== undefined ? `MIDI CC ${settings.songPlayPauseCc}` : 'MAP MIDI'}
+                          </button>
+                        ) : (
+                          settings.songPlayPauseCc !== null && settings.songPlayPauseCc !== undefined && (
+                            <span className="ml-2 px-2 py-1 text-[9px] font-mono font-bold text-amber-400 bg-amber-950/80 border border-amber-500/40 rounded-none shadow-sm">
+                              CC {settings.songPlayPauseCc}
+                            </span>
+                          )
+                        )}
+                      </div>
+
                       <button
-                        key={index}
-                        onClick={() => setSelectedSlotIndex(index)}
-                        className={`px-2 py-0.5 text-[9px] font-mono border transition-all ${
-                          selectedSlotIndex === index
-                            ? 'bg-orange-500 text-black border-orange-500 font-bold'
-                            : 'bg-zinc-900 text-zinc-400 border-zinc-800 hover:border-zinc-700'
-                        }`}
+                        onClick={handleStopMainSongPlay}
+                        className="h-11 sm:h-12 px-3 sm:px-4 flex items-center gap-1.5 bg-zinc-900 hover:bg-zinc-800 text-red-400 font-mono text-xs font-bold uppercase tracking-widest border border-zinc-800 hover:border-red-500/50 rounded-none transition-all shadow-md"
+                        title="Stop Song"
                       >
-                        Part {index + 1}: {slPatch?.name || 'None'}
+                        <Square size={16} className="fill-current text-red-500" />
+                        <span className="hidden sm:inline">STOP</span>
                       </button>
-                    );
-                  })}
-                </div>
-              </div>
-            ) : (
-              <div className="text-[10px] font-mono text-zinc-400 uppercase tracking-widest">
-                Active Patch: <span className="text-white font-bold font-sans">{patches.find(p => p.id === activePatchId)?.name || 'UNSAVED'}</span>
+                    </div>
+                  </div>
+                ) : (
+                  /* EDIT MODE SUB-HEADER */
+                  <>
+                    <div className="flex items-center gap-3">
+                      <span className="text-[10px] font-mono font-bold tracking-widest uppercase text-zinc-500">Mode:</span>
+                      <div className="flex gap-1.5">
+                        <button
+                          onClick={() => {
+                            setActiveMultiId(null);
+                            if (patches.length > 0 && !activePatchId) {
+                              loadPatch(patches[0]);
+                            }
+                          }}
+                          className={`px-3 py-1 text-[10px] font-bold uppercase tracking-widest border transition-all rounded-none ${
+                            !activeMultiId
+                              ? 'bg-orange-500/15 border-orange-500 text-orange-500 font-black shadow-[0_0_8px_rgba(249,115,22,0.15)]'
+                              : 'bg-zinc-900/40 border-zinc-800 text-zinc-500 hover:text-zinc-400 hover:border-zinc-700'
+                          }`}
+                        >
+                          ● Single Patch Mode
+                        </button>
+                        <button
+                          onClick={() => {
+                            if (multis.length > 0) {
+                              loadMulti(multis[0]);
+                            } else {
+                              handleCreateMulti();
+                            }
+                          }}
+                          className={`px-3 py-1 text-[10px] font-bold uppercase tracking-widest border transition-all rounded-none ${
+                            activeMultiId
+                              ? 'bg-orange-500/15 border-orange-500 text-orange-500 font-black shadow-[0_0_8px_rgba(249,115,22,0.15)]'
+                              : 'bg-zinc-900/40 border-zinc-800 text-zinc-500 hover:text-zinc-400 hover:border-zinc-700'
+                          }`}
+                        >
+                          ● Multi-Layer Mode
+                        </button>
+                      </div>
+                    </div>
+                    
+                    {activeMultiId ? (
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-[10px] font-mono text-zinc-400 uppercase tracking-widest">
+                          Active Multi: <span className="text-white font-bold font-sans">{multis.find(m => m.id === activeMultiId)?.name}</span>
+                        </span>
+                        <div className="flex flex-wrap gap-1.5">
+                          {(multis.find(m => m.id === activeMultiId)?.slots || []).map((slot, index) => {
+                            const slPatch = patches.find(p => p.id === slot.patchId);
+                            return (
+                              <button
+                                key={index}
+                                onClick={() => setSelectedSlotIndex(index)}
+                                className={`px-2 py-0.5 text-[9px] font-mono border transition-all rounded-none ${
+                                  selectedSlotIndex === index
+                                    ? 'bg-orange-500 text-black border-orange-500 font-bold'
+                                    : 'bg-zinc-900 text-zinc-400 border-zinc-800 hover:border-zinc-700'
+                                }`}
+                              >
+                                Part {index + 1}: {slPatch?.name || 'None'}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="text-[10px] font-mono text-zinc-400 uppercase tracking-widest">
+                        Active Patch: <span className="text-white font-bold font-sans">{patches.find(p => p.id === activePatchId)?.name || 'UNSAVED'}</span>
+                      </div>
+                    )}
+                  </>
+                )}
               </div>
             )}
-          </div>
-        )}
 
         <div className={`flex-1 relative overflow-y-auto lg:overflow-hidden transition-all duration-300`}>
           {currentScreen === 'SYNTH' && (
@@ -2439,14 +2686,7 @@ function App() {
                     onDeleteMulti={handleDeleteMulti}
                     onUpdatePatchGroup={handleUpdatePatchGroup}
                     onUpdateMultiGroup={handleUpdateMultiGroup}
-                    showCustomPrompt={(title, message, defaultValue, onConfirm) => {
-                      setPromptConfig({
-                        title,
-                        message,
-                        defaultValue,
-                        onConfirm,
-                      });
-                    }}
+                    showCustomPrompt={showCustomPrompt}
                   />
                 )}
 
@@ -2936,6 +3176,8 @@ function App() {
             </div>
           )}
         </div>
+      </>
+    )}
 
         {/* Inline Keyboard - Takes up space in the flex layout */}
         {showKeyboard && (

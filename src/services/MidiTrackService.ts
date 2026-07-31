@@ -141,52 +141,69 @@ class MidiTrackService {
     engine: JupiterEngine,
     trackOverrides?: Record<number, { patchId?: string; mute?: boolean; volume?: number }>,
     startOffset: number = 0
-  ) {
+  ): Promise<boolean> {
     this.stopPlayback(engine);
 
-    const buffer = await soundfontService.getFileBuffer(fileName);
-    const midi = new Midi(buffer);
+    try {
+      const buffer = await soundfontService.getFileBuffer(fileName);
+      if (!buffer || buffer.byteLength === 0) {
+        console.error("MIDI file buffer empty or missing:", fileName);
+        return false;
+      }
+      const midi = new Midi(buffer);
 
-    const scheduledTimeouts: number[] = [];
-    const audioCtx = engine.getCtx();
-    if (!audioCtx) return;
+      const detectedBpm = Math.round(midi.header.tempos[0]?.bpm || 120);
+      engine.setBackingTrackActive(true, detectedBpm);
 
-    const startTime = audioCtx.currentTime - startOffset;
+      const scheduledTimeouts: number[] = [];
+      const audioCtx = engine.getCtx();
+      if (!audioCtx) return false;
 
-    midi.tracks.forEach((track, trackIdx) => {
-      const override = trackOverrides?.[trackIdx];
-      if (override?.mute) return;
+      if (audioCtx.state === 'suspended') {
+        await audioCtx.resume();
+      }
 
-      const trackVol = override?.volume ?? 1.0;
+      const startTime = audioCtx.currentTime - startOffset;
 
-      track.notes.forEach(note => {
-        if (note.time >= startOffset) {
-          const delayStartMs = Math.max(0, (note.time - startOffset) * 1000);
-          const delayEndMs = Math.max(0, (note.time + note.duration - startOffset) * 1000);
+      midi.tracks.forEach((track, trackIdx) => {
+        const override = trackOverrides?.[trackIdx];
+        if (override?.mute) return;
 
-          const startT = window.setTimeout(() => {
-            engine.noteOn(note.midi, note.velocity * trackVol);
-          }, delayStartMs);
+        const trackVol = override?.volume ?? 1.0;
 
-          const endT = window.setTimeout(() => {
-            engine.noteOff(note.midi);
-          }, delayEndMs);
+        track.notes.forEach(note => {
+          if (note.time >= startOffset) {
+            const delayStartMs = Math.max(0, (note.time - startOffset) * 1000);
+            const delayEndMs = Math.max(0, (note.time + note.duration - startOffset) * 1000);
 
-          scheduledTimeouts.push(startT, endT);
-        }
+            const startT = window.setTimeout(() => {
+              engine.noteOn(note.midi, note.velocity * trackVol);
+            }, delayStartMs);
+
+            const endT = window.setTimeout(() => {
+              engine.noteOff(note.midi);
+            }, delayEndMs);
+
+            scheduledTimeouts.push(startT, endT);
+          }
+        });
       });
-    });
 
-    this.activePlayer = {
-      fileName,
-      midi,
-      isPlaying: true,
-      startTime: audioCtx.currentTime - startOffset,
-      pauseOffset: startOffset,
-      scheduledTimeouts,
-    };
+      this.activePlayer = {
+        fileName,
+        midi,
+        isPlaying: true,
+        startTime: audioCtx.currentTime - startOffset,
+        pauseOffset: startOffset,
+        scheduledTimeouts,
+      };
 
-    this.startProgressTimer(audioCtx, midi.duration);
+      this.startProgressTimer(audioCtx, midi.duration);
+      return true;
+    } catch (err) {
+      console.error("Failed to start MIDI playback:", err);
+      return false;
+    }
   }
 
   stopPlayback(engine?: JupiterEngine) {
@@ -203,6 +220,7 @@ class MidiTrackService {
     }
 
     if (engine) {
+      engine.setBackingTrackActive(false);
       engine.panic();
     }
 
@@ -211,6 +229,8 @@ class MidiTrackService {
 
   pausePlayback(engine: JupiterEngine) {
     if (!this.activePlayer) return;
+
+    engine.setBackingTrackActive(false);
 
     const audioCtx = engine.getCtx();
     if (!audioCtx) return;

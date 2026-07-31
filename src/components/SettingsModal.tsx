@@ -347,6 +347,29 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                         ))}
                       </div>
                     </div>
+
+                    <div className="space-y-2">
+                      <label className="text-[10px] uppercase tracking-widest text-zinc-500 font-bold">Surround Output</label>
+                      <div className="p-3 bg-black/30 border border-zinc-800 rounded flex flex-col justify-between h-full gap-3">
+                        <div>
+                          <span className="text-xs font-bold text-zinc-200 block">5.1 Surround Output</span>
+                          <p className="text-[10px] text-zinc-500 font-mono mt-1 leading-relaxed">
+                            Sends synth audio to front speakers (Ch 1 & 2) and metronome/click track to rear speakers (Ch 5 & 6).
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => updateSettings({ enableSurround51: !settings.enableSurround51 })}
+                          className={`w-full py-2 px-3 rounded-none font-mono text-xs font-bold uppercase tracking-wider transition-all border ${
+                            settings.enableSurround51
+                              ? 'bg-amber-500 text-black border-amber-500 shadow-[0_0_12px_rgba(245,158,11,0.25)]'
+                              : 'bg-zinc-900 text-zinc-400 border-zinc-800 hover:border-zinc-700'
+                          }`}
+                        >
+                          5.1 Surround: {settings.enableSurround51 ? 'ENABLED' : 'DISABLED'}
+                        </button>
+                      </div>
+                    </div>
                   </div>
                 </section>
 

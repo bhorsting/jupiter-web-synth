@@ -649,6 +649,9 @@ export interface PerformanceSettings {
   autoConnectMicroKontrol: boolean;
   googleDriveApiKey?: string;
   googleDriveFolderId?: string;
+  enableSurround51: boolean;
+  songPlayPauseCc?: number | null;
+  songPlayPauseChannel?: number | null;
 }
 
 export const DEFAULT_PERFORMANCE_SETTINGS: PerformanceSettings = {
@@ -665,6 +668,9 @@ export const DEFAULT_PERFORMANCE_SETTINGS: PerformanceSettings = {
   autoConnectMicroKontrol: true,
   googleDriveApiKey: '',
   googleDriveFolderId: '',
+  enableSurround51: false,
+  songPlayPauseCc: null,
+  songPlayPauseChannel: null,
 };
 
 export function cleanVoiceParams(rawParams: any): VoiceParams {

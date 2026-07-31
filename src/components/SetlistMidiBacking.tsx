@@ -4,6 +4,7 @@ import { Song, Patch, Multi } from '../types';
 import { midiTrackService, ParsedMidiFile } from '../services/MidiTrackService';
 import { soundfontService } from '../services/SoundfontService';
 import { JupiterEngine } from '../engine/JupiterEngine';
+import { useSettings } from '../contexts/SettingsContext';
 
 interface SearchableSoundSelectProps {
   value: string;
@@ -144,6 +145,7 @@ export const SetlistMidiBacking: React.FC<SetlistMidiBackingProps> = ({
   onAddPatchesAndMulti,
   onLoadSong,
 }) => {
+  const { settings, updateSettings } = useSettings();
   const [midiFiles, setMidiFiles] = useState<string[]>([]);
   const [parsedMidi, setParsedMidi] = useState<ParsedMidiFile | null>(null);
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
@@ -331,6 +333,18 @@ export const SetlistMidiBacking: React.FC<SetlistMidiBackingProps> = ({
                 <span>/</span>
                 <span>{formatTime(parsedMidi.duration)}</span>
                 <span className="text-zinc-600">({parsedMidi.bpm} BPM)</span>
+                <button
+                  type="button"
+                  onClick={() => updateSettings({ enableSurround51: !settings.enableSurround51 })}
+                  className={`px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-wider border transition-all ml-1 ${
+                    settings.enableSurround51
+                      ? 'bg-amber-500/20 text-amber-400 border-amber-500/60'
+                      : 'bg-zinc-900 text-zinc-600 border-zinc-800 hover:text-zinc-400'
+                  }`}
+                  title="5.1 Surround Output: Synth -> Front, Click -> Rear"
+                >
+                  5.1 Click: {settings.enableSurround51 ? 'ON' : 'OFF'}
+                </button>
               </div>
             </div>
 

@@ -1,4 +1,4 @@
-import { Patch, Multi, Setlist, cleanVoiceParams } from '../types';
+import { Patch, Multi, Setlist, PerformanceSettings, cleanVoiceParams } from '../types';
 
 const CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID;
 const SCOPES = 'https://www.googleapis.com/auth/spreadsheets';
@@ -89,6 +89,11 @@ class GoogleSheetsService {
         addSheet: { properties: { title: 'Setlists' } }
       });
     }
+    if (!existingSheetTitles.includes('Settings')) {
+      requests.push({
+        addSheet: { properties: { title: 'Settings' } }
+      });
+    }
     
     if (requests.length > 0) {
       const batchRes = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${id}:batchUpdate`, {
@@ -109,15 +114,22 @@ class GoogleSheetsService {
     patches: Patch[],
     multis: Multi[],
     arg3: string | Setlist[],
-    arg4?: string
+    arg4?: string | Partial<PerformanceSettings>,
+    arg5?: Partial<PerformanceSettings>
   ): Promise<void> {
     let url: string;
     let setlists: Setlist[] = [];
+    let globalSettings: Partial<PerformanceSettings> | undefined;
+
     if (typeof arg3 === 'string') {
       url = arg3;
+      if (typeof arg4 === 'object') {
+        globalSettings = arg4 as Partial<PerformanceSettings>;
+      }
     } else {
       setlists = arg3 || [];
-      url = arg4 || '';
+      url = (typeof arg4 === 'string' ? arg4 : '') || '';
+      globalSettings = arg5;
     }
 
     const id = this.extractSheetId(url);
@@ -211,7 +223,7 @@ class GoogleSheetsService {
       });
 
       const resSetlists = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${id}/values/Setlists!A1?valueInputOption=RAW`, {
-        method: 'PUT',
+        method: 'POST',
         headers: {
           Authorization: `Bearer ${token}`,
           'Content-Type': 'application/json'
@@ -225,9 +237,35 @@ class GoogleSheetsService {
         throw new Error(err.error?.message || 'Failed to sync Setlists to Google Sheets');
       }
     }
+
+    // 4. Save Settings to "Settings" sheet
+    if (globalSettings) {
+      const settingHeaders = ['Key', 'Value'];
+      const settingRows: string[][] = [
+        ['songPlayPauseCc', globalSettings.songPlayPauseCc !== undefined && globalSettings.songPlayPauseCc !== null ? String(globalSettings.songPlayPauseCc) : ''],
+        ['songPlayPauseChannel', globalSettings.songPlayPauseChannel !== undefined && globalSettings.songPlayPauseChannel !== null ? String(globalSettings.songPlayPauseChannel) : ''],
+        ['enableSurround51', globalSettings.enableSurround51 !== undefined ? String(globalSettings.enableSurround51) : ''],
+      ];
+
+      await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${id}/values/Settings!A:Z:clear`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` }
+      });
+
+      await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${id}/values/Settings!A1?valueInputOption=RAW`, {
+        method: 'PUT',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          values: [settingHeaders, ...settingRows]
+        })
+      });
+    }
   }
 
-  async loadFromSheet(url: string): Promise<{ patches: Patch[], multis: Multi[], setlists: Setlist[] }> {
+  async loadFromSheet(url: string): Promise<{ patches: Patch[], multis: Multi[], setlists: Setlist[], settings?: Partial<PerformanceSettings> }> {
     const id = this.extractSheetId(url);
     if (!id) throw new Error('Invalid Sheet URL');
 
@@ -376,7 +414,36 @@ class GoogleSheetsService {
       }
     }
 
-    return { patches, multis, setlists };
+    // Load Settings
+    const parsedSettings: Partial<PerformanceSettings> = {};
+    try {
+      const settingsResponse = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${id}/values/Settings!A1:Z`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+
+      if (settingsResponse.ok) {
+        const settingsData = await settingsResponse.json();
+        if (settingsData.values && settingsData.values.length >= 2) {
+          const rows = settingsData.values.slice(1);
+          rows.forEach((row: any[]) => {
+            const key = row[0];
+            const val = row[1];
+            if (!key || val === undefined || val === '') return;
+            if (key === 'songPlayPauseCc') {
+              parsedSettings.songPlayPauseCc = isNaN(Number(val)) ? null : Number(val);
+            } else if (key === 'songPlayPauseChannel') {
+              parsedSettings.songPlayPauseChannel = isNaN(Number(val)) ? null : Number(val);
+            } else if (key === 'enableSurround51') {
+              parsedSettings.enableSurround51 = val === 'true';
+            }
+          });
+        }
+      }
+    } catch (e) {
+      console.warn('Failed to parse Settings sheet', e);
+    }
+
+    return { patches, multis, setlists, settings: parsedSettings };
   }
 }
 
