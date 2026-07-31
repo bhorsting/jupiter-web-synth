@@ -165,7 +165,9 @@ class MidiTrackService {
 
       const startTime = audioCtx.currentTime - startOffset;
 
-      midi.tracks.forEach((track, trackIdx) => {
+      const activeTracks = midi.tracks.filter(t => t.notes.length > 0);
+
+      activeTracks.forEach((track, trackIdx) => {
         const override = trackOverrides?.[trackIdx];
         if (override?.mute) return;
 

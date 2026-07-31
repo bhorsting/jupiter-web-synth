@@ -248,15 +248,36 @@ export const SetlistMidiBacking: React.FC<SetlistMidiBackingProps> = ({
   const handleTrackMuteToggle = (trackIdx: number) => {
     const overrides = { ...(song.midiTrackOverrides || {}) };
     const current = overrides[trackIdx] || {};
-    overrides[trackIdx] = { ...current, mute: !current.mute };
-    onUpdateSong({ ...song, midiTrackOverrides: overrides });
+    const newMute = !current.mute;
+    overrides[trackIdx] = { ...current, mute: newMute };
+    const updatedSong = { ...song, midiTrackOverrides: overrides };
+    onUpdateSong(updatedSong);
+
+    if (isPlaying && engine && song.midiFile) {
+      midiTrackService.startPlayback(
+        song.midiFile,
+        engine,
+        overrides,
+        progress.current
+      );
+    }
   };
 
   const handleTrackPatchChange = (trackIdx: number, patchId: string) => {
     const overrides = { ...(song.midiTrackOverrides || {}) };
     const current = overrides[trackIdx] || {};
     overrides[trackIdx] = { ...current, patchId };
-    onUpdateSong({ ...song, midiTrackOverrides: overrides });
+    const updatedSong = { ...song, midiTrackOverrides: overrides };
+    onUpdateSong(updatedSong);
+
+    if (isPlaying && engine && song.midiFile) {
+      midiTrackService.startPlayback(
+        song.midiFile,
+        engine,
+        overrides,
+        progress.current
+      );
+    }
   };
 
   const formatTime = (secs: number) => {

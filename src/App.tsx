@@ -1176,13 +1176,15 @@ function App() {
     }
   };
 
-  const loadPatch = (patch: Patch) => {
+  const loadPatch = (patch: Patch, switchScreen: boolean = true) => {
     // Ensure all params exist by merging with defaults
     setParams(cleanVoiceParams(patch.params));
     setActivePatchId(patch.id);
     setActiveMultiId(null); // Deactivate multi mode
     setMidiMappings(patch.midiMappings || []);
-    setCurrentScreen('SYNTH');
+    if (switchScreen) {
+      setCurrentScreen('SYNTH');
+    }
   };
 
   const deletePatch = async (id: string) => {
@@ -1203,7 +1205,7 @@ function App() {
     });
   };
 
-  const loadMulti = (multi: Multi) => {
+  const loadMulti = (multi: Multi, switchScreen: boolean = true) => {
     setActiveMultiId(multi.id);
     setActivePatchId(null); // Deactivate single patch mode
     setSelectedSlotIndex(0);
@@ -1216,7 +1218,9 @@ function App() {
         setMidiMappings(patch.midiMappings || []);
       }
     }
-    setCurrentScreen('SYNTH');
+    if (switchScreen) {
+      setCurrentScreen('SYNTH');
+    }
   };
 
   const handleCreateSetlist = () => {
@@ -1354,12 +1358,12 @@ function App() {
     loadMulti(newMulti);
   };
 
-  const handleLoadSong = (song: Song) => {
+  const handleLoadSong = (song: Song, switchScreen: boolean = false) => {
     setActiveSong(song);
     if (song.type === 'multi') {
       const multi = multis.find(m => m.id === song.targetId);
       if (multi) {
-        loadMulti(multi);
+        loadMulti(multi, switchScreen);
       } else {
         showCustomAlert('NOTICE', 'Associated Multi not found!');
       }
@@ -1367,11 +1371,11 @@ function App() {
       // Switch to multi mode if a matching Multi exists or contains this patch
       const matchingMulti = multis.find(m => m.id === song.targetId || m.slots.some(s => s.patchId === song.targetId));
       if (matchingMulti) {
-        loadMulti(matchingMulti);
+        loadMulti(matchingMulti, switchScreen);
       } else {
         const patch = patches.find(p => p.id === song.targetId);
         if (patch) {
-          loadPatch(patch);
+          loadPatch(patch, switchScreen);
         } else {
           showCustomAlert('NOTICE', 'Associated Patch not found!');
         }
