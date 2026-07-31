@@ -25,6 +25,22 @@ export interface ParsedMidiFile {
   tracks: ParsedMidiTrack[];
 }
 
+export interface LeadInInfo {
+  isLeadIn: boolean;
+  currentBar: number;
+  totalBars: number;
+  currentBeat: number;
+  beatsPerBar: number;
+}
+
+export type MidiProgressListener = (
+  currentTime: number,
+  duration: number,
+  isPlaying: boolean,
+  activeTrackIndexes: Set<number>,
+  leadInInfo?: LeadInInfo
+) => void;
+
 class MidiTrackService {
   private activePlayer: {
     fileName: string;
@@ -33,9 +49,14 @@ class MidiTrackService {
     startTime: number;
     pauseOffset: number;
     scheduledTimeouts: number[];
+    leadInDurationSeconds: number;
+    bpm: number;
+    beatsPerBar: number;
+    effectiveLeadInBars: number;
   } | null = null;
 
-  private progressListeners: Set<(currentTime: number, duration: number, isPlaying: boolean) => void> = new Set();
+  private activeTrackNotesCount: Map<number, number> = new Map();
+  private progressListeners: Set<MidiProgressListener> = new Set();
   private timerInterval: any = null;
 
   /**
@@ -139,8 +160,9 @@ class MidiTrackService {
   async startPlayback(
     fileName: string,
     engine: JupiterEngine,
-    trackOverrides?: Record<number, { patchId?: string; mute?: boolean; volume?: number }>,
-    startOffset: number = 0
+    trackOverrides?: Record<number, { patchId?: string; mute?: boolean; solo?: boolean; volume?: number }>,
+    startOffset: number = 0,
+    leadInBars: number = 0
   ): Promise<boolean> {
     this.stopPlayback(engine);
 
@@ -163,27 +185,78 @@ class MidiTrackService {
         await audioCtx.resume();
       }
 
-      const startTime = audioCtx.currentTime - startOffset;
+      const beatsPerBar = 4;
+      const secondsPerBeat = 60 / detectedBpm;
+      const effectiveLeadInBars = startOffset > 0 ? 0 : Math.max(0, leadInBars);
+      const leadInDurationSeconds = effectiveLeadInBars * beatsPerBar * secondsPerBeat;
 
+      // 1. Lead-In Metronome Clicks
+      if (effectiveLeadInBars > 0) {
+        const totalLeadInBeats = effectiveLeadInBars * beatsPerBar;
+        for (let b = 0; b < totalLeadInBeats; b++) {
+          const delayMs = Math.max(0, b * secondsPerBeat * 1000);
+          const isDownbeat = (b % beatsPerBar) === 0;
+          const t = window.setTimeout(() => {
+            engine.playMetronomeClick(isDownbeat);
+          }, delayMs);
+          scheduledTimeouts.push(t);
+        }
+      }
+
+      // 2. Synchronized Metronome during Song Playback (if enabled)
+      const metronomeEnabled = engine.getParams().metronomeEnabled;
+      if (metronomeEnabled) {
+        const totalSongBeats = Math.ceil(midi.duration / secondsPerBeat) + 4;
+        const startBeatIndex = Math.floor(startOffset / secondsPerBeat);
+
+        for (let b = startBeatIndex; b <= totalSongBeats; b++) {
+          const beatSongTime = b * secondsPerBeat;
+          if (beatSongTime >= startOffset) {
+            const delayMs = Math.max(0, (beatSongTime + leadInDurationSeconds - startOffset) * 1000);
+            const isDownbeat = (b % beatsPerBar) === 0;
+            const t = window.setTimeout(() => {
+              engine.playMetronomeClick(isDownbeat);
+            }, delayMs);
+            scheduledTimeouts.push(t);
+          }
+        }
+      }
+
+      // 3. Track Solo / Mute Filtering
       const activeTracks = midi.tracks.filter(t => t.notes.length > 0);
+      const hasAnySolo = Object.values(trackOverrides || {}).some(o => o?.solo);
 
       activeTracks.forEach((track, trackIdx) => {
         const override = trackOverrides?.[trackIdx];
-        if (override?.mute) return;
+        const isMuted = override?.mute || false;
+        const isSolo = override?.solo || false;
+
+        if (hasAnySolo) {
+          if (!isSolo || isMuted) return;
+        } else {
+          if (isMuted) return;
+        }
 
         const trackVol = override?.volume ?? 1.0;
 
         track.notes.forEach(note => {
           if (note.time >= startOffset) {
-            const delayStartMs = Math.max(0, (note.time - startOffset) * 1000);
-            const delayEndMs = Math.max(0, (note.time + note.duration - startOffset) * 1000);
+            const delayStartMs = Math.max(0, (note.time + leadInDurationSeconds - startOffset) * 1000);
+            const delayEndMs = Math.max(0, (note.time + note.duration + leadInDurationSeconds - startOffset) * 1000);
 
             const startT = window.setTimeout(() => {
               engine.noteOn(note.midi, note.velocity * trackVol);
+              this.activeTrackNotesCount.set(trackIdx, (this.activeTrackNotesCount.get(trackIdx) || 0) + 1);
             }, delayStartMs);
 
             const endT = window.setTimeout(() => {
               engine.noteOff(note.midi);
+              const cur = this.activeTrackNotesCount.get(trackIdx) || 1;
+              if (cur <= 1) {
+                this.activeTrackNotesCount.delete(trackIdx);
+              } else {
+                this.activeTrackNotesCount.set(trackIdx, cur - 1);
+              }
             }, delayEndMs);
 
             scheduledTimeouts.push(startT, endT);
@@ -195,9 +268,13 @@ class MidiTrackService {
         fileName,
         midi,
         isPlaying: true,
-        startTime: audioCtx.currentTime - startOffset,
+        startTime: audioCtx.currentTime - startOffset + leadInDurationSeconds,
         pauseOffset: startOffset,
         scheduledTimeouts,
+        leadInDurationSeconds,
+        bpm: detectedBpm,
+        beatsPerBar,
+        effectiveLeadInBars,
       };
 
       this.startProgressTimer(audioCtx, midi.duration);
@@ -221,12 +298,14 @@ class MidiTrackService {
       this.activePlayer = null;
     }
 
+    this.activeTrackNotesCount.clear();
+
     if (engine) {
       engine.setBackingTrackActive(false);
       engine.panic();
     }
 
-    this.notifyProgress(0, 0, false);
+    this.notifyProgress(0, 0, false, new Set());
   }
 
   pausePlayback(engine: JupiterEngine) {
@@ -237,19 +316,21 @@ class MidiTrackService {
     const audioCtx = engine.getCtx();
     if (!audioCtx) return;
 
-    const currentPos = audioCtx.currentTime - this.activePlayer.startTime;
+    const currentPos = audioCtx.currentTime - (this.activePlayer.startTime - this.activePlayer.leadInDurationSeconds) - this.activePlayer.leadInDurationSeconds;
 
     this.activePlayer.scheduledTimeouts.forEach(t => clearTimeout(t));
     this.activePlayer.isPlaying = false;
-    this.activePlayer.pauseOffset = currentPos;
+    this.activePlayer.pauseOffset = Math.max(0, currentPos);
 
     if (this.timerInterval) {
       clearInterval(this.timerInterval);
       this.timerInterval = null;
     }
 
+    this.activeTrackNotesCount.clear();
+
     engine.panic();
-    this.notifyProgress(currentPos, this.activePlayer.midi.duration, false);
+    this.notifyProgress(Math.max(0, currentPos), this.activePlayer.midi.duration, false, new Set());
   }
 
   getIsPlaying(fileName?: string): boolean {
@@ -262,7 +343,7 @@ class MidiTrackService {
     return this.activePlayer?.fileName || null;
   }
 
-  addProgressListener(fn: (currentTime: number, duration: number, isPlaying: boolean) => void) {
+  addProgressListener(fn: MidiProgressListener) {
     this.progressListeners.add(fn);
     return () => {
       this.progressListeners.delete(fn);
@@ -279,17 +360,49 @@ class MidiTrackService {
         return;
       }
 
-      const current = audioCtx.currentTime - this.activePlayer.startTime;
-      if (current >= duration) {
-        this.stopPlayback();
+      const elapsed = audioCtx.currentTime - (this.activePlayer.startTime - this.activePlayer.leadInDurationSeconds);
+      const activeTrackSet = new Set(this.activeTrackNotesCount.keys());
+
+      if (elapsed < this.activePlayer.leadInDurationSeconds) {
+        const secondsPerBeat = 60 / this.activePlayer.bpm;
+        const currentBeatIndex = Math.floor(elapsed / secondsPerBeat);
+        const currentBar = Math.floor(currentBeatIndex / this.activePlayer.beatsPerBar) + 1;
+        const currentBeat = (currentBeatIndex % this.activePlayer.beatsPerBar) + 1;
+
+        const leadInInfo: LeadInInfo = {
+          isLeadIn: true,
+          currentBar,
+          totalBars: this.activePlayer.effectiveLeadInBars,
+          currentBeat,
+          beatsPerBar: this.activePlayer.beatsPerBar,
+        };
+
+        this.notifyProgress(0, duration, true, activeTrackSet, leadInInfo);
       } else {
-        this.notifyProgress(current, duration, true);
+        const songTime = elapsed - this.activePlayer.leadInDurationSeconds;
+        if (songTime >= duration) {
+          this.stopPlayback();
+        } else {
+          this.notifyProgress(songTime, duration, true, activeTrackSet, {
+            isLeadIn: false,
+            currentBar: 0,
+            totalBars: 0,
+            currentBeat: 0,
+            beatsPerBar: 4,
+          });
+        }
       }
-    }, 100);
+    }, 80);
   }
 
-  private notifyProgress(currentTime: number, duration: number, isPlaying: boolean) {
-    this.progressListeners.forEach(fn => fn(currentTime, duration, isPlaying));
+  private notifyProgress(
+    currentTime: number,
+    duration: number,
+    isPlaying: boolean,
+    activeTrackIndexes: Set<number> = new Set(),
+    leadInInfo?: LeadInInfo
+  ) {
+    this.progressListeners.forEach(fn => fn(currentTime, duration, isPlaying, activeTrackIndexes, leadInInfo));
   }
 }
 

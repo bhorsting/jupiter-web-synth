@@ -474,6 +474,7 @@ export interface Multi {
 export interface MidiTrackOverride {
   patchId?: string;
   mute?: boolean;
+  solo?: boolean;
   volume?: number;
 }
 
@@ -484,6 +485,7 @@ export interface Song {
   targetId: string;
   midiFile?: string;
   midiTrackOverrides?: Record<number, MidiTrackOverride>;
+  leadInBars?: number;
 }
 
 export interface Setlist {

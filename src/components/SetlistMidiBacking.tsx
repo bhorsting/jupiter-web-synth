@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { Play, Square, Pause, Music, Sliders, Wand2, Volume2, VolumeX, ChevronDown, ChevronUp, Search, X } from 'lucide-react';
+import { Play, Square, Pause, Music, Sliders, Wand2, Volume2, VolumeX, ChevronDown, ChevronUp, Search, X, Activity } from 'lucide-react';
 import { Song, Patch, Multi } from '../types';
-import { midiTrackService, ParsedMidiFile } from '../services/MidiTrackService';
+import { midiTrackService, ParsedMidiFile, LeadInInfo } from '../services/MidiTrackService';
 import { soundfontService } from '../services/SoundfontService';
 import { JupiterEngine } from '../engine/JupiterEngine';
 import { useSettings } from '../contexts/SettingsContext';
@@ -46,7 +46,7 @@ const SearchableSoundSelect: React.FC<SearchableSoundSelectProps> = ({ value, on
       <button
         type="button"
         onClick={() => setIsOpen(!isOpen)}
-        className="bg-zinc-900 border border-zinc-800 text-[9px] font-mono text-zinc-300 px-2 py-1 focus:border-amber-500 outline-none w-[130px] sm:w-[150px] flex items-center justify-between gap-1 truncate rounded-none hover:bg-zinc-800 transition-colors"
+        className="bg-zinc-900 border border-zinc-800 text-[9px] font-mono text-zinc-300 px-2 py-1 focus:border-amber-500 outline-none w-[120px] sm:w-[140px] flex items-center justify-between gap-1 truncate rounded-none hover:bg-zinc-800 transition-colors"
         title={selectedLabel}
       >
         <span className="truncate text-left text-amber-400/90 font-bold">{selectedLabel}</span>
@@ -150,7 +150,9 @@ export const SetlistMidiBacking: React.FC<SetlistMidiBackingProps> = ({
   const [parsedMidi, setParsedMidi] = useState<ParsedMidiFile | null>(null);
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
   const [progress, setProgress] = useState<{ current: number; duration: number }>({ current: 0, duration: 0 });
-  const [showTrackDetails, setShowTrackDetails] = useState<boolean>(false);
+  const [activeTrackIndexes, setActiveTrackIndexes] = useState<Set<number>>(new Set());
+  const [leadInState, setLeadInState] = useState<LeadInInfo | null>(null);
+  const [showTrackDetails, setShowTrackDetails] = useState<boolean>(true);
   const [isGenerating, setIsGenerating] = useState<boolean>(false);
 
   useEffect(() => {
@@ -179,12 +181,16 @@ export const SetlistMidiBacking: React.FC<SetlistMidiBackingProps> = ({
   }, [song.midiFile]);
 
   useEffect(() => {
-    const unsub = midiTrackService.addProgressListener((cur, dur, playing) => {
+    const unsub = midiTrackService.addProgressListener((cur, dur, playing, activeTracks, lInInfo) => {
       if (song.midiFile && midiTrackService.getPlayingFileName() === song.midiFile) {
         setProgress({ current: cur, duration: dur });
         setIsPlaying(playing);
+        setActiveTrackIndexes(activeTracks || new Set());
+        setLeadInState(lInInfo || null);
       } else {
         setIsPlaying(false);
+        setActiveTrackIndexes(new Set());
+        setLeadInState(null);
       }
     });
     return unsub;
@@ -195,6 +201,13 @@ export const SetlistMidiBacking: React.FC<SetlistMidiBackingProps> = ({
       ...song,
       midiFile: fileName || undefined,
       midiTrackOverrides: {},
+    });
+  };
+
+  const handleLeadInChange = (leadInBars: number) => {
+    onUpdateSong({
+      ...song,
+      leadInBars,
     });
   };
 
@@ -212,7 +225,8 @@ export const SetlistMidiBacking: React.FC<SetlistMidiBackingProps> = ({
         song.midiFile,
         engine,
         song.midiTrackOverrides,
-        progress.current
+        progress.current,
+        song.leadInBars || 0
       );
       setIsPlaying(true);
     }
@@ -224,6 +238,8 @@ export const SetlistMidiBacking: React.FC<SetlistMidiBackingProps> = ({
     }
     setIsPlaying(false);
     setProgress({ current: 0, duration: parsedMidi?.duration || 0 });
+    setActiveTrackIndexes(new Set());
+    setLeadInState(null);
   };
 
   const handleGenerateGM = async () => {
@@ -232,7 +248,6 @@ export const SetlistMidiBacking: React.FC<SetlistMidiBackingProps> = ({
     try {
       const { multi, newPatches } = await midiTrackService.generateMultiFromMidi(song.midiFile);
       onAddPatchesAndMulti(newPatches, multi);
-      // Point song targetId to generated multi if desired
       onUpdateSong({
         ...song,
         type: 'multi',
@@ -258,7 +273,27 @@ export const SetlistMidiBacking: React.FC<SetlistMidiBackingProps> = ({
         song.midiFile,
         engine,
         overrides,
-        progress.current
+        progress.current,
+        song.leadInBars || 0
+      );
+    }
+  };
+
+  const handleTrackSoloToggle = (trackIdx: number) => {
+    const overrides = { ...(song.midiTrackOverrides || {}) };
+    const current = overrides[trackIdx] || {};
+    const newSolo = !current.solo;
+    overrides[trackIdx] = { ...current, solo: newSolo };
+    const updatedSong = { ...song, midiTrackOverrides: overrides };
+    onUpdateSong(updatedSong);
+
+    if (isPlaying && engine && song.midiFile) {
+      midiTrackService.startPlayback(
+        song.midiFile,
+        engine,
+        overrides,
+        progress.current,
+        song.leadInBars || 0
       );
     }
   };
@@ -275,7 +310,8 @@ export const SetlistMidiBacking: React.FC<SetlistMidiBackingProps> = ({
         song.midiFile,
         engine,
         overrides,
-        progress.current
+        progress.current,
+        song.leadInBars || 0
       );
     }
   };
@@ -285,6 +321,8 @@ export const SetlistMidiBacking: React.FC<SetlistMidiBackingProps> = ({
     const s = Math.floor(secs % 60);
     return `${m}:${s < 10 ? '0' : ''}${s}`;
   };
+
+  const currentLeadIn = song.leadInBars || 0;
 
   return (
     <div className="mt-3 p-3 bg-zinc-950/80 border border-zinc-800/80 rounded-none text-xs space-y-2.5">
@@ -296,7 +334,26 @@ export const SetlistMidiBacking: React.FC<SetlistMidiBackingProps> = ({
           </span>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Lead-in count-in selection */}
+          <div className="flex items-center gap-1 bg-black border border-zinc-800 px-1.5 py-1">
+            <span className="text-[8px] font-bold uppercase tracking-wider text-zinc-500">Lead-in:</span>
+            {[0, 1, 2, 4].map((bars) => (
+              <button
+                key={bars}
+                type="button"
+                onClick={() => handleLeadInChange(bars)}
+                className={`px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-wider transition-all ${
+                  currentLeadIn === bars
+                    ? 'bg-amber-500 text-black'
+                    : 'bg-zinc-900 text-zinc-400 hover:text-white'
+                }`}
+              >
+                {bars === 0 ? 'Off' : `${bars}B`}
+              </button>
+            ))}
+          </div>
+
           <select
             value={song.midiFile || ''}
             onChange={(e) => handleMidiSelect(e.target.value)}
@@ -326,6 +383,16 @@ export const SetlistMidiBacking: React.FC<SetlistMidiBackingProps> = ({
 
       {parsedMidi && (
         <div className="space-y-2">
+          {/* Lead-in Active Banner */}
+          {leadInState?.isLeadIn && (
+            <div className="bg-amber-500/20 border border-amber-500/60 p-2 text-center text-amber-400 font-mono text-[11px] font-bold tracking-widest animate-pulse flex items-center justify-center gap-2">
+              <Activity className="w-4 h-4 text-amber-400 animate-spin" />
+              <span>
+                COUNT-IN: BAR {leadInState.currentBar} / {leadInState.totalBars} — BEAT {leadInState.currentBeat}
+              </span>
+            </div>
+          )}
+
           {/* Transport Controls Bar */}
           <div className="flex items-center justify-between bg-black/60 p-2 border border-zinc-900">
             <div className="flex items-center gap-2">
@@ -391,25 +458,42 @@ export const SetlistMidiBacking: React.FC<SetlistMidiBackingProps> = ({
           {/* Track Inspector */}
           {showTrackDetails && (
             <div className="space-y-1.5 pt-2 border-t border-zinc-900">
-              <div className="text-[9px] font-bold uppercase tracking-widest text-zinc-500 mb-1">
-                MIDI Track Instruments & Soundfont Overrides
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-[9px] font-bold uppercase tracking-widest text-zinc-500">
+                  MIDI Tracks, Events & Soundfont Overrides
+                </span>
+                {activeTrackIndexes.size > 0 && (
+                  <span className="text-[8px] font-mono font-bold text-emerald-400 uppercase tracking-wider flex items-center gap-1">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />
+                    {activeTrackIndexes.size} active track{activeTrackIndexes.size > 1 ? 's' : ''}
+                  </span>
+                )}
               </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-48 overflow-y-auto custom-scrollbar">
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-64 overflow-y-auto custom-scrollbar">
                 {parsedMidi.tracks.map((track) => {
                   const override = song.midiTrackOverrides?.[track.index];
                   const isMuted = override?.mute || false;
+                  const isSolo = override?.solo || false;
+                  const isTrackActive = activeTrackIndexes.has(track.index);
 
                   return (
                     <div
                       key={track.index}
-                      className={`p-2 border flex items-center justify-between gap-2 ${
-                        isMuted
+                      className={`p-2 border flex items-center justify-between gap-2 transition-all ${
+                        isTrackActive
+                          ? 'bg-amber-950/20 border-amber-500/50 shadow-sm'
+                          : isSolo
+                          ? 'bg-amber-500/10 border-amber-500/40'
+                          : isMuted
                           ? 'bg-zinc-900/30 border-zinc-900 opacity-50'
                           : 'bg-black/40 border-zinc-900'
                       }`}
                     >
-                      <div className="flex items-center gap-2 min-w-0">
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        {/* Mute Button */}
                         <button
+                          type="button"
                           onClick={() => handleTrackMuteToggle(track.index)}
                           className={`p-1 border text-[9px] font-bold transition-all ${
                             isMuted
@@ -421,10 +505,35 @@ export const SetlistMidiBacking: React.FC<SetlistMidiBackingProps> = ({
                           {isMuted ? <VolumeX className="w-3 h-3" /> : <Volume2 className="w-3 h-3" />}
                         </button>
 
+                        {/* Solo Button */}
+                        <button
+                          type="button"
+                          onClick={() => handleTrackSoloToggle(track.index)}
+                          className={`px-1.5 py-0.5 border text-[9px] font-mono font-black transition-all ${
+                            isSolo
+                              ? 'bg-amber-500 border-amber-400 text-black font-black'
+                              : 'bg-zinc-900 border-zinc-800 text-zinc-500 hover:text-zinc-200'
+                          }`}
+                          title={isSolo ? 'Unsolo Track' : 'Solo Track'}
+                        >
+                          S
+                        </button>
+
                         <div className="flex flex-col min-w-0">
-                          <span className="text-[10px] font-bold text-zinc-200 truncate">
-                            {track.name}
-                          </span>
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-[10px] font-bold text-zinc-200 truncate">
+                              {track.name}
+                            </span>
+
+                            {/* Live MIDI Event Activity Badge */}
+                            {isTrackActive && (
+                              <span className="px-1 py-0.5 text-[7px] font-mono font-black uppercase tracking-wider bg-emerald-500/20 text-emerald-400 border border-emerald-500/60 animate-pulse shrink-0 flex items-center gap-0.5">
+                                <span className="w-1 h-1 rounded-full bg-emerald-400 animate-ping" />
+                                MIDI
+                              </span>
+                            )}
+                          </div>
+
                           <span className="text-[8px] font-mono text-amber-500/80 truncate">
                             GM: {track.instrumentName} ({track.notesCount} notes)
                           </span>

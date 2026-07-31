@@ -2910,6 +2910,10 @@ export class JupiterEngine {
     }
   }
 
+  public getParams(): VoiceParams {
+    return this.params;
+  }
+
   setPerformanceSettings(settings: PerformanceSettings) {
     const needsRestart = 
       settings.sampleRate !== this.perfSettings.sampleRate || 
@@ -2996,9 +3000,12 @@ export class JupiterEngine {
     return 60000 / bpm;
   }
 
-  private startMetronome() {
+  public startMetronome(bpm?: number) {
     this.stopMetronome();
     if (!this.ctx) return;
+    if (bpm && bpm > 0) {
+      this.params.bpm = bpm;
+    }
     
     this.metronomeBeatCount = 0;
     
@@ -3016,14 +3023,14 @@ export class JupiterEngine {
     }, interval);
   }
 
-  private stopMetronome() {
+  public stopMetronome() {
     if (this.metronomeTimer) {
       clearInterval(this.metronomeTimer);
       this.metronomeTimer = null;
     }
   }
 
-  private playMetronomeClick(isDownbeat: boolean) {
+  public playMetronomeClick(isDownbeat: boolean) {
     if (!this.ctx || !this.metronomeGain) return;
     
     const time = this.ctx.currentTime;

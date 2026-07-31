@@ -1426,7 +1426,8 @@ function App() {
           songToPlay.midiFile,
           engineRef.current,
           songToPlay.midiTrackOverrides,
-          midiProgress.current
+          midiProgress.current,
+          songToPlay.leadInBars || 0
         );
         if (success) {
           setIsMidiPlaying(true);
