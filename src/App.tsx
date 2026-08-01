@@ -707,13 +707,25 @@ function App() {
     }
   }, [isMidiMappingMode, selectedMapParam, activePatchId, midiMappings, settings, updateSettings, patches, multis, setlists, showCustomAlert]);
 
+  const isMidiDebuggerOpenRef = useRef(isMidiDebuggerOpen);
+  isMidiDebuggerOpenRef.current = isMidiDebuggerOpen;
+
+  const addMidiLog = React.useCallback((data: Uint8Array) => {
+    if (!isMidiLogVisibleRef.current) return;
+    if (data[0] === 0xF8) return; // Filter out MIDI Timing Clock
+    const bytes = Array.from(data).map(b => b.toString(16).toUpperCase().padStart(2, '0')).join(' ');
+    const id = Date.now() + Math.random();
+    setMidiLogs(prev => [{ id, text: bytes }, ...prev].slice(0, 10));
+  }, []);
+
   const addMidiDebugEvent = React.useCallback((
-    type: 'Note On' | 'Note Off' | 'CC' | 'Pitch Bend' | 'Panic',
+    type: 'Note On' | 'Note Off' | 'CC' | 'Pitch Bend' | 'Panic' | 'PC',
     channel: number | string,
     noteOrCC: string,
     numValue: number,
     velocityOrVal: string | number
   ) => {
+    if (!isMidiDebuggerOpenRef.current) return;
     const timeStr = new Date().toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' }) + '.' + String(Date.now() % 1000).padStart(3, '0');
     const newEvent: MidiDebugEvent = {
       id: `${Date.now()}-${Math.random()}`,
@@ -767,7 +779,7 @@ function App() {
     }
   }, [setlists, activeSetlistId, patches, multis, settings.midiChannel, addMidiDebugEvent]);
 
-  // Use refs for MIDI callbacks. Assign them directly in render to prevent stale closure lag from asynchronous useEffect runs
+  // Use refs for MIDI callbacks. Assign them directly in render to prevent stale closure lag
   const midiCCRef = useRef<(cc: number, value: number, channel: number) => void>(() => {});
   const midiNoteOnRef = useRef<(note: number, velocity: number) => void>(() => {});
   const midiNoteOffRef = useRef<(note: number) => void>(() => {});
@@ -778,19 +790,17 @@ function App() {
   const addMidiDebugRef = useRef<(type: 'Note On' | 'Note Off' | 'CC' | 'Pitch Bend' | 'Panic' | 'PC', channel: number | string, noteOrCC: string, numValue: number, velocityOrVal: string | number) => void>(() => {});
   const midiProgramChangeRef = useRef<(program: number, channel: number) => void>(() => {});
 
-  // Synchronously update Callback Refs on every render cycle to prevent any lag or stale closures
-  useEffect(() => {
-    midiCCRef.current = handleMidiCC;
-    midiNoteOnRef.current = handleNoteOn;
-    midiNoteOffRef.current = handleNoteOff;
-    midiPitchBendRef.current = handlePitchBend;
-    handlePanicRef.current = handlePanic;
-    addMidiLogRef.current = addMidiLog;
-    isMidiLogVisibleRef.current = isMidiLogVisible;
-    addMidiDebugRef.current = addMidiDebugEvent;
-    triggerMidiLedFlashRef.current = triggerMidiLedFlash;
-    midiProgramChangeRef.current = handleProgramChange;
-  });
+  // Synchronously update Callback Refs on render
+  midiCCRef.current = handleMidiCC;
+  midiNoteOnRef.current = handleNoteOn;
+  midiNoteOffRef.current = handleNoteOff;
+  midiPitchBendRef.current = handlePitchBend;
+  handlePanicRef.current = handlePanic;
+  addMidiLogRef.current = addMidiLog;
+  isMidiLogVisibleRef.current = isMidiLogVisible;
+  addMidiDebugRef.current = addMidiDebugEvent;
+  triggerMidiLedFlashRef.current = triggerMidiLedFlash;
+  midiProgramChangeRef.current = handleProgramChange;
 
   useEffect(() => {
     const configUrl = settings.googleSheetUrl;
@@ -914,14 +924,6 @@ function App() {
       indexedDBService.savePatches(patches);
     }
   }, [patches]);
-
-  const addMidiLog = (data: Uint8Array) => {
-    if (!isMidiLogVisibleRef.current) return;
-    if (data[0] === 0xF8) return; // Filter out MIDI Timing Clock
-    const bytes = Array.from(data).map(b => b.toString(16).toUpperCase().padStart(2, '0')).join(' ');
-    const id = Date.now() + Math.random();
-    setMidiLogs(prev => [{ id, text: bytes }, ...prev].slice(0, 10));
-  };
 
   const handleConnectGoogle = async () => {
     setIsSyncing(true);

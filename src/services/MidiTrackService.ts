@@ -1,6 +1,6 @@
 import { Midi } from '@tonejs/midi';
 import { soundfontService } from './SoundfontService';
-import { Patch, Multi, MultiSlot, DEFAULT_PARAMS } from '../types';
+import { Patch, Multi, MultiSlot, DEFAULT_PARAMS, VoiceParams } from '../types';
 import { JupiterEngine } from '../engine/JupiterEngine';
 
 export interface ParsedMidiTrack {
@@ -41,6 +41,17 @@ export type MidiProgressListener = (
   leadInInfo?: LeadInInfo
 ) => void;
 
+interface MidiScheduledEvent {
+  time: number; // relative to song start (0-indexed seconds)
+  type: 'click' | 'noteOn' | 'noteOff';
+  isDownbeat?: boolean;
+  midi?: number;
+  velocity?: number;
+  trackIdx?: number;
+  assignedPatchId?: string;
+  patchParams?: VoiceParams;
+}
+
 class MidiTrackService {
   private activePlayer: {
     fileName: string;
@@ -48,11 +59,14 @@ class MidiTrackService {
     isPlaying: boolean;
     startTime: number;
     pauseOffset: number;
-    scheduledTimeouts: number[];
+    scheduledTimeouts: Set<number>;
     leadInDurationSeconds: number;
     bpm: number;
     beatsPerBar: number;
     effectiveLeadInBars: number;
+    events: MidiScheduledEvent[];
+    eventPointer: number;
+    schedulerInterval: any;
   } | null = null;
 
   private activeTrackNotesCount: Map<number, number> = new Map();
@@ -209,7 +223,6 @@ class MidiTrackService {
       const detectedBpm = Math.round(midi.header.tempos[0]?.bpm || 120);
       engine.setBackingTrackActive(true, detectedBpm);
 
-      const scheduledTimeouts: number[] = [];
       const audioCtx = engine.getCtx();
       if (!audioCtx) return false;
 
@@ -222,16 +235,18 @@ class MidiTrackService {
       const effectiveLeadInBars = startOffset > 0 ? 0 : Math.max(0, leadInBars);
       const leadInDurationSeconds = effectiveLeadInBars * beatsPerBar * secondsPerBeat;
 
+      const events: MidiScheduledEvent[] = [];
+
       // 1. Lead-In Metronome Clicks
       if (effectiveLeadInBars > 0) {
         const totalLeadInBeats = effectiveLeadInBars * beatsPerBar;
         for (let b = 0; b < totalLeadInBeats; b++) {
-          const delayMs = Math.max(0, b * secondsPerBeat * 1000);
-          const isDownbeat = (b % beatsPerBar) === 0;
-          const t = window.setTimeout(() => {
-            engine.playMetronomeClick(isDownbeat);
-          }, delayMs);
-          scheduledTimeouts.push(t);
+          const songTime = b * secondsPerBeat - leadInDurationSeconds;
+          events.push({
+            time: songTime,
+            type: 'click',
+            isDownbeat: (b % beatsPerBar) === 0,
+          });
         }
       }
 
@@ -244,17 +259,16 @@ class MidiTrackService {
         for (let b = startBeatIndex; b <= totalSongBeats; b++) {
           const beatSongTime = b * secondsPerBeat;
           if (beatSongTime >= startOffset) {
-            const delayMs = Math.max(0, (beatSongTime + leadInDurationSeconds - startOffset) * 1000);
-            const isDownbeat = (b % beatsPerBar) === 0;
-            const t = window.setTimeout(() => {
-              engine.playMetronomeClick(isDownbeat);
-            }, delayMs);
-            scheduledTimeouts.push(t);
+            events.push({
+              time: beatSongTime,
+              type: 'click',
+              isDownbeat: (b % beatsPerBar) === 0,
+            });
           }
         }
       }
 
-      // 3. Track Solo / Mute Filtering
+      // 3. Track Solo / Mute Filtering & Notes
       const activeTracks = midi.tracks.filter(t => t.notes.length > 0);
       const hasAnySolo = Object.values(trackOverrides || {}).some(o => o?.solo);
 
@@ -276,10 +290,8 @@ class MidiTrackService {
 
         if (!assignedPatchId && !patchParams) {
           if (!autoGMMode) {
-            // Auto GM Mode disabled by default: skip unassigned tracks until user selects sound
             return;
           } else {
-            // Auto GM Mode is enabled: auto-map GM instrument sample preset
             const sampleIndex = Math.min(Math.max(0, track.instrument?.number || 0), 127);
             patchParams = {
               ...DEFAULT_PARAMS,
@@ -293,41 +305,94 @@ class MidiTrackService {
 
         track.notes.forEach(note => {
           if (note.time >= startOffset) {
-            const delayStartMs = Math.max(0, (note.time + leadInDurationSeconds - startOffset) * 1000);
-            const delayEndMs = Math.max(0, (note.time + note.duration + leadInDurationSeconds - startOffset) * 1000);
-
-            const startT = window.setTimeout(() => {
-              engine.noteOn(note.midi, note.velocity * trackVol, assignedPatchId, patchParams);
-              this.activeTrackNotesCount.set(trackIdx, (this.activeTrackNotesCount.get(trackIdx) || 0) + 1);
-            }, delayStartMs);
-
-            const endT = window.setTimeout(() => {
-              engine.noteOff(note.midi, assignedPatchId);
-              const cur = this.activeTrackNotesCount.get(trackIdx) || 1;
-              if (cur <= 1) {
-                this.activeTrackNotesCount.delete(trackIdx);
-              } else {
-                this.activeTrackNotesCount.set(trackIdx, cur - 1);
-              }
-            }, delayEndMs);
-
-            scheduledTimeouts.push(startT, endT);
+            events.push({
+              time: note.time,
+              type: 'noteOn',
+              midi: note.midi,
+              velocity: note.velocity * trackVol,
+              trackIdx,
+              assignedPatchId,
+              patchParams,
+            });
+            events.push({
+              time: note.time + note.duration,
+              type: 'noteOff',
+              midi: note.midi,
+              trackIdx,
+              assignedPatchId,
+            });
           }
         });
       });
 
-      this.activePlayer = {
+      // Sort all events by time
+      events.sort((a, b) => a.time - b.time);
+
+      const scheduledTimeouts = new Set<number>();
+      const startTime = audioCtx.currentTime - startOffset + leadInDurationSeconds;
+
+      const player = {
         fileName,
         midi,
         isPlaying: true,
-        startTime: audioCtx.currentTime - startOffset + leadInDurationSeconds,
+        startTime,
         pauseOffset: startOffset,
         scheduledTimeouts,
         leadInDurationSeconds,
         bpm: detectedBpm,
         beatsPerBar,
         effectiveLeadInBars,
+        events,
+        eventPointer: 0,
+        schedulerInterval: null as any,
       };
+      this.activePlayer = player;
+
+      // Lookahead scheduler loop (runs every 25ms, schedules events up to 100ms in advance)
+      const LOOKAHEAD = 0.1;
+      const schedulerTick = () => {
+        if (!this.activePlayer || !this.activePlayer.isPlaying) return;
+        const currentAudioTime = audioCtx.currentTime;
+        const currentSongTime = currentAudioTime - (player.startTime - player.leadInDurationSeconds) - player.leadInDurationSeconds;
+        const horizon = currentSongTime + LOOKAHEAD;
+
+        while (player.eventPointer < events.length) {
+          const ev = events[player.eventPointer];
+          if (ev.time > horizon) break;
+
+          const delayMs = Math.max(0, (ev.time - currentSongTime) * 1000);
+          const tId = window.setTimeout(() => {
+            scheduledTimeouts.delete(tId);
+            if (!this.activePlayer || !this.activePlayer.isPlaying) return;
+
+            if (ev.type === 'click') {
+              engine.playMetronomeClick(!!ev.isDownbeat);
+            } else if (ev.type === 'noteOn' && ev.midi !== undefined) {
+              engine.noteOn(ev.midi, ev.velocity ?? 0.8, ev.assignedPatchId, ev.patchParams);
+              if (ev.trackIdx !== undefined) {
+                this.activeTrackNotesCount.set(ev.trackIdx, (this.activeTrackNotesCount.get(ev.trackIdx) || 0) + 1);
+              }
+            } else if (ev.type === 'noteOff' && ev.midi !== undefined) {
+              engine.noteOff(ev.midi, ev.assignedPatchId);
+              if (ev.trackIdx !== undefined) {
+                const cur = this.activeTrackNotesCount.get(ev.trackIdx) || 1;
+                if (cur <= 1) {
+                  this.activeTrackNotesCount.delete(ev.trackIdx);
+                } else {
+                  this.activeTrackNotesCount.set(ev.trackIdx, cur - 1);
+                }
+              }
+            }
+          }, delayMs);
+
+          scheduledTimeouts.add(tId);
+          player.eventPointer++;
+        }
+      };
+
+      // Run immediately for time=0 window, then interval
+      schedulerTick();
+      player.schedulerInterval = setInterval(schedulerTick, 25);
 
       this.startProgressTimer(audioCtx, midi.duration);
       return true;
@@ -344,7 +409,11 @@ class MidiTrackService {
     }
 
     if (this.activePlayer) {
+      if (this.activePlayer.schedulerInterval) {
+        clearInterval(this.activePlayer.schedulerInterval);
+      }
       this.activePlayer.scheduledTimeouts.forEach(t => clearTimeout(t));
+      this.activePlayer.scheduledTimeouts.clear();
       this.activePlayer.isPlaying = false;
       this.activePlayer.pauseOffset = 0;
       this.activePlayer = null;
@@ -370,7 +439,11 @@ class MidiTrackService {
 
     const currentPos = audioCtx.currentTime - (this.activePlayer.startTime - this.activePlayer.leadInDurationSeconds) - this.activePlayer.leadInDurationSeconds;
 
+    if (this.activePlayer.schedulerInterval) {
+      clearInterval(this.activePlayer.schedulerInterval);
+    }
     this.activePlayer.scheduledTimeouts.forEach(t => clearTimeout(t));
+    this.activePlayer.scheduledTimeouts.clear();
     this.activePlayer.isPlaying = false;
     this.activePlayer.pauseOffset = Math.max(0, currentPos);
 

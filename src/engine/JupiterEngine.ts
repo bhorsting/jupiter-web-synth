@@ -1222,76 +1222,53 @@ class Voice {
       this.stopTimer = null;
     }
     const stopTime = time + 0.01;
+    const nodesToDisconnect: (AudioNode | null)[] = [];
 
     if (this.vco1) {
-      const oscToDisconnect = this.vco1;
-      try { oscToDisconnect.stop(stopTime); } catch(e) {}
-      setTimeout(() => {
-        try { oscToDisconnect.disconnect(); } catch(err) {}
-      }, 20);
+      try { this.vco1.stop(stopTime); } catch(e) {}
+      nodesToDisconnect.push(this.vco1);
       this.vco1 = null;
     }
     if (this.vco1SoundfontNodes.length > 0) {
       this.vco1SoundfontNodes.forEach(node => {
         try { node.src.stop(stopTime); } catch(e) {}
-        setTimeout(() => {
-          try { node.src.disconnect(); } catch(err) {}
-          try { node.gain.disconnect(); } catch(err) {}
-        }, 20);
+        nodesToDisconnect.push(node.src, node.gain);
       });
       this.vco1SoundfontNodes = [];
       this.vco1SoundfontSource = null;
     }
     if (this.subOsc) {
-      const oscToDisconnect = this.subOsc;
-      try { oscToDisconnect.stop(stopTime); } catch(e) {}
-      setTimeout(() => {
-        try { oscToDisconnect.disconnect(); } catch(err) {}
-      }, 20);
+      try { this.subOsc.stop(stopTime); } catch(e) {}
+      nodesToDisconnect.push(this.subOsc);
       this.subOsc = null;
     }
     if (this.vco2) {
-      const oscToDisconnect = this.vco2;
-      try { oscToDisconnect.stop(stopTime); } catch(e) {}
-      setTimeout(() => {
-        try { oscToDisconnect.disconnect(); } catch(err) {}
-      }, 20);
+      try { this.vco2.stop(stopTime); } catch(e) {}
+      nodesToDisconnect.push(this.vco2);
       this.vco2 = null;
     }
     if (this.vco2SoundfontNodes.length > 0) {
       this.vco2SoundfontNodes.forEach(node => {
         try { node.src.stop(stopTime); } catch(e) {}
-        setTimeout(() => {
-          try { node.src.disconnect(); } catch(err) {}
-          try { node.gain.disconnect(); } catch(err) {}
-        }, 20);
+        nodesToDisconnect.push(node.src, node.gain);
       });
       this.vco2SoundfontNodes = [];
       this.vco2SoundfontSource = null;
     }
     if (this.vco1Noise) {
-      const srcToDisconnect = this.vco1Noise;
-      try { srcToDisconnect.stop(stopTime); } catch(e) {}
-      setTimeout(() => {
-        try { srcToDisconnect.disconnect(); } catch(err) {}
-      }, 20);
+      try { this.vco1Noise.stop(stopTime); } catch(e) {}
+      nodesToDisconnect.push(this.vco1Noise);
       this.vco1Noise = null;
     }
     if (this.vco2Noise) {
-      const srcToDisconnect = this.vco2Noise;
-      try { srcToDisconnect.stop(stopTime); } catch(e) {}
-      setTimeout(() => {
-        try { srcToDisconnect.disconnect(); } catch(err) {}
-      }, 20);
+      try { this.vco2Noise.stop(stopTime); } catch(e) {}
+      nodesToDisconnect.push(this.vco2Noise);
       this.vco2Noise = null;
     }
     if (this.hammondOscs && this.hammondOscs.length > 0) {
       this.hammondOscs.forEach(osc => {
-        try { osc.stop(time + 0.01); } catch(e) {}
-        const oscToDisconnect = osc;
-        setTimeout(() => {
-          try { oscToDisconnect.disconnect(); } catch(err) {}
-        }, 15);
+        try { osc.stop(stopTime); } catch(e) {}
+        nodesToDisconnect.push(osc);
       });
       this.hammondOscs = [];
     }
@@ -1301,10 +1278,7 @@ class Voice {
           g.gain.cancelScheduledValues(time);
           g.gain.setValueAtTime(g.gain.value, time);
           g.gain.linearRampToValueAtTime(0, time + 0.005);
-          const gToDisconnect = g;
-          setTimeout(() => {
-            try { gToDisconnect.disconnect(); } catch(err) {}
-          }, 15);
+          nodesToDisconnect.push(g);
         } catch(e) {
           try { g.disconnect(); } catch(err) {}
         }
@@ -1312,11 +1286,8 @@ class Voice {
       this.hammondGains = [];
     }
     if (this.percussionOsc) {
-      try { this.percussionOsc.stop(time + 0.01); } catch(e) {}
-      const oscToDisconnect = this.percussionOsc;
-      setTimeout(() => {
-        try { oscToDisconnect.disconnect(); } catch(err) {}
-      }, 15);
+      try { this.percussionOsc.stop(stopTime); } catch(e) {}
+      nodesToDisconnect.push(this.percussionOsc);
       this.percussionOsc = null;
     }
     if (this.percussionGain) {
@@ -1324,10 +1295,7 @@ class Voice {
         this.percussionGain.gain.cancelScheduledValues(time);
         this.percussionGain.gain.setValueAtTime(this.percussionGain.gain.value, time);
         this.percussionGain.gain.linearRampToValueAtTime(0, time + 0.005);
-        const gToDisconnect = this.percussionGain;
-        setTimeout(() => {
-          try { gToDisconnect.disconnect(); } catch(err) {}
-        }, 15);
+        nodesToDisconnect.push(this.percussionGain);
       } catch(e) {
         try { this.percussionGain.disconnect(); } catch(err) {}
       }
@@ -1336,11 +1304,8 @@ class Voice {
 
     if (this.dx7Oscs && this.dx7Oscs.length > 0) {
       this.dx7Oscs.forEach(osc => {
-        try { osc.stop(time + 0.01); } catch(e) {}
-        const oscToDisconnect = osc;
-        setTimeout(() => {
-          try { oscToDisconnect.disconnect(); } catch(err) {}
-        }, 15);
+        try { osc.stop(stopTime); } catch(e) {}
+        nodesToDisconnect.push(osc);
       });
       this.dx7Oscs = [];
     }
@@ -1350,10 +1315,7 @@ class Voice {
           g.gain.cancelScheduledValues(time);
           g.gain.setValueAtTime(g.gain.value, time);
           g.gain.linearRampToValueAtTime(0, time + 0.005);
-          const gToDisconnect = g;
-          setTimeout(() => {
-            try { gToDisconnect.disconnect(); } catch(err) {}
-          }, 15);
+          nodesToDisconnect.push(g);
         } catch(e) {
           try { g.disconnect(); } catch(err) {}
         }
@@ -1361,12 +1323,20 @@ class Voice {
       this.dx7Gains = [];
     }
     if (this.dx7FeedbackDelay) {
-      this.dx7FeedbackDelay.disconnect();
+      nodesToDisconnect.push(this.dx7FeedbackDelay);
       this.dx7FeedbackDelay = null;
     }
     if (this.dx7FeedbackGain) {
-      this.dx7FeedbackGain.disconnect();
+      nodesToDisconnect.push(this.dx7FeedbackGain);
       this.dx7FeedbackGain = null;
+    }
+
+    if (nodesToDisconnect.length > 0) {
+      setTimeout(() => {
+        for (let i = 0; i < nodesToDisconnect.length; i++) {
+          try { nodesToDisconnect[i]?.disconnect(); } catch(e) {}
+        }
+      }, 25);
     }
 
     // Clean up PWM nodes
@@ -1937,23 +1907,7 @@ class SlotFXChain {
     const mode = params.distortionMode || 'default';
     const amount = params.distortionAmount;
     if (this.lastDistortionMode !== mode || this.lastDistortionAmount !== amount) {
-      const n_samples = 44100;
-      const curve = new Float32Array(n_samples);
-      if (mode === 'tube') {
-        const kFactor = amount * 12 + 1;
-        for (let i = 0; i < n_samples; ++i) {
-          const x = (i * 2) / n_samples - 1;
-          if (x < 0) curve[i] = - (1.0 - Math.exp(x * kFactor)) / (1.0 - Math.exp(-kFactor));
-          else curve[i] = (1.0 - Math.exp(-x * kFactor * 1.5)) / (1.0 - Math.exp(-kFactor * 1.5));
-        }
-      } else {
-        const k = amount * (mode === 'feedback' ? 120 : 100) + (mode === 'feedback' ? 20 : 0);
-        for (let i = 0; i < n_samples; ++i) {
-          const x = (i * 2) / n_samples - 1;
-          curve[i] = (Math.PI + k) * x / (Math.PI + k * Math.abs(x));
-        }
-      }
-      this.distortion.curve = curve;
+      this.distortion.curve = getDistortionCurve(mode, amount);
       this.lastDistortionMode = mode;
       this.lastDistortionAmount = amount;
     }
@@ -1968,6 +1922,41 @@ class SlotFXChain {
   }
 }
 
+const distortionCurveCache = new Map<string, Float32Array>();
+
+function getDistortionCurve(mode: string, amount: number): Float32Array {
+  const quantizedAmount = Math.round(amount * 1000) / 1000;
+  const key = `${mode}_${quantizedAmount}`;
+  let curve = distortionCurveCache.get(key);
+  if (curve) return curve;
+
+  const n_samples = 44100;
+  curve = new Float32Array(n_samples);
+  if (mode === 'tube') {
+    const kFactor = quantizedAmount * 12 + 1;
+    const expNegK = Math.exp(-kFactor);
+    const expNegK15 = Math.exp(-kFactor * 1.5);
+    const denomNeg = 1.0 - expNegK;
+    const denomPos = 1.0 - expNegK15;
+
+    for (let i = 0; i < n_samples; ++i) {
+      const x = (i * 2) / n_samples - 1;
+      if (x < 0) curve[i] = - (1.0 - Math.exp(x * kFactor)) / denomNeg;
+      else curve[i] = (1.0 - Math.exp(-x * kFactor * 1.5)) / denomPos;
+    }
+  } else {
+    const k = quantizedAmount * (mode === 'feedback' ? 120 : 100) + (mode === 'feedback' ? 20 : 0);
+    const piPlusK = Math.PI + k;
+    for (let i = 0; i < n_samples; ++i) {
+      const x = (i * 2) / n_samples - 1;
+      curve[i] = (piPlusK * x) / (Math.PI + k * Math.abs(x));
+    }
+  }
+
+  distortionCurveCache.set(key, curve);
+  return curve;
+}
+
 interface ArpState {
   heldNotes: number[];
   playedNotes: number[];
@@ -1977,6 +1966,8 @@ interface ArpState {
   slotIndex: number;
   patchId: string | null;
   patchParams: VoiceParams;
+  cachedNotes?: number[];
+  isCacheDirty?: boolean;
 }
 
 export class JupiterEngine {
@@ -1991,15 +1982,35 @@ export class JupiterEngine {
   private activeMulti: Multi | null = null;
   private libraryPatches: Patch[] = [];
   private slotFXChains: SlotFXChain[] = [];
+  private patchMap = new Map<string, Patch>();
+  private slotIndexByPatchIdMap = new Map<string, number>();
+
+  private updatePatchMap(patches: Patch[]) {
+    this.libraryPatches = patches;
+    this.patchMap.clear();
+    for (let i = 0; i < patches.length; i++) {
+      this.patchMap.set(patches[i].id, patches[i]);
+    }
+  }
+
+  private updateMultiSlotMap(multi: Multi | null) {
+    this.activeMulti = multi;
+    this.slotIndexByPatchIdMap.clear();
+    if (multi) {
+      multi.slots.forEach((slot, index) => {
+        this.slotIndexByPatchIdMap.set(slot.patchId, index);
+      });
+    }
+  }
 
   setLibraryPatches(patches: Patch[]) {
-    this.libraryPatches = patches;
+    this.updatePatchMap(patches);
   }
 
   setActiveMulti(multi: Multi | null, patches: Patch[]) {
     const prevMulti = this.activeMulti;
-    this.activeMulti = multi;
-    this.libraryPatches = patches;
+    this.updateMultiSlotMap(multi);
+    this.updatePatchMap(patches);
 
     if (!this.ctx) return;
 
@@ -2021,7 +2032,7 @@ export class JupiterEngine {
 
       if (multi) {
         multi.slots.forEach(slot => {
-          const patch = patches.find(p => p.id === slot.patchId);
+          const patch = this.patchMap.get(slot.patchId);
           const patchParams = patch ? patch.params : this.params;
           const chain = new SlotFXChain(this.ctx!, this.compressorInput!, this.reverb ? this.reverb.buffer : null);
           chain.updateParams(patchParams);
@@ -2031,7 +2042,7 @@ export class JupiterEngine {
     } else if (multi) {
       // Just update parameters for existing chains
       multi.slots.forEach((slot, index) => {
-        const patch = patches.find(p => p.id === slot.patchId);
+        const patch = this.patchMap.get(slot.patchId);
         const patchParams = patch ? patch.params : this.params;
         if (this.slotFXChains[index]) {
           this.slotFXChains[index].updateParams(patchParams);
@@ -2752,38 +2763,7 @@ export class JupiterEngine {
       const amount = this.params.distortionAmount;
 
       if (this.lastDistortionMode !== mode || this.lastDistortionAmount !== amount) {
-        const n_samples = 44100;
-        const curve = new Float32Array(n_samples);
-
-        if (mode === 'tube') {
-          const kFactor = amount * 12 + 1;
-          for (let i = 0; i < n_samples; ++i) {
-            const x = (i * 2) / n_samples - 1;
-            if (x < 0) {
-              // Negative input: soft, smooth exponential saturation
-              curve[i] = - (1.0 - Math.exp(x * kFactor)) / (1.0 - Math.exp(-kFactor));
-            } else {
-              // Positive input: asymmetric, harder, richer exponential drive
-              curve[i] = (1.0 - Math.exp(-x * kFactor * 1.5)) / (1.0 - Math.exp(-kFactor * 1.5));
-            }
-          }
-        } else if (mode === 'feedback') {
-          // High gain to stimulate feedback loop oscillation
-          const k = amount * 120 + 20;
-          for (let i = 0; i < n_samples; ++i) {
-            const x = (i * 2) / n_samples - 1;
-            curve[i] = (Math.PI + k) * x / (Math.PI + k * Math.abs(x));
-          }
-        } else {
-          // Default standard soft/hard sigmoid clipping
-          const k = amount * 100;
-          for (let i = 0; i < n_samples; ++i) {
-            const x = (i * 2) / n_samples - 1;
-            curve[i] = (Math.PI + k) * x / (Math.PI + k * Math.abs(x));
-          }
-        }
-
-        this.distortion.curve = curve;
+        this.distortion.curve = getDistortionCurve(mode, amount);
         this.distortion.oversample = 'none';
 
         this.lastDistortionMode = mode;
@@ -3253,7 +3233,7 @@ export class JupiterEngine {
           incomingVel127 >= slot.lowVelocity &&
           incomingVel127 <= slot.highVelocity
         ) {
-          const patch = this.libraryPatches.find(p => p.id === slot.patchId);
+          const patch = slot.patchId ? this.patchMap.get(slot.patchId) : undefined;
           if (!patch) return;
 
           if (patch.params.arpEnabled) {
@@ -3276,6 +3256,7 @@ export class JupiterEngine {
               arp.heldNotes.push(midiNote);
               arp.heldNotes.sort((a, b) => a - b);
               arp.playedNotes.push(midiNote);
+              arp.isCacheDirty = true;
             }
             this.startArpInstance(key, index, slot.patchId, patch.params);
           } else {
@@ -3303,7 +3284,7 @@ export class JupiterEngine {
 
     let targetParams = patchParams;
     if (!targetParams && patchId) {
-      const p = this.libraryPatches.find(item => item.id === patchId);
+      const p = this.patchMap.get(patchId);
       if (p) targetParams = p.params;
     }
 
@@ -3329,6 +3310,7 @@ export class JupiterEngine {
         arp.heldNotes.push(midiNote);
         arp.heldNotes.sort((a, b) => a - b);
         arp.playedNotes.push(midiNote);
+        arp.isCacheDirty = true;
       }
       this.startArpInstance(key, -1, patchId || null, effectiveParams);
       return;
@@ -3346,46 +3328,59 @@ export class JupiterEngine {
   ) {
     if (!this.ctx) return;
     
-    // Check if any notes are currently active for legato portamento
-    // Add a larger grace period (0.7s) to ensure touch sequences trigger legato portamento
-    const activeVoices = this.voices.filter(v => v.midiNote !== null && !v.isReleasing);
-    const isLegatoContext = activeVoices.length > 0 || (this.ctx.currentTime - this.lastReleaseTime < 0.7);
+    // Single-pass O(N) voice allocation without array filters, copies, or sorting
+    let isLegatoContext = false;
+    let voice: Voice | null = null;
+    let oldestFreeVoice: Voice | null = null;
+    let releasingSameNoteVoice: Voice | null = null;
+    let oldestReleasingVoice: Voice | null = null;
+    let oldestActiveVoice: Voice | null = null;
 
-    // Find if note already exists and is NOT releasing (to sustain/legato it)
-    let voice = this.voices.find(v => 
-      v.midiNote === midiNote && 
-      !v.isReleasing && 
-      (!patchId || v.currentPatchId === patchId)
-    );
-    
-    if (!voice) {
-      // Find all completely free voices (midiNote === null)
-      const freeVoices = this.voices.filter(v => v.midiNote === null);
-      
-      if (freeVoices.length > 0) {
-        // Round-Robin / Least-Recently-Used allocation:
-        // Pick the free voice that was triggered furthest back in time (smallest startTime)
-        // This ensures notes continuously cycle through all available voice cards rather than re-using index 0
-        voice = freeVoices.slice().sort((a, b) => a.startTime - b.startTime)[0];
-      } else {
-        // If no completely free voice, find a voice currently releasing the same midiNote and patch
-        voice = this.voices.find(v => 
-          v.midiNote === midiNote && 
-          v.isReleasing && 
-          (!patchId || v.currentPatchId === patchId)
-        );
-        
-        if (!voice) {
-          // Voice stealing: find the voice active longest among releasing voices first, then active voices
-          const releasingVoices = this.voices.filter(v => v.isReleasing);
-          if (releasingVoices.length > 0) {
-            voice = releasingVoices.slice().sort((a, b) => a.startTime - b.startTime)[0];
-          } else {
-            voice = this.voices.slice().sort((a, b) => a.startTime - b.startTime)[0];
+    const len = this.voices.length;
+    for (let i = 0; i < len; i++) {
+      const v = this.voices[i];
+      if (v.midiNote !== null) {
+        if (!v.isReleasing) {
+          isLegatoContext = true;
+          if (v.midiNote === midiNote && (!patchId || v.currentPatchId === patchId)) {
+            voice = v;
+            break;
           }
-          // Hard-stop voice to clean up transient audio nodes cleanly before re-triggering
-          voice.stop();
+        } else {
+          if (v.midiNote === midiNote && (!patchId || v.currentPatchId === patchId)) {
+            releasingSameNoteVoice = v;
+          }
+          if (!oldestReleasingVoice || v.startTime < oldestReleasingVoice.startTime) {
+            oldestReleasingVoice = v;
+          }
         }
+        if (!oldestActiveVoice || v.startTime < oldestActiveVoice.startTime) {
+          oldestActiveVoice = v;
+        }
+      } else {
+        if (!oldestFreeVoice || v.startTime < oldestFreeVoice.startTime) {
+          oldestFreeVoice = v;
+        }
+      }
+    }
+
+    if (!isLegatoContext) {
+      isLegatoContext = (this.ctx.currentTime - this.lastReleaseTime < 0.7);
+    }
+
+    if (!voice) {
+      if (oldestFreeVoice) {
+        voice = oldestFreeVoice;
+      } else if (releasingSameNoteVoice) {
+        voice = releasingSameNoteVoice;
+      } else if (oldestReleasingVoice) {
+        voice = oldestReleasingVoice;
+        voice.stop();
+      } else if (oldestActiveVoice) {
+        voice = oldestActiveVoice;
+        voice.stop();
+      } else {
+        voice = this.voices[0];
       }
     }
 
@@ -3393,9 +3388,9 @@ export class JupiterEngine {
     voice.currentPatchId = patchId || null;
     voice.originalMidiNote = originalMidiNote !== undefined ? originalMidiNote : midiNote;
 
-    // Apply voice-specific output routing
+    // Apply voice-specific output routing via O(1) slot Map lookup
     if (this.activeMulti && patchId) {
-      const slotIndex = this.activeMulti.slots.findIndex(s => s.patchId === patchId);
+      const slotIndex = this.slotIndexByPatchIdMap.has(patchId) ? this.slotIndexByPatchIdMap.get(patchId)! : -1;
       if (slotIndex !== -1 && this.slotFXChains[slotIndex]) {
         voice.reconnectOutput(this.slotFXChains[slotIndex].subGain);
       } else {
@@ -3413,11 +3408,8 @@ export class JupiterEngine {
     }
 
     const freq = 440 * Math.pow(2, (midiNote - 69) / 12);
-    // If it's the very first note, lastFrequency might be 0. 
-    // In that case, we set it to the current freq to prevent a glide from 0Hz.
     const effectiveLastFreq = this.lastFrequency === 0 ? freq : this.lastFrequency;
     
-    // Set current pitch bend on the voice before triggering
     const bendSemitones = (this.currentPitchBend / 8192) * this.perfSettings.pitchBendRange;
     voice.setPitchBend(bendSemitones);
     
@@ -3434,6 +3426,7 @@ export class JupiterEngine {
         if (arp) {
           arp.heldNotes = arp.heldNotes.filter(n => n !== midiNote);
           arp.playedNotes = arp.playedNotes.filter(n => n !== midiNote);
+          arp.isCacheDirty = true;
           if (arp.heldNotes.length === 0) {
             this.stopArpInstance(key);
           }
@@ -3446,9 +3439,9 @@ export class JupiterEngine {
         if (v.originalMidiNote !== midiNote) return false;
         if (patchId && v.currentPatchId !== patchId) return false;
         if (v.currentPatchId && this.activeMulti) {
-          const slotIndex = this.activeMulti.slots.findIndex(s => s.patchId === v.currentPatchId);
+          const slotIndex = this.slotIndexByPatchIdMap.has(v.currentPatchId) ? this.slotIndexByPatchIdMap.get(v.currentPatchId)! : -1;
           if (slotIndex !== -1) {
-            const patch = this.libraryPatches.find(p => p.id === v.currentPatchId);
+            const patch = this.patchMap.get(v.currentPatchId);
             if (patch && patch.params.arpEnabled) {
               return false; // let the arp handle its note-off
             }
@@ -3662,19 +3655,33 @@ export class JupiterEngine {
   }
 
   private getArpNotesForInstance(arp: ArpState): number[] {
-    const isAsPlayed = arp.patchParams.arpMode === 'as-played';
-    const baseNotes = isAsPlayed ? [...arp.playedNotes] : [...arp.heldNotes];
-    if (baseNotes.length === 0) return [];
+    if (!arp.isCacheDirty && arp.cachedNotes) {
+      return arp.cachedNotes;
+    }
 
-    let allNotes: number[] = [];
-    for (let i = 0; i < arp.patchParams.arpRange; i++) {
-      allNotes = allNotes.concat(baseNotes.map(n => n + i * 12));
+    const isAsPlayed = arp.patchParams.arpMode === 'as-played';
+    const baseNotes = isAsPlayed ? arp.playedNotes : arp.heldNotes;
+    if (baseNotes.length === 0) {
+      arp.cachedNotes = [];
+      arp.isCacheDirty = false;
+      return arp.cachedNotes;
+    }
+
+    const range = arp.patchParams.arpRange || 1;
+    const allNotes: number[] = [];
+    for (let i = 0; i < range; i++) {
+      const octave = i * 12;
+      for (let j = 0; j < baseNotes.length; j++) {
+        allNotes.push(baseNotes[j] + octave);
+      }
     }
     
     if (!isAsPlayed) {
       allNotes.sort((a, b) => a - b);
     }
     
-    return allNotes;
+    arp.cachedNotes = allNotes;
+    arp.isCacheDirty = false;
+    return arp.cachedNotes;
   }
 }
