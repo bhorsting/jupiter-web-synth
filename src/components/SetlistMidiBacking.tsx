@@ -42,11 +42,11 @@ const SearchableSoundSelect: React.FC<SearchableSoundSelectProps> = ({ value, on
   });
 
   return (
-    <div className="relative inline-block text-left" ref={dropdownRef}>
+    <div className="relative w-full text-left" ref={dropdownRef}>
       <button
         type="button"
         onClick={() => setIsOpen(!isOpen)}
-        className="bg-zinc-900 border border-zinc-800 text-[9px] font-mono text-zinc-300 px-2 py-1 focus:border-amber-500 outline-none w-[130px] sm:w-[150px] flex items-center justify-between gap-1 truncate rounded-none hover:bg-zinc-800 transition-colors"
+        className="bg-zinc-900 border border-zinc-800 text-[9px] font-mono text-zinc-300 px-2 py-1 focus:border-amber-500 outline-none w-full flex items-center justify-between gap-1 truncate rounded-none hover:bg-zinc-800 transition-colors"
         title={selectedLabel}
       >
         <span className={`truncate text-left font-bold ${selectedPatch ? 'text-amber-400/90' : 'text-zinc-500 font-normal italic'}`}>
@@ -56,7 +56,7 @@ const SearchableSoundSelect: React.FC<SearchableSoundSelectProps> = ({ value, on
       </button>
 
       {isOpen && (
-        <div className="absolute right-0 mt-1 w-56 bg-zinc-950 border border-zinc-700 shadow-2xl z-50 p-1.5 space-y-1.5 max-h-60 flex flex-col">
+        <div className="absolute left-0 right-0 mt-1 bg-zinc-950 border border-zinc-700 shadow-2xl z-50 p-1.5 space-y-1.5 max-h-60 flex flex-col">
           <div className="relative flex items-center">
             <Search className="w-3 h-3 absolute left-2 text-zinc-500 pointer-events-none" />
             <input
@@ -369,15 +369,15 @@ export const SetlistMidiBacking: React.FC<SetlistMidiBackingProps> = ({
 
   return (
     <div className="mt-3 p-3 bg-zinc-950/80 border border-zinc-800/80 rounded-none text-xs space-y-2.5">
-      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-zinc-900 pb-2">
-        <div className="flex items-center gap-2">
-          <Music className="w-3.5 h-3.5 text-amber-500" />
-          <span className="text-[10px] font-bold uppercase tracking-widest text-zinc-300">
-            MIDI Click & Backing Track
-          </span>
-        </div>
+      <div className="flex flex-col gap-2 border-b border-zinc-900 pb-2">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <Music className="w-3.5 h-3.5 text-amber-500" />
+            <span className="text-[10px] font-bold uppercase tracking-widest text-zinc-300">
+              MIDI Click & Backing Track
+            </span>
+          </div>
 
-        <div className="flex flex-wrap items-center gap-2">
           {/* Lead-in count-in selection */}
           <div className="flex items-center gap-1 bg-black border border-zinc-800 px-1.5 py-1">
             <span className="text-[8px] font-bold uppercase tracking-wider text-zinc-500">Lead-in:</span>
@@ -388,19 +388,22 @@ export const SetlistMidiBacking: React.FC<SetlistMidiBackingProps> = ({
                 onClick={() => handleLeadInChange(bars)}
                 className={`px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-wider transition-all ${
                   currentLeadIn === bars
-                    ? 'bg-amber-500 text-black'
+                    ? 'bg-amber-500 text-black font-bold'
                     : 'bg-zinc-900 text-zinc-400 hover:text-white'
                 }`}
               >
-                {bars === 0 ? 'Off' : `${bars}B`}
+                {bars === 0 ? 'OFF' : `${bars}B`}
               </button>
             ))}
           </div>
+        </div>
 
+        {/* Backing Track Combo Dropdown - Full Width */}
+        <div className="w-full">
           <select
             value={song.midiFile || ''}
             onChange={(e) => handleMidiSelect(e.target.value)}
-            className="bg-black border border-zinc-800 text-amber-400 font-mono text-[10px] p-1.5 focus:border-amber-500 outline-none max-w-[200px] truncate"
+            className="w-full bg-black border border-zinc-800 text-amber-400 font-mono text-[11px] p-2 focus:border-amber-500 outline-none rounded-none cursor-pointer truncate"
           >
             <option value="">-- NO BACKING TRACK --</option>
             {midiFiles.map((file) => (
@@ -409,48 +412,48 @@ export const SetlistMidiBacking: React.FC<SetlistMidiBackingProps> = ({
               </option>
             ))}
           </select>
-
-          {song.midiFile && (
-            <div className="flex items-center gap-1.5">
-              <button
-                type="button"
-                onClick={() => {
-                  const newAutoGM = !isAutoGM;
-                  onUpdateSong({ ...song, autoGMMode: newAutoGM });
-                  if (isPlaying && engine) {
-                    midiTrackService.startPlayback(
-                      song.midiFile!,
-                      engine,
-                      song.midiTrackOverrides,
-                      progress.current,
-                      song.leadInBars || 0,
-                      patches,
-                      newAutoGM
-                    );
-                  }
-                }}
-                className={`px-2 py-1 text-[9px] font-bold uppercase tracking-wider border transition-all ${
-                  isAutoGM
-                    ? 'bg-amber-500 text-black border-amber-500'
-                    : 'bg-zinc-900 text-zinc-400 border-zinc-800 hover:text-white'
-                }`}
-                title="When Auto GM is OFF, only tracks with assigned custom patches will play sound."
-              >
-                Auto GM: {isAutoGM ? 'ON' : 'OFF'}
-              </button>
-
-              <button
-                onClick={handleGenerateGM}
-                disabled={isGenerating}
-                className="px-2.5 py-1 bg-amber-600/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-400 text-[9px] font-bold uppercase tracking-wider flex items-center gap-1 transition-all rounded-none"
-                title="Auto-create General MIDI Patches and Multi for each track"
-              >
-                <Wand2 className="w-3 h-3" />
-                {isGenerating ? 'Generating...' : 'Auto GM Multi'}
-              </button>
-            </div>
-          )}
         </div>
+
+        {song.midiFile && (
+          <div className="flex flex-wrap items-center gap-2 pt-0.5">
+            <button
+              type="button"
+              onClick={() => {
+                const newAutoGM = !isAutoGM;
+                onUpdateSong({ ...song, autoGMMode: newAutoGM });
+                if (isPlaying && engine) {
+                  midiTrackService.startPlayback(
+                    song.midiFile!,
+                    engine,
+                    song.midiTrackOverrides,
+                    progress.current,
+                    song.leadInBars || 0,
+                    patches,
+                    newAutoGM
+                  );
+                }
+              }}
+              className={`px-2.5 py-1 text-[9px] font-bold uppercase tracking-wider border transition-all ${
+                isAutoGM
+                  ? 'bg-amber-500 text-black border-amber-500 font-bold'
+                  : 'bg-zinc-900 text-zinc-400 border-zinc-800 hover:text-white'
+              }`}
+              title="When Auto GM is OFF, only tracks with assigned custom patches will play sound."
+            >
+              Auto GM: {isAutoGM ? 'ON' : 'OFF'}
+            </button>
+
+            <button
+              onClick={handleGenerateGM}
+              disabled={isGenerating}
+              className="px-2.5 py-1 bg-amber-600/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-400 text-[9px] font-bold uppercase tracking-wider flex items-center gap-1 transition-all rounded-none"
+              title="Auto-create General MIDI Patches and Multi for each track"
+            >
+              <Wand2 className="w-3 h-3" />
+              {isGenerating ? 'Generating...' : 'Auto GM Multi'}
+            </button>
+          </div>
+        )}
       </div>
 
       {parsedMidi && (
@@ -552,7 +555,7 @@ export const SetlistMidiBacking: React.FC<SetlistMidiBackingProps> = ({
                   return (
                     <div
                       key={track.index}
-                      className={`p-2 border flex items-center justify-between gap-2 transition-all ${
+                      className={`p-2 border flex flex-col gap-2 transition-all ${
                         isTrackActive
                           ? 'bg-amber-950/20 border-amber-500/50 shadow-sm'
                           : isSolo
@@ -567,7 +570,7 @@ export const SetlistMidiBacking: React.FC<SetlistMidiBackingProps> = ({
                         <button
                           type="button"
                           onClick={() => handleTrackMuteToggle(track.index)}
-                          className={`p-1 border text-[9px] font-bold transition-all ${
+                          className={`p-1 border text-[9px] font-bold transition-all shrink-0 ${
                             isMuted
                               ? 'bg-red-950/40 border-red-800 text-red-400'
                               : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-white'
@@ -581,7 +584,7 @@ export const SetlistMidiBacking: React.FC<SetlistMidiBackingProps> = ({
                         <button
                           type="button"
                           onClick={() => handleTrackSoloToggle(track.index)}
-                          className={`px-1.5 py-0.5 border text-[9px] font-mono font-black transition-all ${
+                          className={`px-1.5 py-0.5 border text-[9px] font-mono font-black transition-all shrink-0 ${
                             isSolo
                               ? 'bg-amber-500 border-amber-400 text-black font-black'
                               : 'bg-zinc-900 border-zinc-800 text-zinc-500 hover:text-zinc-200'
@@ -591,8 +594,8 @@ export const SetlistMidiBacking: React.FC<SetlistMidiBackingProps> = ({
                           S
                         </button>
 
-                        <div className="flex flex-col min-w-0">
-                          <div className="flex items-center gap-1.5">
+                        <div className="flex flex-col min-w-0 flex-1">
+                          <div className="flex items-center gap-1.5 min-w-0">
                             <span className="text-[10px] font-bold text-zinc-200 truncate">
                               {track.name}
                             </span>
@@ -612,11 +615,13 @@ export const SetlistMidiBacking: React.FC<SetlistMidiBackingProps> = ({
                         </div>
                       </div>
 
-                      <SearchableSoundSelect
-                        value={override?.patchId || ''}
-                        onChange={(patchId) => handleTrackPatchChange(track.index, patchId)}
-                        patches={patches}
-                      />
+                      <div className="w-full">
+                        <SearchableSoundSelect
+                          value={override?.patchId || ''}
+                          onChange={(patchId) => handleTrackPatchChange(track.index, patchId)}
+                          patches={patches}
+                        />
+                      </div>
                     </div>
                   );
                 })}

@@ -179,7 +179,7 @@ class MidiTrackService {
               if (p.params.vco1SoundfontEnabled && p.params.vco1SoundfontName) {
                 try {
                   await soundfontService.getPresetsForFile(p.params.vco1SoundfontName, engine.getCtx() || undefined);
-                  await soundfontService.getFileBuffer(p.params.vco1SoundfontName, p.params.vco1SoundfontSampleIndex ?? 0);
+                  await soundfontService.getFileBuffer(p.params.vco1SoundfontName);
                 } catch (e) {
                   console.warn('Failed to pre-cache VCO1 SF2:', e);
                 }
@@ -187,7 +187,7 @@ class MidiTrackService {
               if (p.params.vco2SoundfontEnabled && p.params.vco2SoundfontName) {
                 try {
                   await soundfontService.getPresetsForFile(p.params.vco2SoundfontName, engine.getCtx() || undefined);
-                  await soundfontService.getFileBuffer(p.params.vco2SoundfontName, p.params.vco2SoundfontSampleIndex ?? 0);
+                  await soundfontService.getFileBuffer(p.params.vco2SoundfontName);
                 } catch (e) {
                   console.warn('Failed to pre-cache VCO2 SF2:', e);
                 }
@@ -280,7 +280,7 @@ class MidiTrackService {
             return;
           } else {
             // Auto GM Mode is enabled: auto-map GM instrument sample preset
-            const sampleIndex = Math.min(Math.max(0, track.instrumentNumber || 0), 127);
+            const sampleIndex = Math.min(Math.max(0, track.instrument?.number || 0), 127);
             patchParams = {
               ...DEFAULT_PARAMS,
               vco1SoundfontEnabled: true,

@@ -2897,17 +2897,17 @@ function App() {
                                             : 'border-zinc-800 hover:border-zinc-700'
                                         }`}
                                       >
-                                        <div className="flex items-center justify-between">
-                                          <div className="flex items-center gap-4 min-w-0">
+                                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pb-1 border-b border-zinc-900/60">
+                                          <div className="flex items-center gap-3 min-w-0 flex-1">
                                             {/* Program Change indicator */}
                                             <div className="flex flex-col items-center justify-center bg-zinc-900 border border-zinc-800 px-2 py-1 shrink-0 font-mono text-center">
                                               <span className="text-[8px] text-zinc-500 uppercase tracking-widest font-bold">MIDI PC</span>
                                               <span className="text-xs font-bold text-orange-500">{index}</span>
                                             </div>
 
-                                            <div className="flex flex-col gap-0.5 min-w-0">
-                                              <span className="font-bold text-sm uppercase truncate text-zinc-100">{song.name}</span>
-                                              <div className="flex items-center gap-1.5 text-[9px] text-zinc-400 font-bold uppercase tracking-widest">
+                                            <div className="flex flex-col gap-0.5 min-w-0 flex-1">
+                                              <span className="font-bold text-sm uppercase truncate text-zinc-100" title={song.name}>{song.name}</span>
+                                              <div className="flex items-center gap-1.5 text-[9px] text-zinc-400 font-bold uppercase tracking-widest min-w-0">
                                                 <span className={`px-1 text-[8px] tracking-widest ${
                                                   song.type === 'patch' 
                                                     ? 'bg-blue-500/10 text-blue-400 border border-blue-500/20' 
@@ -2920,17 +2920,18 @@ function App() {
                                             </div>
                                           </div>
 
-                                          <div className="flex items-center gap-1 shrink-0">
+                                          <div className="flex items-center justify-between sm:justify-end gap-1.5 shrink-0 pt-1 sm:pt-0 border-t sm:border-t-0 border-zinc-900/50">
                                             <button
                                               onClick={() => handleLoadSong(song)}
                                               className={`px-3 py-1.5 text-[9px] font-bold uppercase tracking-widest transition-all ${
                                                 isActiveSong
-                                                  ? 'bg-orange-600 text-white'
+                                                  ? 'bg-orange-600 text-white font-extrabold shadow-sm'
                                                   : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-300'
                                               }`}
                                             >
-                                              {isActiveSong ? 'Loaded' : 'Load'}
+                                              {isActiveSong ? 'LOADED' : 'LOAD'}
                                             </button>
+                                            <div className="flex items-center gap-0.5 shrink-0">
                                             <button
                                               onClick={() => handleMoveSong(currentSetlist.id, song.id, 'up')}
                                               disabled={index === 0}
@@ -2952,10 +2953,11 @@ function App() {
                                               className="p-1.5 hover:bg-red-500/20 text-red-500 hover:text-red-400 transition-all"
                                               title="Remove Song"
                                             >
-                                              <Trash2 size={13} />
-                                            </button>
+                                            <Trash2 size={13} />
+                                          </button>
                                           </div>
                                         </div>
+                                      </div>
 
                                         <SetlistMidiBacking
                                           song={song}
