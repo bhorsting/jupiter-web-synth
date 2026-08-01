@@ -469,11 +469,11 @@ export const SetlistMidiBacking: React.FC<SetlistMidiBackingProps> = ({
           )}
 
           {/* Transport Controls Bar */}
-          <div className="flex items-center justify-between bg-black/60 p-2 border border-zinc-900">
-            <div className="flex items-center gap-2">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 bg-black/60 p-2 border border-zinc-900">
+            <div className="flex flex-wrap items-center gap-2 min-w-0">
               <button
                 onClick={handleTogglePlay}
-                className={`p-1.5 border transition-all ${
+                className={`p-1.5 border transition-all shrink-0 ${
                   isPlaying
                     ? 'bg-amber-500 text-black border-amber-500'
                     : 'bg-zinc-900 text-amber-400 border-zinc-800 hover:border-amber-500/50'
@@ -485,39 +485,43 @@ export const SetlistMidiBacking: React.FC<SetlistMidiBackingProps> = ({
 
               <button
                 onClick={handleStop}
-                className="p-1.5 bg-zinc-900 text-zinc-400 border border-zinc-800 hover:text-white transition-all"
+                className="p-1.5 bg-zinc-900 text-zinc-400 border border-zinc-800 hover:text-white transition-all shrink-0"
                 title="Stop Backing Track"
               >
                 <Square className="w-3.5 h-3.5" />
               </button>
 
-              <div className="flex items-center gap-2 text-[10px] font-mono text-zinc-400 ml-2">
+              <div className="flex items-center gap-2 text-[10px] font-mono text-zinc-400">
                 <span className="text-amber-400 font-bold">{formatTime(progress.current)}</span>
-                <span>/</span>
+                <span className="text-zinc-600">/</span>
                 <span>{formatTime(parsedMidi.duration)}</span>
-                <span className="text-zinc-600">({parsedMidi.bpm} BPM)</span>
-                <button
-                  type="button"
-                  onClick={() => updateSettings({ enableSurround51: !settings.enableSurround51 })}
-                  className={`px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-wider border transition-all ml-1 ${
-                    settings.enableSurround51
-                      ? 'bg-amber-500/20 text-amber-400 border-amber-500/60'
-                      : 'bg-zinc-900 text-zinc-600 border-zinc-800 hover:text-zinc-400'
-                  }`}
-                  title="5.1 Surround Output: Synth -> Front, Click -> Rear"
-                >
-                  5.1 Click: {settings.enableSurround51 ? 'ON' : 'OFF'}
-                </button>
+                <span className="text-zinc-500 text-[9px] font-sans">({parsedMidi.bpm} BPM)</span>
               </div>
             </div>
 
-            <button
-              onClick={() => setShowTrackDetails(!showTrackDetails)}
-              className="text-[9px] font-bold uppercase tracking-widest text-zinc-500 hover:text-zinc-300 flex items-center gap-1"
-            >
-              <Sliders className="w-3 h-3" />
-              {parsedMidi.tracks.length} Tracks {showTrackDetails ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
-            </button>
+            <div className="flex items-center justify-between sm:justify-end gap-2 pt-1.5 sm:pt-0 border-t sm:border-t-0 border-zinc-900/80">
+              <button
+                type="button"
+                onClick={() => updateSettings({ enableSurround51: !settings.enableSurround51 })}
+                className={`px-2 py-1 text-[8px] font-bold uppercase tracking-wider border transition-all rounded-none ${
+                  settings.enableSurround51
+                    ? 'bg-amber-500/20 text-amber-400 border-amber-500/60'
+                    : 'bg-zinc-900 text-zinc-500 border-zinc-800 hover:text-zinc-300'
+                }`}
+                title="5.1 Surround Output: Synth -> Front, Click -> Rear"
+              >
+                5.1 Click: {settings.enableSurround51 ? 'ON' : 'OFF'}
+              </button>
+
+              <button
+                onClick={() => setShowTrackDetails(!showTrackDetails)}
+                className="text-[9px] font-bold uppercase tracking-widest text-zinc-400 hover:text-zinc-200 flex items-center gap-1.5 px-2 py-1 bg-zinc-900/80 border border-zinc-800 rounded-none shrink-0"
+              >
+                <Sliders className="w-3 h-3 text-amber-500" />
+                <span>{parsedMidi.tracks.length} Tracks</span>
+                {showTrackDetails ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+              </button>
+            </div>
           </div>
 
           {/* Progress Bar */}
