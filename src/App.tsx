@@ -37,6 +37,7 @@ import { LivePerformanceView } from './components/LivePerformanceView';
 import { SetlistMidiBacking } from './components/SetlistMidiBacking';
 import { GroupedPresetsView } from './components/GroupedPresetsView';
 import { MidiDebugger, MidiDebugEvent } from './components/MidiDebugger';
+import { MidiEditorModal } from './components/MidiEditorModal';
 import { SettingsProvider, useSettings } from './contexts/SettingsContext';
 import { googleSheetsService } from './services/GoogleSheetsService';
 import { indexedDBService } from './services/IndexedDBService';
@@ -98,6 +99,7 @@ function App() {
   const [isMidiLogVisible, setIsMidiLogVisible] = useState(false);
   const [midiDebugEvents, setMidiDebugEvents] = useState<MidiDebugEvent[]>([]);
   const [isMidiDebuggerOpen, setIsMidiDebuggerOpen] = useState(false);
+  const [isMidiEditorOpen, setIsMidiEditorOpen] = useState(false);
 
   const [patches, setPatches] = useState<Patch[]>([]);
   const [multis, setMultis] = useState<Multi[]>([]);
@@ -2230,6 +2232,17 @@ function App() {
           </button>
 
           <button 
+            onClick={() => setIsMidiEditorOpen(!isMidiEditorOpen)}
+            className={`flex items-center gap-1 px-2 py-1 border-l border-synth-border transition-all uppercase text-[9px] font-bold tracking-widest ${
+              isMidiEditorOpen ? 'bg-amber-500 text-black font-extrabold' : 'text-amber-400 hover:bg-amber-500/10'
+            }`}
+            title="Open Signal MIDI Piano Roll Editor"
+          >
+            <Radio size={10} />
+            <span>MIDI EDITOR</span>
+          </button>
+
+          <button 
             onClick={handlePanic}
             className="flex items-center gap-1 px-2 py-1 border-l border-synth-border transition-all uppercase text-[9px] font-bold tracking-widest text-red-500 hover:bg-red-500/10"
             title="Silence All Notes"
@@ -3284,6 +3297,12 @@ function App() {
         )}
 
         <SettingsModal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} />
+
+        <MidiEditorModal
+          isOpen={isMidiEditorOpen}
+          onClose={() => setIsMidiEditorOpen(false)}
+          engine={engineRef.current}
+        />
 
         <MidiDebugger 
           isOpen={isMidiDebuggerOpen}

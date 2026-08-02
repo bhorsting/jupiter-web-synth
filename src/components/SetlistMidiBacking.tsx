@@ -1,10 +1,11 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { Play, Square, Pause, Music, Sliders, Wand2, Volume2, VolumeX, ChevronDown, ChevronUp, Search, X, Activity } from 'lucide-react';
+import { Play, Square, Pause, Music, Sliders, Wand2, Volume2, VolumeX, ChevronDown, ChevronUp, Search, X, Activity, Edit3 } from 'lucide-react';
 import { Song, Patch, Multi } from '../types';
 import { midiTrackService, ParsedMidiFile, LeadInInfo } from '../services/MidiTrackService';
 import { soundfontService } from '../services/SoundfontService';
 import { JupiterEngine } from '../engine/JupiterEngine';
 import { useSettings } from '../contexts/SettingsContext';
+import { MidiEditorModal } from './MidiEditorModal';
 
 interface SearchableSoundSelectProps {
   value: string;
@@ -156,6 +157,7 @@ export const SetlistMidiBacking: React.FC<SetlistMidiBackingProps> = ({
   const [leadInState, setLeadInState] = useState<LeadInInfo | null>(null);
   const [showTrackDetails, setShowTrackDetails] = useState<boolean>(true);
   const [isGenerating, setIsGenerating] = useState<boolean>(false);
+  const [isEditorOpen, setIsEditorOpen] = useState<boolean>(false);
 
   useEffect(() => {
     soundfontService.listDownloadedMidiFiles().then(setMidiFiles);
@@ -398,12 +400,12 @@ export const SetlistMidiBacking: React.FC<SetlistMidiBackingProps> = ({
           </div>
         </div>
 
-        {/* Backing Track Combo Dropdown - Full Width */}
-        <div className="w-full">
+        {/* Backing Track Combo Dropdown & Edit Button */}
+        <div className="w-full flex items-center gap-2">
           <select
             value={song.midiFile || ''}
             onChange={(e) => handleMidiSelect(e.target.value)}
-            className="w-full bg-black border border-zinc-800 text-amber-400 font-mono text-[11px] p-2 focus:border-amber-500 outline-none rounded-none cursor-pointer truncate"
+            className="flex-1 bg-black border border-zinc-800 text-amber-400 font-mono text-[11px] p-2 focus:border-amber-500 outline-none rounded-none cursor-pointer truncate"
           >
             <option value="">-- NO BACKING TRACK --</option>
             {midiFiles.map((file) => (
@@ -412,6 +414,15 @@ export const SetlistMidiBacking: React.FC<SetlistMidiBackingProps> = ({
               </option>
             ))}
           </select>
+
+          <button
+            onClick={() => setIsEditorOpen(true)}
+            className="px-3 py-2 bg-amber-500 hover:bg-amber-400 text-black font-bold font-mono text-[11px] flex items-center gap-1.5 transition-colors shrink-0 shadow-md"
+            title="Open Signal MIDI Piano Roll Editor to edit click & backing tracks"
+          >
+            <Edit3 className="w-3.5 h-3.5" />
+            <span>{song.midiFile ? 'Edit MIDI' : 'New MIDI Editor'}</span>
+          </button>
         </div>
 
         {song.midiFile && (
@@ -455,6 +466,18 @@ export const SetlistMidiBacking: React.FC<SetlistMidiBackingProps> = ({
           </div>
         )}
       </div>
+
+      {/* MIDI Editor Modal */}
+      <MidiEditorModal
+        isOpen={isEditorOpen}
+        onClose={() => setIsEditorOpen(false)}
+        initialFileName={song.midiFile}
+        engine={engine}
+        onAssignToSong={(newFileName) => {
+          handleMidiSelect(newFileName);
+          soundfontService.listDownloadedMidiFiles().then(setMidiFiles);
+        }}
+      />
 
       {parsedMidi && (
         <div className="space-y-2">

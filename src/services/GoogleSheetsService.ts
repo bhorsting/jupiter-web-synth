@@ -1,7 +1,7 @@
 import { Patch, Multi, Setlist, PerformanceSettings, cleanVoiceParams } from '../types';
 
 const CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID;
-const SCOPES = 'https://www.googleapis.com/auth/spreadsheets';
+const SCOPES = 'https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/drive.readonly';
 
 console.log('[GoogleSheetsService] Client ID configured:', !!CLIENT_ID);
 
@@ -14,6 +14,10 @@ class GoogleSheetsService {
   private accessToken: string | null = null;
 
   constructor() {}
+
+  getAccessToken(): string | null {
+    return this.accessToken;
+  }
 
   private extractSheetId(url: string): string | null {
     const match = url.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
