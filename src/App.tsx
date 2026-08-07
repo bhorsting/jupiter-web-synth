@@ -45,6 +45,7 @@ import { soundfontService, getGoogleDriveApiKey } from './services/SoundfontServ
 import { midiTrackService } from './services/MidiTrackService';
 import { PRESET_PATCHES } from './constants/presetPatches';
 import { DURAN_PATCHES, DURAN_MULTIS, DURAN_SETLIST } from './constants/duranPresets';
+import { autoCategorizePatches, autoCategorizeMultis } from './utils/categorizer';
 import 'react-simple-keyboard/build/css/index.css';
 
 type Screen = 'SYNTH' | 'ARP' | 'FX' | 'PATCHES';
@@ -233,25 +234,33 @@ function App() {
       
       // Always merge PRESET_PATCHES and DURAN_PATCHES to ensure user has the latest ones if they haven't deleted them
       const allPresetPatches = [...PRESET_PATCHES, ...DURAN_PATCHES];
-      const existingIds = new Set(storedPatches.map(p => p.id));
+      const factoryPatchMap = new Map(allPresetPatches.map(p => [p.id, p]));
+      
+      // Update any stored factory patches with the latest code definitions so parameter fixes take effect immediately
+      const updatedStoredPatches = storedPatches.map(p => {
+        const factoryPatch = factoryPatchMap.get(p.id);
+        if (factoryPatch) {
+          return {
+            ...factoryPatch,
+            midiMappings: (p.midiMappings && p.midiMappings.length > 0) ? p.midiMappings : factoryPatch.midiMappings
+          };
+        }
+        return p;
+      });
+
+      const existingIds = new Set(updatedStoredPatches.map(p => p.id));
       const newPresets = allPresetPatches.filter(p => !existingIds.has(p.id));
       
-      let finalPatches = [...storedPatches];
-      
-      if (newPresets.length > 0) {
-        console.log(`Adding ${newPresets.length} new preset patches...`);
-        await indexedDBService.savePatches([...storedPatches, ...newPresets]);
-        finalPatches = [...storedPatches, ...newPresets];
-      }
+      let finalPatches = [...updatedStoredPatches, ...newPresets];
 
       if (storedPatches.length === 0 && finalPatches.length === 0) {
         console.log('Seeding IndexedDB with preset patches...');
-        await indexedDBService.savePatches(allPresetPatches);
         finalPatches = allPresetPatches;
       }
 
-      // Migration: ensure all fields exist
-      const migrated = finalPatches.map((p: any) => ({
+      // Migration: ensure all fields exist and patches have auto-assigned groups
+      const categorized = autoCategorizePatches(finalPatches);
+      const migrated = categorized.map((p: any) => ({
         ...p,
         params: cleanVoiceParams(p.params),
         midiMappings: (p.midiMappings || []).map((m: any) => ({
@@ -261,6 +270,7 @@ function App() {
         }))
       }));
       
+      await indexedDBService.savePatches(migrated);
       setPatches(migrated);
 
       // Load multis
@@ -306,8 +316,9 @@ function App() {
         finalMultis = [...finalMultis, ...newDuranMultis];
       }
       
-      await indexedDBService.saveMultis(finalMultis);
-      setMultis(finalMultis);
+      const categorizedMultis = autoCategorizeMultis(finalMultis);
+      await indexedDBService.saveMultis(categorizedMultis);
+      setMultis(categorizedMultis);
       
       // Restore last selected patch and params if exists in appState
       const appState = await indexedDBService.getAppState();
@@ -809,13 +820,35 @@ function App() {
     if (configUrl && googleSheetsService.isConnected()) {
       // Try to pull on load if config exists and already connected
       googleSheetsService.loadFromSheet(configUrl).then(result => {
-        if (result.patches.length > 0) {
-          setPatches(result.patches);
+        const allPresetPatches = [...PRESET_PATCHES, ...DURAN_PATCHES];
+        const factoryPatchMap = new Map(allPresetPatches.map(p => [p.id, p]));
+
+        let finalSheetPatches = result.patches;
+        if (result.patches && result.patches.length > 0) {
+          finalSheetPatches = result.patches.map(p => {
+            const factoryPatch = factoryPatchMap.get(p.id);
+            if (factoryPatch) {
+              return {
+                ...factoryPatch,
+                midiMappings: (p.midiMappings && p.midiMappings.length > 0) ? p.midiMappings : factoryPatch.midiMappings
+              };
+            }
+            return p;
+          });
+          setPatches(finalSheetPatches);
+          indexedDBService.savePatches(finalSheetPatches);
         }
         if (result.multis.length > 0) {
           setMultis(result.multis);
         }
-        console.log('App: Auto-pulled patches & multis from Google Sheets');
+
+        // Sync updated factory patches back to Google Sheet
+        if (configUrl && finalSheetPatches.length > 0) {
+          googleSheetsService.saveToSheet(finalSheetPatches, result.multis.length > 0 ? result.multis : multis, setlists, configUrl, settings).catch(err => {
+            console.warn('App: Auto-push updated patches to Google Sheets failed', err);
+          });
+        }
+        console.log('App: Auto-pulled and synced patches & multis with Google Sheets');
       }).catch(e => {
         console.warn('App: Initial sync pull failed', e);
       });
@@ -966,9 +999,30 @@ function App() {
         setSyncError(null);
         try {
           const result = await googleSheetsService.loadFromSheet(settings.googleSheetUrl);
-          if (result.patches && result.patches.length > 0) setPatches(result.patches);
+          const allPresetPatches = [...PRESET_PATCHES, ...DURAN_PATCHES];
+          const factoryPatchMap = new Map(allPresetPatches.map(p => [p.id, p]));
+
+          let finalSheetPatches = result.patches;
+          if (result.patches && result.patches.length > 0) {
+            finalSheetPatches = result.patches.map(p => {
+              const factoryPatch = factoryPatchMap.get(p.id);
+              if (factoryPatch) {
+                return {
+                  ...factoryPatch,
+                  midiMappings: (p.midiMappings && p.midiMappings.length > 0) ? p.midiMappings : factoryPatch.midiMappings
+                };
+              }
+              return p;
+            });
+            setPatches(finalSheetPatches);
+            await indexedDBService.savePatches(finalSheetPatches);
+          }
           if (result.multis && result.multis.length > 0) setMultis(result.multis);
           if (result.setlists && result.setlists.length > 0) setSetlists(result.setlists);
+
+          if (settings.googleSheetUrl && finalSheetPatches.length > 0) {
+            await googleSheetsService.saveToSheet(finalSheetPatches, result.multis && result.multis.length > 0 ? result.multis : multis, result.setlists || setlists, settings.googleSheetUrl);
+          }
           showCustomAlert('SYNC COMPLETE', 'Library (Patches, Multis & Setlists) updated from Google Sheets!');
         } catch (error: any) {
           console.error(error);
@@ -1346,6 +1400,30 @@ function App() {
     const updated = multis.map(m => m.id === multiId ? { ...m, group: groupName } : m);
     setMultis(updated);
     indexedDBService.saveAppState({ patches, activePatchId, activeMultiId, currentScreen, showKeyboard, isMidiLogVisible, setlists, activeSetlistId, multis: updated });
+  };
+
+  const handleAutoCategorizeAll = async () => {
+    if (libraryTab === 'PATCHES') {
+      const categorized = autoCategorizePatches(patches, true);
+      setPatches(categorized);
+      await indexedDBService.savePatches(categorized);
+      if (settings.googleSheetUrl && googleSheetsService.isConnected()) {
+        googleSheetsService.saveToSheet(categorized, multis, setlists, settings.googleSheetUrl, settings).catch(err => {
+          console.warn('App: Push categorized patches to Google Sheets failed', err);
+        });
+      }
+      showCustomAlert('AUTO-CATEGORIZATION COMPLETE', `Successfully organized all ${categorized.length} patches into sound categories!`);
+    } else if (libraryTab === 'MULTIS') {
+      const categorized = autoCategorizeMultis(multis, true);
+      setMultis(categorized);
+      await indexedDBService.saveMultis(categorized);
+      if (settings.googleSheetUrl && googleSheetsService.isConnected()) {
+        googleSheetsService.saveToSheet(patches, categorized, setlists, settings.googleSheetUrl, settings).catch(err => {
+          console.warn('App: Push categorized multis to Google Sheets failed', err);
+        });
+      }
+      showCustomAlert('AUTO-CATEGORIZATION COMPLETE', `Successfully organized all ${categorized.length} multis into categories!`);
+    }
   };
 
   const handleUpdateSongInSetlist = (setlistId: string, updatedSong: Song) => {
@@ -2716,6 +2794,7 @@ function App() {
                     onDeleteMulti={handleDeleteMulti}
                     onUpdatePatchGroup={handleUpdatePatchGroup}
                     onUpdateMultiGroup={handleUpdateMultiGroup}
+                    onAutoCategorizeAll={handleAutoCategorizeAll}
                     showCustomPrompt={showCustomPrompt}
                   />
                 )}

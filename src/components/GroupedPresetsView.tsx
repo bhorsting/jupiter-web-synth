@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { Folder, FolderPlus, Edit2, Trash2, ChevronDown, ChevronRight, Layers, Tag, Grid, List } from 'lucide-react';
+import { Folder, FolderPlus, Edit2, Trash2, ChevronDown, ChevronRight, Layers, Tag, Grid, List, Sparkles } from 'lucide-react';
 import { Patch, Multi } from '../types';
 
 interface GroupedPresetsViewProps {
@@ -17,6 +17,7 @@ interface GroupedPresetsViewProps {
   onDeleteMulti: (id: string) => void;
   onUpdatePatchGroup: (patchId: string, groupName: string | undefined) => void;
   onUpdateMultiGroup: (multiId: string, groupName: string | undefined) => void;
+  onAutoCategorizeAll?: () => void;
   showCustomPrompt: (title: string, message: string, defaultValue: string, onConfirm: (val: string) => void) => void;
 }
 
@@ -35,6 +36,7 @@ export const GroupedPresetsView: React.FC<GroupedPresetsViewProps> = ({
   onDeleteMulti,
   onUpdatePatchGroup,
   onUpdateMultiGroup,
+  onAutoCategorizeAll,
   showCustomPrompt,
 }) => {
   const [selectedGroupFilter, setSelectedGroupFilter] = useState<string>('ALL');
@@ -182,6 +184,16 @@ export const GroupedPresetsView: React.FC<GroupedPresetsViewProps> = ({
           >
             <FolderPlus size={11} /> + New Group
           </button>
+
+          {onAutoCategorizeAll && (
+            <button
+              onClick={onAutoCategorizeAll}
+              className="px-2.5 py-1 text-[9px] font-bold uppercase tracking-wider transition-all border bg-orange-950/40 hover:bg-orange-900/60 border-orange-700/60 text-orange-300 flex items-center gap-1 ml-1"
+              title="Auto-Categorize all patches based on sound characteristics and naming"
+            >
+              <Sparkles size={11} className="text-orange-400 animate-pulse" /> Auto-Categorize All
+            </button>
+          )}
         </div>
 
         <div className="flex items-center gap-1 shrink-0">

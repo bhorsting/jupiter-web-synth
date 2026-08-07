@@ -8,6 +8,19 @@ import { soundfontService } from '../services/SoundfontService';
 
 let noiseBuffer: AudioBuffer | null = null;
 
+function getOrCreateNoiseBuffer(ctx: AudioContext, shared: AudioBuffer | null): AudioBuffer {
+  if (shared) return shared;
+  if (!noiseBuffer || noiseBuffer.sampleRate !== ctx.sampleRate) {
+    const bufferSize = ctx.sampleRate * 4;
+    noiseBuffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+    const data = noiseBuffer.getChannelData(0);
+    for (let i = 0; i < bufferSize; i++) {
+      data[i] = Math.random() * 2 - 1;
+    }
+  }
+  return noiseBuffer;
+}
+
 class Voice {
   private ctx: AudioContext;
   private vco1: OscillatorNode | null = null;
@@ -722,9 +735,7 @@ class Voice {
     if (!this.vco1SoundfontSource && this.vco1SoundfontNodes.length === 0) {
       this.vco1 = this.ctx.createOscillator();
       this.vco1Noise = this.ctx.createBufferSource();
-      if (this.sharedNoiseBuffer) {
-        this.vco1Noise.buffer = this.sharedNoiseBuffer;
-      }
+      this.vco1Noise.buffer = getOrCreateNoiseBuffer(this.ctx, this.sharedNoiseBuffer);
       this.vco1Noise.loop = true;
       this.vco1Noise.connect(this.vco1NoiseGain);
     }
@@ -802,9 +813,7 @@ class Voice {
     if (!this.vco2SoundfontSource && this.vco2SoundfontNodes.length === 0) {
       this.vco2 = this.ctx.createOscillator();
       this.vco2Noise = this.ctx.createBufferSource();
-      if (this.sharedNoiseBuffer) {
-        this.vco2Noise.buffer = this.sharedNoiseBuffer;
-      }
+      this.vco2Noise.buffer = getOrCreateNoiseBuffer(this.ctx, this.sharedNoiseBuffer);
       this.vco2Noise.loop = true;
       this.vco2Noise.connect(this.vco2NoiseGain);
     }
