@@ -143,8 +143,13 @@ class Voice {
     this.params = params;
     if (settings) this.perfSettings = settings;
     const time = this.ctx.currentTime;
+    this.activeSynthEngine = params.synthEngine || 'jupiter';
 
     if (this.activeSynthEngine === 'dx7') {
+      this.filterLfoMod.gain.setTargetAtTime(0, time, 0.01);
+      this.vcaLfoMod.gain.setTargetAtTime(0, time, 0.01);
+      this.vcoLfoMod.gain.setTargetAtTime(0, time, 0.01);
+
       const bendFactor = Math.pow(2, this.pitchBendOffset / 12);
       const voice = params.dx7Voice || createDefaultDX7Voice();
       if (this.dx7Oscs && this.dx7Oscs.length > 0 && this.midiNote !== null) {
@@ -172,6 +177,10 @@ class Voice {
     }
 
     if (this.activeSynthEngine === 'hammond') {
+      this.filterLfoMod.gain.setTargetAtTime(0, time, 0.01);
+      this.vcaLfoMod.gain.setTargetAtTime(0, time, 0.01);
+      this.vcoLfoMod.gain.setTargetAtTime(0, time, 0.01);
+
       const drawbarLevels = [
         params.hammondDb16,
         params.hammondDb513,
@@ -2733,8 +2742,8 @@ export class JupiterEngine {
 
     // Calculate modulation depths scaled by mix and speed-state
     const currentMix = this.params.leslieMix;
-    const lfoGain = targetDepth * 0.4 * currentMix; // Amplitude modulation swing
-    const vibGain = targetDepth * 0.006 * currentMix; // Doppler vibrato shift swing (±6ms)
+    const lfoGain = targetDepth * 0.25 * currentMix; // Tremolo amplitude modulation swing
+    const vibGain = targetDepth * 0.0006 * currentMix; // Realistic Leslie Doppler pitch/delay shimmer (±0.6ms)
 
     // Time constant for depth changes (spins down/up slightly faster than speed)
     const depthTimeConstant = targetRate < 1.0 ? 1.8 : 0.8;

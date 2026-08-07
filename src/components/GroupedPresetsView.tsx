@@ -41,7 +41,25 @@ export const GroupedPresetsView: React.FC<GroupedPresetsViewProps> = ({
 }) => {
   const [selectedGroupFilter, setSelectedGroupFilter] = useState<string>('ALL');
   const [isGroupedView, setIsGroupedView] = useState<boolean>(true);
-  const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
+
+  const storageKey = `jupiter_opened_categories_${type}`;
+  const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>(() => {
+    try {
+      const saved = localStorage.getItem(`jupiter_opened_categories_${type}`);
+      return saved ? JSON.parse(saved) : {};
+    } catch {
+      return {};
+    }
+  });
+
+  React.useEffect(() => {
+    try {
+      const saved = localStorage.getItem(storageKey);
+      setExpandedGroups(saved ? JSON.parse(saved) : {});
+    } catch {
+      setExpandedGroups({});
+    }
+  }, [type, storageKey]);
 
   const items = type === 'PATCHES' ? patches : multis;
 
@@ -81,10 +99,19 @@ export const GroupedPresetsView: React.FC<GroupedPresetsViewProps> = ({
   }, [items, searchQuery, selectedGroupFilter]);
 
   const toggleGroupExpand = (groupName: string) => {
-    setExpandedGroups(prev => ({
-      ...prev,
-      [groupName]: prev[groupName] === undefined ? false : !prev[groupName],
-    }));
+    setExpandedGroups(prev => {
+      const isCurrentlyExpanded = !!prev[groupName];
+      const next = {
+        ...prev,
+        [groupName]: !isCurrentlyExpanded,
+      };
+      try {
+        localStorage.setItem(storageKey, JSON.stringify(next));
+      } catch (e) {
+        console.warn('Failed to save category state', e);
+      }
+      return next;
+    });
   };
 
   const handleCreateGroup = () => {
@@ -227,7 +254,8 @@ export const GroupedPresetsView: React.FC<GroupedPresetsViewProps> = ({
         <div className="space-y-4">
           {Object.entries(groupedItems).map(([groupName, groupListRaw]) => {
             const groupList = groupListRaw as (Patch | Multi)[];
-            const isCollapsed = expandedGroups[groupName] === false;
+            const isExpanded = !!expandedGroups[groupName] || searchQuery.trim().length > 0;
+            const isCollapsed = !isExpanded;
 
             return (
               <div key={groupName} className="border border-zinc-800 bg-zinc-950/60 overflow-hidden">

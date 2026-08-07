@@ -1245,6 +1245,9 @@ function App() {
   };
 
   const loadPatch = (patch: Patch, switchScreen: boolean = true) => {
+    handlePanic();
+    engineRef.current?.setModWheel(0);
+    engineRef.current?.setPitchBend(0);
     // Ensure all params exist by merging with defaults
     setParams(cleanVoiceParams(patch.params));
     setActivePatchId(patch.id);
@@ -1274,6 +1277,9 @@ function App() {
   };
 
   const loadMulti = (multi: Multi, switchScreen: boolean = true) => {
+    handlePanic();
+    engineRef.current?.setModWheel(0);
+    engineRef.current?.setPitchBend(0);
     setActiveMultiId(multi.id);
     setActivePatchId(null); // Deactivate single patch mode
     setSelectedSlotIndex(0);
