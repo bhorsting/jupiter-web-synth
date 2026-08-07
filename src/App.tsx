@@ -1382,14 +1382,13 @@ function App() {
         showCustomAlert('NOTICE', 'Associated Multi not found!');
       }
     } else if (song.type === 'patch') {
-      // Switch to multi mode if a matching Multi exists or contains this patch
-      const matchingMulti = multis.find(m => m.id === song.targetId || m.slots.some(s => s.patchId === song.targetId));
-      if (matchingMulti) {
-        loadMulti(matchingMulti, switchScreen);
+      const patch = patches.find(p => p.id === song.targetId);
+      if (patch) {
+        loadPatch(patch, switchScreen);
       } else {
-        const patch = patches.find(p => p.id === song.targetId);
-        if (patch) {
-          loadPatch(patch, switchScreen);
+        const patchByName = patches.find(p => p.name.toLowerCase() === song.name.toLowerCase());
+        if (patchByName) {
+          loadPatch(patchByName, switchScreen);
         } else {
           showCustomAlert('NOTICE', 'Associated Patch not found!');
         }

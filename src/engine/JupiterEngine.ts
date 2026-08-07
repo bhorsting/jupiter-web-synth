@@ -1046,11 +1046,11 @@ class Voice {
       }
     }
 
-    // VCA Envelope - Smooth analog-style non-zero-resetting attack to prevent clicks and gasps
+    // VCA Envelope - Reset attack start to silence for non-legato note triggers to execute full attack envelope
     this.vca.gain.cancelScheduledValues(time);
-    const prevGain = Math.max(0.0001, this.vca.gain.value);
+    const startGain = isLegato ? Math.max(0.0001, this.vca.gain.value) : 0.0001;
     
-    this.vca.gain.setValueAtTime(prevGain, time);
+    this.vca.gain.setValueAtTime(startGain, time);
     this.vca.gain.linearRampToValueAtTime(velocityScale, time + Math.max(0.003, vcaAttack));
     
     const sustainLevel = Math.max(0.0001, vcaSustain * velocityScale);
@@ -1099,17 +1099,17 @@ class Voice {
     // Keyboard tracking scaled by VCF scale
     const kbdMod = (midiNote - 64) * (this.params.filterKeyboardTrack * 100) * scale;
     
-    // Velocity also scales filter cutoff, scaled by VCF scale
-    const velCutoffMod = (velocity - 1) * this.params.filterVelocitySensitivity * 5000 * scale;
-    const baseCutoff = Math.max(20, filterCutoff + velCutoffMod + kbdMod);
-    const targetCutoff = Math.min(20000, baseCutoff + filterEnvAmount * 10000 * scale);
+    // Base cutoff is never crushed below filterCutoff by velocity
+    const baseCutoff = Math.max(20, filterCutoff + kbdMod);
+    const velCutoffBoost = velocity * this.params.filterVelocitySensitivity * 4000 * scale;
+    const targetCutoff = Math.min(20000, Math.max(baseCutoff, baseCutoff + (filterEnvAmount * 10000 + velCutoffBoost) * scale));
 
-    // Smooth VCF attack sweep starting from the current filter frequency to prevent jumping clicks/resets
+    // Smooth VCF attack sweep starting from baseCutoff (or current frequency if legato)
     this.filter.frequency.cancelScheduledValues(time);
-    const currentFreq = Math.max(20, this.filter.frequency.value || baseCutoff);
-    this.filter.frequency.setValueAtTime(currentFreq, time);
+    const startFreq = isLegato ? Math.max(20, this.filter.frequency.value || baseCutoff) : baseCutoff;
+    this.filter.frequency.setValueAtTime(startFreq, time);
     
-    // Ramps cleanly from currentFreq to targetCutoff using highly compatible linear sweeps
+    // Ramps cleanly from startFreq to targetCutoff over envAttack
     this.filter.frequency.linearRampToValueAtTime(Math.max(20, targetCutoff), time + Math.max(0.005, envAttack));
     const sustainFilterFreq = Math.max(20, baseCutoff + (targetCutoff - baseCutoff) * envSustain);
     this.filter.frequency.setTargetAtTime(sustainFilterFreq, time + Math.max(0.005, envAttack), Math.max(0.01, envDecay));

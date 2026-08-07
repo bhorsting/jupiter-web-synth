@@ -23,6 +23,22 @@ export class MIDIService {
   private channel: number = 0; // 0 for all
   private runningStatus: number = 0;
   private autoConnectMicroKontrol: boolean = false;
+  private lastNoteEvents = new Map<string, number>();
+
+  private isDuplicateNoteEvent(key: string): boolean {
+    const now = performance.now();
+    const lastTime = this.lastNoteEvents.get(key) || 0;
+    if (now - lastTime < 15) {
+      return true;
+    }
+    this.lastNoteEvents.set(key, now);
+    if (this.lastNoteEvents.size > 100) {
+      for (const [k, time] of this.lastNoteEvents.entries()) {
+        if (now - time > 1000) this.lastNoteEvents.delete(k);
+      }
+    }
+    return false;
+  }
 
   constructor(
     onNoteOn: MIDICallback, 
@@ -174,9 +190,13 @@ export class MIDIService {
           // Apply channel filter if configured (0 is "all")
           if (this.channel === 0 || this.channel === channel) {
             if (type === 0x90 && byte2 > 0) { // Note On
-              this.onNoteOn(byte1, byte2);
+              if (!this.isDuplicateNoteEvent(`on_${channel}_${byte1}`)) {
+                this.onNoteOn(byte1, byte2);
+              }
             } else if (type === 0x80 || (type === 0x90 && byte2 === 0)) { // Note Off
-              this.onNoteOff(byte1, 0);
+              if (!this.isDuplicateNoteEvent(`off_${channel}_${byte1}`)) {
+                this.onNoteOff(byte1, 0);
+              }
             } else if (type === 0xB0) { // CC
               // CC 120 (All Sound Off) or 123 (All Notes Off) -> Panic!
               if (byte1 === 120 || byte1 === 123) {
