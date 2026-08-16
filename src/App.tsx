@@ -113,6 +113,7 @@ function App() {
   const [newSongName, setNewSongName] = useState('');
   const [newSongType, setNewSongType] = useState<'patch' | 'multi'>('patch');
   const [newSongTargetId, setNewSongTargetId] = useState('');
+  const [newSongPc, setNewSongPc] = useState<string>('');
   const [activeMultiId, setActiveMultiId] = useState<string | null>(null);
   const [selectedSlotIndex, setSelectedSlotIndex] = useState<number>(0);
   const [libraryTab, setLibraryTab] = useState<'PATCHES' | 'MULTIS' | 'SETLISTS'>('PATCHES');
@@ -786,11 +787,20 @@ function App() {
     const activeSetlist = setlists.find(s => s.id === activeSetlistId);
     if (!activeSetlist) return;
 
-    const song = activeSetlist.songs[program];
+    // Search for song with explicit programChange matching received program (0-indexed or 1-indexed)
+    let song = activeSetlist.songs.find(s => s.programChange === program);
+    if (!song) {
+      song = activeSetlist.songs.find(s => s.programChange === program + 1);
+    }
+    // Fall back to index if no explicit programChange matched
+    if (!song) {
+      song = activeSetlist.songs[program];
+    }
+
     if (song) {
       handleLoadSong(song);
     }
-  }, [setlists, activeSetlistId, patches, multis, settings.midiChannel, addMidiDebugEvent]);
+  }, [setlists, activeSetlistId, settings.midiChannel, addMidiDebugEvent]);
 
   // Use refs for MIDI callbacks. Assign them directly in render to prevent stale closure lag
   const midiCCRef = useRef<(cc: number, value: number, channel: number) => void>(() => {});
@@ -1247,7 +1257,7 @@ function App() {
   const loadPatch = (patch: Patch, switchScreen: boolean = true) => {
     handlePanic();
     engineRef.current?.setModWheel(0);
-    engineRef.current?.setPitchBend(0);
+    engineRef.current?.setPitchBend(8192);
     // Ensure all params exist by merging with defaults
     setParams(cleanVoiceParams(patch.params));
     setActivePatchId(patch.id);
@@ -1279,7 +1289,7 @@ function App() {
   const loadMulti = (multi: Multi, switchScreen: boolean = true) => {
     handlePanic();
     engineRef.current?.setModWheel(0);
-    engineRef.current?.setPitchBend(0);
+    engineRef.current?.setPitchBend(8192);
     setActiveMultiId(multi.id);
     setActivePatchId(null); // Deactivate single patch mode
     setSelectedSlotIndex(0);
@@ -1339,19 +1349,40 @@ function App() {
     });
   };
 
-  const handleAddSongToSetlist = (setlistId: string, songName: string, type: 'patch' | 'multi', targetId: string) => {
+  const handleAddSongToSetlist = (setlistId: string, songName: string, type: 'patch' | 'multi', targetId: string, programChange?: number) => {
     if (!songName.trim() || !targetId) return;
+    const targetSetlist = setlists.find(s => s.id === setlistId);
+    const defaultPc = targetSetlist ? targetSetlist.songs.length : 0;
+    const finalPc = programChange !== undefined ? programChange : defaultPc;
+
     const newSong: Song = {
       id: `song-${Date.now()}`,
       name: songName.trim().toUpperCase(),
       type,
-      targetId
+      targetId,
+      programChange: finalPc
     };
     const updated = setlists.map(s => {
       if (s.id === setlistId) {
         return {
           ...s,
           songs: [...s.songs, newSong]
+        };
+      }
+      return s;
+    });
+    setSetlists(updated);
+  };
+
+  const handleAutoSequencePcs = (setlistId: string) => {
+    const updated = setlists.map(s => {
+      if (s.id === setlistId) {
+        return {
+          ...s,
+          songs: s.songs.map((song, index) => ({
+            ...song,
+            programChange: index
+          }))
         };
       }
       return s;
@@ -2909,7 +2940,7 @@ function App() {
                             {/* Add Song Form */}
                             <div className="bg-zinc-950/40 p-4 border border-zinc-800/80 flex flex-col gap-4">
                               <span className="text-[10px] font-bold tracking-widest text-zinc-400 uppercase">Add Song to Setlist</span>
-                              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                              <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
                                 <div className="flex flex-col gap-1.5">
                                   <label className="text-[8px] font-bold text-zinc-500 uppercase tracking-widest">Song Title</label>
                                   <input
@@ -2951,6 +2982,19 @@ function App() {
                                     )}
                                   </select>
                                 </div>
+
+                                <div className="flex flex-col gap-1.5">
+                                  <label className="text-[8px] font-bold text-zinc-500 uppercase tracking-widest">MIDI PC # (0-127)</label>
+                                  <input
+                                    type="number"
+                                    min="0"
+                                    max="127"
+                                    value={newSongPc}
+                                    onChange={(e) => setNewSongPc(e.target.value)}
+                                    placeholder={`Auto (${currentSetlist.songs.length})`}
+                                    className="bg-black border border-zinc-800 p-2.5 text-xs font-bold uppercase tracking-widest text-white focus:border-orange-500 outline-none"
+                                  />
+                                </div>
                               </div>
 
                               <button
@@ -2959,8 +3003,10 @@ function App() {
                                     alert('Please enter a Song Title!');
                                     return;
                                   }
-                                  handleAddSongToSetlist(currentSetlist.id, newSongName, newSongType, newSongTargetId);
+                                  const parsedPc = newSongPc.trim() !== '' ? parseInt(newSongPc, 10) : undefined;
+                                  handleAddSongToSetlist(currentSetlist.id, newSongName, newSongType, newSongTargetId, parsedPc);
                                   setNewSongName('');
+                                  setNewSongPc('');
                                 }}
                                 className="w-full sm:w-auto self-end px-5 py-2.5 bg-orange-600 hover:bg-orange-500 text-white font-bold uppercase tracking-widest text-[10px] transition-all flex items-center justify-center gap-1.5"
                               >
@@ -2971,7 +3017,18 @@ function App() {
 
                             {/* Songs List */}
                             <div className="flex flex-col gap-2.5">
-                              <span className="text-[10px] font-bold tracking-widest text-zinc-400 uppercase">Setlist Songs (Indexed for MIDI Program Change)</span>
+                              <div className="flex items-center justify-between">
+                                <span className="text-[10px] font-bold tracking-widest text-zinc-400 uppercase">Setlist Songs (Assigned MIDI Program Changes)</span>
+                                {currentSetlist.songs.length > 0 && (
+                                  <button
+                                    onClick={() => handleAutoSequencePcs(currentSetlist.id)}
+                                    className="px-2.5 py-1 bg-zinc-800 hover:bg-zinc-700 text-orange-400 font-mono text-[9px] font-bold uppercase tracking-wider transition-colors border border-zinc-700"
+                                    title="Auto-assign program numbers sequentially (0, 1, 2...)"
+                                  >
+                                    Auto-Sequence PCs (0..N)
+                                  </button>
+                                )}
+                              </div>
                               {currentSetlist.songs.length === 0 ? (
                                 <div className="text-center py-12 text-zinc-500 uppercase tracking-widest text-[10px] font-bold border border-dashed border-zinc-800 bg-zinc-950/20">
                                   No songs in this setlist. Add some above!
@@ -3001,7 +3058,22 @@ function App() {
                                             {/* Program Change indicator */}
                                             <div className="flex flex-col items-center justify-center bg-zinc-900 border border-zinc-800 px-2 py-1 shrink-0 font-mono text-center">
                                               <span className="text-[8px] text-zinc-500 uppercase tracking-widest font-bold">MIDI PC</span>
-                                              <span className="text-xs font-bold text-orange-500">{index}</span>
+                                              <input
+                                                type="number"
+                                                min="0"
+                                                max="127"
+                                                value={song.programChange ?? index}
+                                                onChange={(e) => {
+                                                  const val = parseInt(e.target.value, 10);
+                                                  const newPc = isNaN(val) ? index : Math.min(127, Math.max(0, val));
+                                                  handleUpdateSongInSetlist(currentSetlist.id, {
+                                                    ...song,
+                                                    programChange: newPc
+                                                  });
+                                                }}
+                                                className="w-12 bg-black border border-zinc-800 text-center font-bold text-xs text-orange-500 focus:border-orange-500 outline-none p-0.5 rounded-none"
+                                                title="Editable MIDI Program Change number (0-127)"
+                                              />
                                             </div>
 
                                             <div className="flex flex-col gap-0.5 min-w-0 flex-1">

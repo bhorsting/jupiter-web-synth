@@ -483,6 +483,7 @@ export interface Song {
   name: string;
   type: 'patch' | 'multi';
   targetId: string;
+  programChange?: number;
   midiFile?: string;
   midiTrackOverrides?: Record<number, MidiTrackOverride>;
   leadInBars?: number;

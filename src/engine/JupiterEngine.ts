@@ -3582,11 +3582,14 @@ export class JupiterEngine {
   }
 
   panic() {
+    this.currentPitchBend = 0;
+    this.currentModWheel = 0;
     Array.from(this.activeArps.keys()).forEach(key => {
       this.stopArpInstance(key);
     });
     this.activeArps.clear();
     this.voices.forEach((voice) => {
+      voice.setPitchBend(0);
       voice.stop();
     });
   }

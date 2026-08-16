@@ -211,8 +211,13 @@ export const LivePerformanceView: React.FC<LivePerformanceViewProps> = ({
             </div>
 
             {activeSong && (
-              <div className="px-2.5 py-1 bg-amber-500/10 border border-amber-500/40 text-amber-300 font-mono text-[11px] font-bold uppercase tracking-wider rounded-none shrink-0">
-                {getSongSoundLabel(activeSong)}
+              <div className="flex items-center gap-2 shrink-0">
+                <div className="px-2.5 py-1 bg-orange-500/10 border border-orange-500/40 text-orange-400 font-mono text-[11px] font-bold uppercase tracking-wider rounded-none">
+                  MIDI PC #{activeSong.programChange ?? (currentSetlist?.songs?.findIndex(s => s.id === activeSong.id) >= 0 ? currentSetlist?.songs?.findIndex(s => s.id === activeSong.id) : 0)}
+                </div>
+                <div className="px-2.5 py-1 bg-amber-500/10 border border-amber-500/40 text-amber-300 font-mono text-[11px] font-bold uppercase tracking-wider rounded-none">
+                  {getSongSoundLabel(activeSong)}
+                </div>
               </div>
             )}
           </div>
@@ -308,6 +313,9 @@ export const LivePerformanceView: React.FC<LivePerformanceViewProps> = ({
                   </div>
 
                   <div className="flex items-center gap-2 shrink-0">
+                    <span className="px-2 py-1 bg-zinc-900 border border-zinc-800 text-orange-400 font-mono text-[10px] font-bold uppercase tracking-wider shrink-0">
+                      PC #{song.programChange ?? idx}
+                    </span>
                     <button
                       onClick={(e) => {
                         e.stopPropagation();

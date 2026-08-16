@@ -69,7 +69,9 @@ export function getAutoCategoryForPatch(patch: Patch): string {
     name.includes('orchestral') ||
     name.includes('space') ||
     name.includes('journey') ||
-    name.includes('sweeps')
+    name.includes('sweeps') ||
+    name.includes('fragile') ||
+    name.includes('breathy')
   ) {
     return 'Pads & Strings';
   }

@@ -1643,15 +1643,15 @@ export const DURAN_SETLIST: Setlist = {
   id: "setlist-duran-duran",
   name: "DURAN DURAN",
   songs: [
-    { id: "song-duran-rio", name: "Rio", type: "multi", targetId: "multi-duran-rio" },
-    { id: "song-duran-wolf", name: "Hungry Like the Wolf", type: "multi", targetId: "multi-duran-wolf" },
-    { id: "song-duran-prayer", name: "Save a Prayer", type: "multi", targetId: "multi-duran-prayer" },
-    { id: "song-duran-chauffeur", name: "The Chauffeur", type: "multi", targetId: "multi-duran-chauffeur" },
-    { id: "song-duran-girls", name: "Girls on Film", type: "multi", targetId: "multi-duran-girls" },
-    { id: "song-duran-ordinary", name: "Ordinary World", type: "multi", targetId: "multi-duran-ordinary" },
-    { id: "song-duran-view", name: "A View to a Kill", type: "multi", targetId: "multi-duran-view" },
-    { id: "song-duran-wild", name: "The Wild Boys", type: "multi", targetId: "multi-duran-wild" },
-    { id: "song-duran-undone", name: "Come Undone", type: "multi", targetId: "multi-duran-undone" },
-    { id: "song-duran-planet", name: "Planet Earth", type: "multi", targetId: "multi-duran-planet" }
+    { id: "song-duran-rio", name: "Rio", type: "multi", targetId: "multi-duran-rio", programChange: 0 },
+    { id: "song-duran-wolf", name: "Hungry Like the Wolf", type: "multi", targetId: "multi-duran-wolf", programChange: 1 },
+    { id: "song-duran-prayer", name: "Save a Prayer", type: "multi", targetId: "multi-duran-prayer", programChange: 2 },
+    { id: "song-duran-chauffeur", name: "The Chauffeur", type: "multi", targetId: "multi-duran-chauffeur", programChange: 3 },
+    { id: "song-duran-girls", name: "Girls on Film", type: "multi", targetId: "multi-duran-girls", programChange: 4 },
+    { id: "song-duran-ordinary", name: "Ordinary World", type: "multi", targetId: "multi-duran-ordinary", programChange: 5 },
+    { id: "song-duran-view", name: "A View to a Kill", type: "multi", targetId: "multi-duran-view", programChange: 6 },
+    { id: "song-duran-wild", name: "The Wild Boys", type: "multi", targetId: "multi-duran-wild", programChange: 7 },
+    { id: "song-duran-undone", name: "Come Undone", type: "multi", targetId: "multi-duran-undone", programChange: 8 },
+    { id: "song-duran-planet", name: "Planet Earth", type: "multi", targetId: "multi-duran-planet", programChange: 9 }
   ]
 };
