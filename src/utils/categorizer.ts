@@ -14,6 +14,29 @@ export function getAutoCategoryForPatch(patch: Patch): string {
     return 'Duran Duran';
   }
 
+  // 1b. 80s & Pop Song Hits
+  if (
+    id.startsWith('patch-doemaar') ||
+    id.startsWith('patch-goededoel') ||
+    id.startsWith('patch-frankboeijen') ||
+    id.startsWith('patch-u2') ||
+    id.startsWith('patch-talktalk') ||
+    id.startsWith('patch-springsteen') ||
+    id.startsWith('patch-romantics') ||
+    id.startsWith('patch-depechemode') ||
+    id.startsWith('patch-king') ||
+    id.startsWith('patch-deadoralive') ||
+    id.startsWith('patch-tearsforfears') ||
+    id.startsWith('patch-thecure') ||
+    id.startsWith('patch-jbb') ||
+    id.startsWith('patch-madness') ||
+    id.startsWith('patch-proclaimers') ||
+    id.startsWith('patch-peterschilling') ||
+    id.startsWith('patch-spidermurphy')
+  ) {
+    return '80s & Pop Hits';
+  }
+
   // 2. Organs
   if (
     engine === 'hammond' ||

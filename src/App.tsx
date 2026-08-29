@@ -45,6 +45,7 @@ import { soundfontService, getGoogleDriveApiKey } from './services/SoundfontServ
 import { midiTrackService } from './services/MidiTrackService';
 import { PRESET_PATCHES } from './constants/presetPatches';
 import { DURAN_PATCHES, DURAN_MULTIS, DURAN_SETLIST } from './constants/duranPresets';
+import { LIVE_SONG_PATCHES, SETLIST_SET_1, SETLIST_SET_2 } from './constants/liveSongPresets';
 import { autoCategorizePatches, autoCategorizeMultis } from './utils/categorizer';
 import 'react-simple-keyboard/build/css/index.css';
 
@@ -233,8 +234,8 @@ function App() {
       await indexedDBService.init();
       const storedPatches = await indexedDBService.getAllPatches();
       
-      // Always merge PRESET_PATCHES and DURAN_PATCHES to ensure user has the latest ones if they haven't deleted them
-      const allPresetPatches = [...PRESET_PATCHES, ...DURAN_PATCHES];
+      // Always merge PRESET_PATCHES, DURAN_PATCHES, and LIVE_SONG_PATCHES to ensure user has the latest ones if they haven't deleted them
+      const allPresetPatches = [...PRESET_PATCHES, ...DURAN_PATCHES, ...LIVE_SONG_PATCHES];
       const factoryPatchMap = new Map(allPresetPatches.map(p => [p.id, p]));
       
       // Update any stored factory patches with the latest code definitions so parameter fixes take effect immediately
@@ -353,13 +354,15 @@ function App() {
         }
       }
 
-      // Check if DURAN_SETLIST is missing from setlists list, if so add it
-      if (!finalSetlists.some(s => s.id === DURAN_SETLIST.id)) {
-        finalSetlists = [...finalSetlists, DURAN_SETLIST];
-        // Make the Duran Duran setlist active if none is currently active
-        if (!activeSetId) {
-          activeSetId = DURAN_SETLIST.id;
+      // Check if factory setlists are missing from setlists list, if so add them
+      const factorySetlists = [SETLIST_SET_1, SETLIST_SET_2, DURAN_SETLIST];
+      factorySetlists.forEach(fSet => {
+        if (!finalSetlists.some(s => s.id === fSet.id)) {
+          finalSetlists.push(fSet);
         }
+      });
+      if (!activeSetId && finalSetlists.length > 0) {
+        activeSetId = finalSetlists[0].id;
       }
       
       setSetlists(finalSetlists);
@@ -830,7 +833,7 @@ function App() {
     if (configUrl && googleSheetsService.isConnected()) {
       // Try to pull on load if config exists and already connected
       googleSheetsService.loadFromSheet(configUrl).then(result => {
-        const allPresetPatches = [...PRESET_PATCHES, ...DURAN_PATCHES];
+        const allPresetPatches = [...PRESET_PATCHES, ...DURAN_PATCHES, ...LIVE_SONG_PATCHES];
         const factoryPatchMap = new Map(allPresetPatches.map(p => [p.id, p]));
 
         let finalSheetPatches = result.patches;
@@ -1009,7 +1012,7 @@ function App() {
         setSyncError(null);
         try {
           const result = await googleSheetsService.loadFromSheet(settings.googleSheetUrl);
-          const allPresetPatches = [...PRESET_PATCHES, ...DURAN_PATCHES];
+          const allPresetPatches = [...PRESET_PATCHES, ...DURAN_PATCHES, ...LIVE_SONG_PATCHES];
           const factoryPatchMap = new Map(allPresetPatches.map(p => [p.id, p]));
 
           let finalSheetPatches = result.patches;
