@@ -1000,7 +1000,9 @@ function App() {
       showCustomAlert('SYNC COMPLETE', 'Library (Patches, Multis & Setlists) synced to Google Sheets successfully!');
     } catch (error: any) {
       console.error(error);
-      setSyncError(error.message || 'Failed to sync');
+      const msg = error.message || 'Failed to sync';
+      setSyncError(msg);
+      showCustomAlert('SYNC FAILED', msg);
     } finally {
       setIsSyncing(false);
     }
@@ -1043,7 +1045,9 @@ function App() {
           showCustomAlert('SYNC COMPLETE', 'Library (Patches, Multis & Setlists) updated from Google Sheets!');
         } catch (error: any) {
           console.error(error);
-          setSyncError(error.message || 'Failed to load');
+          const msg = error.message || 'Failed to load';
+          setSyncError(msg);
+          showCustomAlert('LOAD FAILED', msg);
         } finally {
           setIsSyncing(false);
         }

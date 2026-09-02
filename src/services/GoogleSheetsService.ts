@@ -24,6 +24,32 @@ class GoogleSheetsService {
     return match ? match[1] : null;
   }
 
+  private async getErrorMessage(res: Response, defaultMsg: string): Promise<string> {
+    try {
+      const text = await res.text();
+      try {
+        const json = JSON.parse(text);
+        if (json.error?.message) return json.error.message;
+        if (json.message) return json.message;
+      } catch {
+        // Not valid JSON (e.g. Google HTML error page or proxy error)
+        if (text.includes('<!DOCTYPE') || text.includes('<html') || text.includes('<html>')) {
+          if (res.status === 401) return 'Google authentication expired or invalid. Please reconnect in Settings.';
+          if (res.status === 403) return 'Permission denied. Please ensure your Google account has editor access to the spreadsheet.';
+          if (res.status === 404) return 'Spreadsheet or sheet tab not found. Please verify the Google Sheet URL.';
+          if (res.status === 405) return `Method not allowed on spreadsheet endpoint (HTTP 405).`;
+          return `${defaultMsg} (HTTP ${res.status}: ${res.statusText || 'Error'})`;
+        }
+        if (text && text.trim().length > 0 && text.length < 200) {
+          return text.trim();
+        }
+      }
+    } catch {
+      // Fall through
+    }
+    return `${defaultMsg} (HTTP ${res.status}: ${res.statusText || 'Request failed'})`;
+  }
+
   isConnected(): boolean {
     return !!this.accessToken;
   }
@@ -72,9 +98,15 @@ class GoogleSheetsService {
       headers: { Authorization: `Bearer ${token}` }
     });
     if (!response.ok) {
-      throw new Error('Failed to retrieve spreadsheet metadata. Make sure the sheet is public or you have edit permissions.');
+      const errMsg = await this.getErrorMessage(response, 'Failed to retrieve spreadsheet metadata. Make sure the sheet exists and you have edit permissions.');
+      throw new Error(errMsg);
     }
-    const meta = await response.json();
+    let meta: any;
+    try {
+      meta = await response.json();
+    } catch (e: any) {
+      throw new Error(`Failed to parse spreadsheet metadata: ${e.message}`);
+    }
     const existingSheetTitles = meta.sheets?.map((s: any) => s.properties.title) || [];
     
     const requests: any[] = [];
@@ -109,7 +141,8 @@ class GoogleSheetsService {
         body: JSON.stringify({ requests })
       });
       if (!batchRes.ok) {
-        console.error('Failed to create sheets automatically:', await batchRes.json());
+        const errMsg = await this.getErrorMessage(batchRes, 'Failed to create sheet tabs automatically');
+        console.warn(errMsg);
       }
     }
   }
@@ -124,6 +157,7 @@ class GoogleSheetsService {
     let url: string;
     let setlists: Setlist[] = [];
     let globalSettings: Partial<PerformanceSettings> | undefined;
+    let hasSetlistsArg = false;
 
     if (typeof arg3 === 'string') {
       url = arg3;
@@ -131,6 +165,7 @@ class GoogleSheetsService {
         globalSettings = arg4 as Partial<PerformanceSettings>;
       }
     } else {
+      hasSetlistsArg = true;
       setlists = arg3 || [];
       url = (typeof arg4 === 'string' ? arg4 : '') || '';
       globalSettings = arg5;
@@ -180,8 +215,8 @@ class GoogleSheetsService {
         })
       });
       if (!resPatches.ok) {
-        const err = await resPatches.json();
-        throw new Error(err.error?.message || 'Failed to sync Patches to Google Sheets');
+        const errMsg = await this.getErrorMessage(resPatches, 'Failed to sync Patches to Google Sheets');
+        throw new Error(errMsg);
       }
     }
 
@@ -209,14 +244,14 @@ class GoogleSheetsService {
       })
     });
     if (!resMultis.ok) {
-      const err = await resMultis.json();
-      throw new Error(err.error?.message || 'Failed to sync Multis to Google Sheets');
+      const errMsg = await this.getErrorMessage(resMultis, 'Failed to sync Multis to Google Sheets');
+      throw new Error(errMsg);
     }
 
     // 3. Save Setlists to "Setlists" sheet
-    if (setlists && setlists.length > 0) {
+    if (hasSetlistsArg) {
       const setlistHeaders = ['ID', 'Name', 'Songs'];
-      const setlistValues = setlists.map(s => {
+      const setlistValues = (setlists || []).map(s => {
         const songsJson = JSON.stringify(s.songs || []);
         return [s.id, s.name, songsJson];
       });
@@ -226,8 +261,9 @@ class GoogleSheetsService {
         headers: { Authorization: `Bearer ${token}` }
       });
 
+      // Note: Google Sheets API v4 requires 'PUT' for writing values to a range
       const resSetlists = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${id}/values/Setlists!A1?valueInputOption=RAW`, {
-        method: 'POST',
+        method: 'PUT',
         headers: {
           Authorization: `Bearer ${token}`,
           'Content-Type': 'application/json'
@@ -237,8 +273,8 @@ class GoogleSheetsService {
         })
       });
       if (!resSetlists.ok) {
-        const err = await resSetlists.json();
-        throw new Error(err.error?.message || 'Failed to sync Setlists to Google Sheets');
+        const errMsg = await this.getErrorMessage(resSetlists, 'Failed to sync Setlists to Google Sheets');
+        throw new Error(errMsg);
       }
     }
 
@@ -256,7 +292,7 @@ class GoogleSheetsService {
         headers: { Authorization: `Bearer ${token}` }
       });
 
-      await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${id}/values/Settings!A1?valueInputOption=RAW`, {
+      const resSettings = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${id}/values/Settings!A1?valueInputOption=RAW`, {
         method: 'PUT',
         headers: {
           Authorization: `Bearer ${token}`,
@@ -266,6 +302,10 @@ class GoogleSheetsService {
           values: [settingHeaders, ...settingRows]
         })
       });
+      if (!resSettings.ok) {
+        const errMsg = await this.getErrorMessage(resSettings, 'Failed to sync Settings to Google Sheets');
+        console.warn(errMsg);
+      }
     }
   }
 
