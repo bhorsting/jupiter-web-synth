@@ -1064,15 +1064,21 @@ class Voice {
       }
     }
 
-    // VCA Envelope - Reset attack start to silence for non-legato note triggers to execute full attack envelope
+    // VCA Envelope - Reset attack start to silence for new note triggers to execute full attack envelope
     this.vca.gain.cancelScheduledValues(time);
-    const startGain = isLegato ? Math.max(0.0001, this.vca.gain.value) : 0.0001;
+    this.vca.gain.setValueAtTime(0.0001, time);
     
-    this.vca.gain.setValueAtTime(startGain, time);
-    this.vca.gain.linearRampToValueAtTime(velocityScale, time + Math.max(0.003, vcaAttack));
+    const effectiveVcaAttack = Math.max(0.003, vcaAttack);
+    this.vca.gain.linearRampToValueAtTime(velocityScale, time + effectiveVcaAttack);
     
     const sustainLevel = Math.max(0.0001, vcaSustain * velocityScale);
-    this.vca.gain.setTargetAtTime(sustainLevel, time + Math.max(0.003, vcaAttack), Math.max(0.01, vcaDecay));
+    const vcaHoldTime = (this.params.vcaSource === 'env1' && (this.params.env1Hold || 0) > 0) ? this.params.env1Hold : 0;
+    if (vcaHoldTime > 0) {
+      this.vca.gain.setValueAtTime(velocityScale, time + effectiveVcaAttack + vcaHoldTime);
+      this.vca.gain.setTargetAtTime(sustainLevel, time + effectiveVcaAttack + vcaHoldTime, Math.max(0.01, vcaDecay / 3));
+    } else {
+      this.vca.gain.setTargetAtTime(sustainLevel, time + effectiveVcaAttack, Math.max(0.01, vcaDecay / 3));
+    }
 
     const safeCutoff = Math.max(20, filterCutoff);
     const scale = Math.max(0, Math.min(1, Math.log(safeCutoff / 20) / Math.log(20000 / 20)));
@@ -1122,15 +1128,22 @@ class Voice {
     const velCutoffBoost = velocity * this.params.filterVelocitySensitivity * 4000 * scale;
     const targetCutoff = Math.min(20000, Math.max(baseCutoff, baseCutoff + (filterEnvAmount * 10000 + velCutoffBoost) * scale));
 
-    // Smooth VCF attack sweep starting from baseCutoff (or current frequency if legato)
+    // Smooth VCF attack sweep starting from baseCutoff
     this.filter.frequency.cancelScheduledValues(time);
-    const startFreq = isLegato ? Math.max(20, this.filter.frequency.value || baseCutoff) : baseCutoff;
-    this.filter.frequency.setValueAtTime(startFreq, time);
+    this.filter.frequency.setValueAtTime(baseCutoff, time);
     
-    // Ramps cleanly from startFreq to targetCutoff over envAttack
-    this.filter.frequency.linearRampToValueAtTime(Math.max(20, targetCutoff), time + Math.max(0.005, envAttack));
+    const effectiveEnvAttack = Math.max(0.005, envAttack);
+    const vcfHoldTime = (filterEnvSource === 'env1' && (this.params.env1Hold || 0) > 0) ? this.params.env1Hold : 0;
+    
+    // Ramps cleanly from baseCutoff to targetCutoff over envAttack
+    this.filter.frequency.linearRampToValueAtTime(Math.max(20, targetCutoff), time + effectiveEnvAttack);
     const sustainFilterFreq = Math.max(20, baseCutoff + (targetCutoff - baseCutoff) * envSustain);
-    this.filter.frequency.setTargetAtTime(sustainFilterFreq, time + Math.max(0.005, envAttack), Math.max(0.01, envDecay));
+    if (vcfHoldTime > 0) {
+      this.filter.frequency.setValueAtTime(Math.max(20, targetCutoff), time + effectiveEnvAttack + vcfHoldTime);
+      this.filter.frequency.setTargetAtTime(sustainFilterFreq, time + effectiveEnvAttack + vcfHoldTime, Math.max(0.01, envDecay / 3));
+    } else {
+      this.filter.frequency.setTargetAtTime(sustainFilterFreq, time + effectiveEnvAttack, Math.max(0.01, envDecay / 3));
+    }
 
     // Set initial levels for VCOs scaled by velocity sensitivity
     const vco1VelSens = this.params.vco1VelocitySensitivity !== undefined ? this.params.vco1VelocitySensitivity : 0;
@@ -3380,10 +3393,6 @@ export class JupiterEngine {
           oldestFreeVoice = v;
         }
       }
-    }
-
-    if (!isLegatoContext) {
-      isLegatoContext = (this.ctx.currentTime - this.lastReleaseTime < 0.7);
     }
 
     if (!voice) {

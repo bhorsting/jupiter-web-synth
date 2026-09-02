@@ -28,6 +28,7 @@ export function getAutoCategoryForPatch(patch: Patch): string {
     id.startsWith('patch-deadoralive') ||
     id.startsWith('patch-tearsforfears') ||
     id.startsWith('patch-thecure') ||
+    id.startsWith('patch-killingjoke') ||
     id.startsWith('patch-jbb') ||
     id.startsWith('patch-madness') ||
     id.startsWith('patch-proclaimers') ||
