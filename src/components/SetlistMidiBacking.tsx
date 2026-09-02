@@ -472,6 +472,7 @@ export const SetlistMidiBacking: React.FC<SetlistMidiBackingProps> = ({
         isOpen={isEditorOpen}
         onClose={() => setIsEditorOpen(false)}
         initialFileName={song.midiFile}
+        songName={song.name}
         engine={engine}
         onAssignToSong={(newFileName) => {
           handleMidiSelect(newFileName);

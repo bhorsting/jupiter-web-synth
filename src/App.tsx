@@ -2237,7 +2237,10 @@ function App() {
           <button
             onClick={() => {
               setAppMode('SONG');
-              if (!activeMultiId && multis.length > 0) {
+              const curSet = setlists.find(s => s.id === activeSetlistId) || setlists[0];
+              if (!activeSong && curSet && curSet.songs && curSet.songs.length > 0) {
+                handleLoadSong(curSet.songs[0]);
+              } else if (!activeMultiId && multis.length > 0) {
                 loadMulti(multis[0]);
               }
             }}
@@ -2361,11 +2364,25 @@ function App() {
           </button>
 
           <button 
-            onClick={() => setIsMidiEditorOpen(!isMidiEditorOpen)}
+            onClick={() => {
+              if (!isMidiEditorOpen) {
+                if (isMidiPlaying) {
+                  handleStopMainSongPlay();
+                }
+                if (appMode === 'SONG') {
+                  const curSet = setlists.find(s => s.id === activeSetlistId) || setlists[0];
+                  const targetSong = activeSong || (curSet?.songs && curSet.songs.length > 0 ? curSet.songs[0] : null);
+                  if (!activeSong && targetSong) {
+                    handleLoadSong(targetSong);
+                  }
+                }
+              }
+              setIsMidiEditorOpen(!isMidiEditorOpen);
+            }}
             className={`flex items-center gap-1 px-2 py-1 border-l border-synth-border transition-all uppercase text-[9px] font-bold tracking-widest ${
               isMidiEditorOpen ? 'bg-amber-500 text-black font-extrabold' : 'text-amber-400 hover:bg-amber-500/10'
             }`}
-            title="Open Signal MIDI Piano Roll Editor"
+            title={appMode === 'SONG' ? `Open MIDI Editor for ${activeSong?.name || 'Current Song'}` : "Open Signal MIDI Piano Roll Editor"}
           >
             <Radio size={10} />
             <span>MIDI EDITOR</span>
@@ -2428,15 +2445,75 @@ function App() {
                 {appMode === 'SONG' ? (
                   /* SONG MODE PERFORMANCE SUB-HEADER */
                   <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between w-full gap-3">
-                    <div className="flex flex-wrap items-center gap-3">
+                    <div className="flex flex-wrap items-center gap-2.5">
                       <span className="text-[10px] font-mono font-bold tracking-widest uppercase text-amber-500 bg-amber-500/10 border border-amber-500/30 px-2 py-0.5 rounded-none">
                         SONG MODE
                       </span>
+
+                      {/* Current Song Selector */}
+                      <div className="flex items-center gap-2 bg-black/40 border border-amber-500/40 px-2 py-1 rounded-none">
+                        <span className="text-[9px] font-mono text-amber-400 font-bold uppercase tracking-wider shrink-0">
+                          SONG:
+                        </span>
+                        <select
+                          value={activeSong?.id || ''}
+                          onChange={(e) => {
+                            const curSet = setlists.find(s => s.id === activeSetlistId) || setlists[0];
+                            const found = curSet?.songs?.find(s => s.id === e.target.value);
+                            if (found) {
+                              if (isMidiPlaying) {
+                                handleStopMainSongPlay();
+                              }
+                              handleLoadSong(found);
+                            }
+                          }}
+                          className="bg-zinc-900 border border-amber-500/60 text-amber-300 font-mono text-[11px] font-bold px-2 py-0.5 rounded-none focus:outline-none focus:border-amber-400 cursor-pointer max-w-[150px] sm:max-w-[200px] truncate"
+                        >
+                          {(() => {
+                            const curSet = setlists.find(s => s.id === activeSetlistId) || setlists[0];
+                            if (curSet?.songs && curSet.songs.length > 0) {
+                              return curSet.songs.map((s, index) => (
+                                <option key={s.id} value={s.id} className="bg-zinc-900 text-amber-200">
+                                  {index + 1}. {s.name} {s.midiFile ? '🎵' : ''}
+                                </option>
+                              ));
+                            }
+                            return <option value="" disabled className="bg-zinc-900 text-zinc-500">No songs in setlist</option>;
+                          })()}
+                        </select>
+                      </div>
+
+                      {/* Quick MIDI Editor Button for Current Song */}
+                      <button
+                        onClick={() => {
+                          if (isMidiPlaying) {
+                            handleStopMainSongPlay();
+                          }
+                          const curSet = setlists.find(s => s.id === activeSetlistId) || setlists[0];
+                          const targetSong = activeSong || (curSet?.songs && curSet.songs.length > 0 ? curSet.songs[0] : null);
+                          if (!activeSong && targetSong) {
+                            handleLoadSong(targetSong);
+                          }
+                          setIsMidiEditorOpen(true);
+                        }}
+                        className="flex items-center gap-1 px-2 py-1 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/50 text-[10px] font-mono font-bold uppercase tracking-wider transition-all cursor-pointer rounded-none"
+                        title={activeSong ? `Edit MIDI Backing Track for "${activeSong.name}"` : "Open MIDI Editor"}
+                      >
+                        <Radio size={11} className="text-amber-400" />
+                        <span>MIDI</span>
+                        {activeSong?.midiFile ? (
+                          <span className="text-[8px] bg-amber-500/30 text-amber-200 px-1 py-0.2 ml-0.5 truncate max-w-[80px]">
+                            {activeSong.midiFile}
+                          </span>
+                        ) : (
+                          <span className="text-[8px] text-zinc-400 ml-0.5">(New)</span>
+                        )}
+                      </button>
                       
                       {/* Styled Combo Selector for Multi Patches */}
-                      <div className="flex items-center gap-2 bg-black/40 border border-amber-500/40 px-2.5 py-1 rounded-none">
+                      <div className="flex items-center gap-2 bg-black/40 border border-amber-500/40 px-2 py-1 rounded-none">
                         <span className="text-[9px] font-mono text-amber-400 font-bold uppercase tracking-wider shrink-0">
-                          EDIT MULTI PATCH:
+                          EDIT PART:
                         </span>
                         <select
                           value={selectedSlotIndex}
@@ -2449,7 +2526,7 @@ function App() {
                               if (p) setParams(cleanVoiceParams(p.params));
                             }
                           }}
-                          className="bg-zinc-900 border border-amber-500/60 text-amber-300 font-mono text-[11px] font-bold px-2.5 py-0.5 rounded-none focus:outline-none focus:border-amber-400 cursor-pointer max-w-[220px] sm:max-w-[300px] truncate"
+                          className="bg-zinc-900 border border-amber-500/60 text-amber-300 font-mono text-[11px] font-bold px-2 py-0.5 rounded-none focus:outline-none focus:border-amber-400 cursor-pointer max-w-[150px] sm:max-w-[200px] truncate"
                         >
                           {((multis.find(m => m.id === activeMultiId) || multis[0])?.slots || []).map((slot, index) => {
                             const slPatch = patches.find(p => p.id === slot.patchId);
@@ -3472,11 +3549,33 @@ function App() {
 
         <SettingsModal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} />
 
-        <MidiEditorModal
-          isOpen={isMidiEditorOpen}
-          onClose={() => setIsMidiEditorOpen(false)}
-          engine={engineRef.current}
-        />
+        {(() => {
+          const curSet = setlists.find(s => s.id === activeSetlistId) || setlists[0];
+          const targetSong = appMode === 'SONG' 
+            ? (activeSong || (curSet?.songs && curSet.songs.length > 0 ? curSet.songs[0] : null))
+            : (appMode === 'LIVE' ? activeSong : null);
+
+          return (
+            <MidiEditorModal
+              isOpen={isMidiEditorOpen}
+              onClose={() => setIsMidiEditorOpen(false)}
+              initialFileName={targetSong?.midiFile || (targetSong ? `${targetSong.name.replace(/[^a-zA-Z0-9_-]/g, '_')}.mid` : undefined)}
+              songName={targetSong?.name}
+              engine={engineRef.current}
+              onAssignToSong={(savedFileName) => {
+                if (targetSong && curSet) {
+                  const updatedSong: Song = {
+                    ...targetSong,
+                    midiFile: savedFileName,
+                    midiTrackOverrides: targetSong.midiFile === savedFileName ? (targetSong.midiTrackOverrides || {}) : {}
+                  };
+                  handleUpdateSongInSetlist(curSet.id, updatedSong);
+                  setActiveSong(updatedSong);
+                }
+              }}
+            />
+          );
+        })()}
 
         <MidiDebugger 
           isOpen={isMidiDebuggerOpen}

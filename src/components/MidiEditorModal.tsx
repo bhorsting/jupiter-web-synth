@@ -14,6 +14,7 @@ interface MidiEditorModalProps {
   isOpen: boolean;
   onClose: () => void;
   initialFileName?: string;
+  songName?: string;
   engine: JupiterEngine | null;
   onAssignToSong?: (fileName: string) => void;
 }
@@ -80,11 +81,13 @@ export const MidiEditorModal: React.FC<MidiEditorModalProps> = ({
   isOpen,
   onClose,
   initialFileName,
+  songName,
   engine,
   onAssignToSong
 }) => {
   const { settings } = useSettings();
-  const [fileName, setFileName] = useState<string>(initialFileName || 'New_Backing_Track.mid');
+  const defaultFile = initialFileName || (songName ? `${songName.replace(/[^a-zA-Z0-9_-]/g, '_')}.mid` : 'New_Backing_Track.mid');
+  const [fileName, setFileName] = useState<string>(defaultFile);
   const [bpm, setBpm] = useState<number>(120);
   const [beatsPerBar, setBeatsPerBar] = useState<number>(4);
   const [tracks, setTracks] = useState<EditorTrack[]>([]);
@@ -118,13 +121,16 @@ export const MidiEditorModal: React.FC<MidiEditorModalProps> = ({
 
   const gridContainerRef = useRef<HTMLDivElement>(null);
 
-  // Load MIDI File on Mount or initialFileName change
+  // Load MIDI File on Mount or initialFileName/songName change
   useEffect(() => {
     if (!isOpen) return;
 
     const loadMidi = async () => {
+      const targetFile = initialFileName || (songName ? `${songName.replace(/[^a-zA-Z0-9_-]/g, '_')}.mid` : 'New_Backing_Track.mid');
+      setFileName(targetFile);
+      setSaveStatus({ type: 'idle', message: '' });
+
       if (initialFileName) {
-        setFileName(initialFileName);
         try {
           const buffer = await soundfontService.getFileBuffer(initialFileName);
           const parsed = new Midi(buffer);
@@ -206,7 +212,7 @@ export const MidiEditorModal: React.FC<MidiEditorModalProps> = ({
     };
 
     loadMidi();
-  }, [isOpen, initialFileName]);
+  }, [isOpen, initialFileName, songName]);
 
   // Clean up playback on unmount
   useEffect(() => {
@@ -481,9 +487,10 @@ export const MidiEditorModal: React.FC<MidiEditorModalProps> = ({
         driveMessage = ' (Connect Google Drive in Settings to auto-sync)';
       }
 
+      const assignMsg = songName ? ` & assigned to "${songName}"` : '';
       setSaveStatus({
         type: 'success',
-        message: `Successfully saved "${sanitizedName}" to storage${driveMessage}`
+        message: `Successfully saved "${sanitizedName}"${assignMsg} to storage${driveMessage}`
       });
 
       if (onAssignToSong) {
@@ -553,14 +560,20 @@ export const MidiEditorModal: React.FC<MidiEditorModalProps> = ({
               <Music className="w-4 h-4" />
             </div>
             <div>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <input
                   type="text"
                   value={fileName}
                   onChange={(e) => setFileName(e.target.value)}
-                  className="bg-zinc-950 border border-zinc-800 text-amber-400 font-mono text-sm px-2 py-0.5 rounded focus:border-amber-500 outline-none w-64"
+                  className="bg-zinc-950 border border-zinc-800 text-amber-400 font-mono text-sm px-2 py-0.5 rounded focus:border-amber-500 outline-none w-56 sm:w-64"
                 />
-                <span className="text-[10px] text-zinc-500 font-mono">MIDI Editor & Piano Roll</span>
+                <span className="text-[10px] text-zinc-500 font-mono hidden sm:inline">MIDI Editor & Piano Roll</span>
+                {songName && (
+                  <span className="text-[10px] font-mono px-2 py-0.5 bg-amber-500/20 text-amber-300 border border-amber-500/40 rounded font-bold uppercase tracking-wider flex items-center gap-1">
+                    <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse"></span>
+                    SONG: {songName}
+                  </span>
+                )}
               </div>
             </div>
           </div>
@@ -573,7 +586,8 @@ export const MidiEditorModal: React.FC<MidiEditorModalProps> = ({
               title="Generate metronome click track with accent downbeats"
             >
               <Wand2 className="w-3.5 h-3.5" />
-              Generate Click Track
+              <span className="hidden sm:inline">Generate Click Track</span>
+              <span className="sm:hidden">Click</span>
             </button>
 
             <button
@@ -581,20 +595,22 @@ export const MidiEditorModal: React.FC<MidiEditorModalProps> = ({
               className="px-3 py-1.5 bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border border-zinc-700 rounded text-xs font-mono flex items-center gap-1.5 transition-colors"
             >
               <Download className="w-3.5 h-3.5" />
-              Export .MID
+              <span className="hidden sm:inline">Export .MID</span>
+              <span className="sm:hidden">Export</span>
             </button>
 
             <button
               onClick={handleSaveMidi}
               disabled={saveStatus.type === 'saving'}
-              className="px-4 py-1.5 bg-amber-500 hover:bg-amber-400 text-black font-semibold rounded text-xs font-mono flex items-center gap-1.5 shadow-lg shadow-amber-500/20 transition-all"
+              className="px-4 py-1.5 bg-amber-500 hover:bg-amber-400 text-black font-semibold rounded text-xs font-mono flex items-center gap-1.5 shadow-lg shadow-amber-500/20 transition-all cursor-pointer"
+              title={songName ? `Save MIDI and assign to ${songName}` : 'Save to Local & Drive'}
             >
               {saveStatus.type === 'saving' ? (
                 <RefreshCw className="w-3.5 h-3.5 animate-spin" />
               ) : (
                 <Save className="w-3.5 h-3.5" />
               )}
-              Save to Local & Drive
+              <span>{songName ? `Save to ${songName}` : 'Save to Local & Drive'}</span>
             </button>
 
             <button
