@@ -149,6 +149,19 @@ class Voice {
       this.filterLfoMod.gain.setTargetAtTime(0, time, 0.01);
       this.vcaLfoMod.gain.setTargetAtTime(0, time, 0.01);
       this.vcoLfoMod.gain.setTargetAtTime(0, time, 0.01);
+      this.crossModGain.gain.setTargetAtTime(0, time, 0.01);
+
+      this.vco1Gain.gain.setTargetAtTime(0, time, 0.005);
+      this.vco2Gain.gain.setTargetAtTime(0, time, 0.005);
+      this.subOscGain.gain.setTargetAtTime(0, time, 0.005);
+      this.vco1NoiseGain.gain.setTargetAtTime(0, time, 0.005);
+      this.vco2NoiseGain.gain.setTargetAtTime(0, time, 0.005);
+      if (this.hammondGains && this.hammondGains.length > 0) {
+        this.hammondGains.forEach(g => { try { g.gain.setTargetAtTime(0, time, 0.005); } catch(e) {} });
+      }
+      if (this.percussionGain) {
+        try { this.percussionGain.gain.setTargetAtTime(0, time, 0.005); } catch(e) {}
+      }
 
       const bendFactor = Math.pow(2, this.pitchBendOffset / 12);
       const voice = params.dx7Voice || createDefaultDX7Voice();
@@ -180,6 +193,16 @@ class Voice {
       this.filterLfoMod.gain.setTargetAtTime(0, time, 0.01);
       this.vcaLfoMod.gain.setTargetAtTime(0, time, 0.01);
       this.vcoLfoMod.gain.setTargetAtTime(0, time, 0.01);
+      this.crossModGain.gain.setTargetAtTime(0, time, 0.01);
+
+      this.vco1Gain.gain.setTargetAtTime(0, time, 0.005);
+      this.vco2Gain.gain.setTargetAtTime(0, time, 0.005);
+      this.subOscGain.gain.setTargetAtTime(0, time, 0.005);
+      this.vco1NoiseGain.gain.setTargetAtTime(0, time, 0.005);
+      this.vco2NoiseGain.gain.setTargetAtTime(0, time, 0.005);
+      if (this.dx7Gains && this.dx7Gains.length > 0) {
+        this.dx7Gains.forEach(g => { try { g.gain.setTargetAtTime(0, time, 0.005); } catch(e) {} });
+      }
 
       const drawbarLevels = [
         params.hammondDb16,
@@ -213,6 +236,16 @@ class Voice {
         this.output.gain.setTargetAtTime(params.vcaLevel, time, 0.05);
       }
       return;
+    }
+
+    if (this.hammondGains && this.hammondGains.length > 0) {
+      this.hammondGains.forEach(g => { try { g.gain.setTargetAtTime(0, time, 0.005); } catch(e) {} });
+    }
+    if (this.percussionGain) {
+      try { this.percussionGain.gain.setTargetAtTime(0, time, 0.005); } catch(e) {}
+    }
+    if (this.dx7Gains && this.dx7Gains.length > 0) {
+      this.dx7Gains.forEach(g => { try { g.gain.setTargetAtTime(0, time, 0.005); } catch(e) {} });
     }
 
     const isVco1Noise = params.vco1Waveform === 'noise';
@@ -354,6 +387,25 @@ class Voice {
 
     if (this.params.synthEngine === 'dx7') {
       this.activeSynthEngine = 'dx7';
+      this.vco1Gain.gain.cancelScheduledValues(time);
+      this.vco2Gain.gain.cancelScheduledValues(time);
+      this.subOscGain.gain.cancelScheduledValues(time);
+      this.vco1NoiseGain.gain.cancelScheduledValues(time);
+      this.vco2NoiseGain.gain.cancelScheduledValues(time);
+      this.vco1Gain.gain.setValueAtTime(0, time);
+      this.vco2Gain.gain.setValueAtTime(0, time);
+      this.subOscGain.gain.setValueAtTime(0, time);
+      this.vco1NoiseGain.gain.setValueAtTime(0, time);
+      this.vco2NoiseGain.gain.setValueAtTime(0, time);
+      this.filterLfoMod.gain.cancelScheduledValues(time);
+      this.filterLfoMod.gain.setValueAtTime(0, time);
+      this.vcaLfoMod.gain.cancelScheduledValues(time);
+      this.vcaLfoMod.gain.setValueAtTime(0, time);
+      this.vcoLfoMod.gain.cancelScheduledValues(time);
+      this.vcoLfoMod.gain.setValueAtTime(0, time);
+      this.crossModGain.gain.cancelScheduledValues(time);
+      this.crossModGain.gain.setValueAtTime(0, time);
+
       const voice = this.params.dx7Voice || createDefaultDX7Voice();
       const bendFactor = Math.pow(2, this.pitchBendOffset / 12);
       const alg = getDX7Algorithm(voice.algorithm);
@@ -549,6 +601,25 @@ class Voice {
 
     if (this.params.synthEngine === 'hammond') {
       this.activeSynthEngine = 'hammond';
+      this.vco1Gain.gain.cancelScheduledValues(time);
+      this.vco2Gain.gain.cancelScheduledValues(time);
+      this.subOscGain.gain.cancelScheduledValues(time);
+      this.vco1NoiseGain.gain.cancelScheduledValues(time);
+      this.vco2NoiseGain.gain.cancelScheduledValues(time);
+      this.vco1Gain.gain.setValueAtTime(0, time);
+      this.vco2Gain.gain.setValueAtTime(0, time);
+      this.subOscGain.gain.setValueAtTime(0, time);
+      this.vco1NoiseGain.gain.setValueAtTime(0, time);
+      this.vco2NoiseGain.gain.setValueAtTime(0, time);
+      this.filterLfoMod.gain.cancelScheduledValues(time);
+      this.filterLfoMod.gain.setValueAtTime(0, time);
+      this.vcaLfoMod.gain.cancelScheduledValues(time);
+      this.vcaLfoMod.gain.setValueAtTime(0, time);
+      this.vcoLfoMod.gain.cancelScheduledValues(time);
+      this.vcoLfoMod.gain.setValueAtTime(0, time);
+      this.crossModGain.gain.cancelScheduledValues(time);
+      this.crossModGain.gain.setValueAtTime(0, time);
+
       const bendFactor = Math.pow(2, this.pitchBendOffset / 12);
       const footages = [0.5, 1.5, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 8.0];
       const drawbarLevels = [
@@ -648,6 +719,28 @@ class Voice {
     this.killTransientNodes(time);
 
     this.activeSynthEngine = 'jupiter';
+    if (this.hammondGains && this.hammondGains.length > 0) {
+      this.hammondGains.forEach(g => {
+        try {
+          g.gain.cancelScheduledValues(time);
+          g.gain.setValueAtTime(0, time);
+        } catch(e) {}
+      });
+    }
+    if (this.percussionGain) {
+      try {
+        this.percussionGain.gain.cancelScheduledValues(time);
+        this.percussionGain.gain.setValueAtTime(0, time);
+      } catch(e) {}
+    }
+    if (this.dx7Gains && this.dx7Gains.length > 0) {
+      this.dx7Gains.forEach(g => {
+        try {
+          g.gain.cancelScheduledValues(time);
+          g.gain.setValueAtTime(0, time);
+        } catch(e) {}
+      });
+    }
     this.vco1 = null;
     this.vco2 = null;
     this.vco1SoundfontSource = null;
@@ -1517,6 +1610,39 @@ class Voice {
     this.vca.gain.setValueAtTime(this.vca.gain.value, now);
     this.vca.gain.linearRampToValueAtTime(0, now + 0.005);
 
+    this.vco1Gain.gain.cancelScheduledValues(now);
+    this.vco1Gain.gain.setValueAtTime(0, now);
+    this.vco2Gain.gain.cancelScheduledValues(now);
+    this.vco2Gain.gain.setValueAtTime(0, now);
+    this.subOscGain.gain.cancelScheduledValues(now);
+    this.subOscGain.gain.setValueAtTime(0, now);
+    this.vco1NoiseGain.gain.cancelScheduledValues(now);
+    this.vco1NoiseGain.gain.setValueAtTime(0, now);
+    this.vco2NoiseGain.gain.cancelScheduledValues(now);
+    this.vco2NoiseGain.gain.setValueAtTime(0, now);
+    this.filterLfoMod.gain.cancelScheduledValues(now);
+    this.filterLfoMod.gain.setValueAtTime(0, now);
+    this.vcaLfoMod.gain.cancelScheduledValues(now);
+    this.vcaLfoMod.gain.setValueAtTime(0, now);
+    this.vcoLfoMod.gain.cancelScheduledValues(now);
+    this.vcoLfoMod.gain.setValueAtTime(0, now);
+    this.crossModGain.gain.cancelScheduledValues(now);
+    this.crossModGain.gain.setValueAtTime(0, now);
+
+    if (this.hammondGains && this.hammondGains.length > 0) {
+      this.hammondGains.forEach(g => {
+        try { g.gain.cancelScheduledValues(now); g.gain.setValueAtTime(0, now); } catch(e) {}
+      });
+    }
+    if (this.percussionGain) {
+      try { this.percussionGain.gain.cancelScheduledValues(now); this.percussionGain.gain.setValueAtTime(0, now); } catch(e) {}
+    }
+    if (this.dx7Gains && this.dx7Gains.length > 0) {
+      this.dx7Gains.forEach(g => {
+        try { g.gain.cancelScheduledValues(now); g.gain.setValueAtTime(0, now); } catch(e) {}
+      });
+    }
+
     this.killTransientNodes(now);
     this.midiNote = null;
     this.originalMidiNote = null;
@@ -2039,6 +2165,7 @@ export class JupiterEngine {
   }
 
   setActiveMulti(multi: Multi | null, patches: Patch[]) {
+    this.panic();
     const prevMulti = this.activeMulti;
     this.updateMultiSlotMap(multi);
     this.updatePatchMap(patches);
@@ -3601,6 +3728,14 @@ export class JupiterEngine {
       voice.setPitchBend(0);
       voice.stop();
     });
+    if (this.ctx && this.delayFeedback) {
+      const now = this.ctx.currentTime;
+      try {
+        this.delayFeedback.gain.cancelScheduledValues(now);
+        this.delayFeedback.gain.setValueAtTime(0, now);
+        this.delayFeedback.gain.setTargetAtTime(this.params.delayFeedback, now + 0.05, 0.05);
+      } catch(e) {}
+    }
   }
 
   private tickArpInstance(key: string) {

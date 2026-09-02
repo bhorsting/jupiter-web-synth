@@ -73,6 +73,7 @@ function App() {
   const [activeNotes, setActiveNotes] = useState<number[]>([]);
   const [currentScreen, setCurrentScreen] = useState<Screen>('SYNTH');
   const [activePatchId, setActivePatchId] = useState<string | null>(null);
+  const lastSinglePatchIdRef = useRef<string | null>(null);
   const [midiLogs, setMidiLogs] = useState<{ id: number, text: string }[]>([]);
   const [showKeyboard, setShowKeyboard] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -328,7 +329,10 @@ function App() {
       let activeSetId: string | null = null;
       
       if (appState) {
-        if (appState.activePatchId) setActivePatchId(appState.activePatchId);
+        if (appState.activePatchId) {
+          setActivePatchId(appState.activePatchId);
+          lastSinglePatchIdRef.current = appState.activePatchId;
+        }
         if (appState.activeMultiId) setActiveMultiId(appState.activeMultiId);
         if (appState.params) setParams(cleanVoiceParams(appState.params));
         if (appState.midiMappings) setMidiMappings(appState.midiMappings);
@@ -1175,6 +1179,7 @@ function App() {
       updatedPatches = [...patches, newPatch];
       setPatches(updatedPatches);
       setActivePatchId(newPatch.id);
+      lastSinglePatchIdRef.current = newPatch.id;
       setActiveMultiId(null); // Switch to patch mode
     } else if (namingMode === 'RENAME_PATCH' && namingTargetId) {
       updatedPatches = patches.map(p => p.id === namingTargetId ? { ...p, name: pendingName.trim() } : p);
@@ -1264,6 +1269,7 @@ function App() {
     // Ensure all params exist by merging with defaults
     setParams(cleanVoiceParams(patch.params));
     setActivePatchId(patch.id);
+    lastSinglePatchIdRef.current = patch.id;
     setActiveMultiId(null); // Deactivate multi mode
     setMidiMappings(patch.midiMappings || []);
     if (switchScreen) {
@@ -2523,8 +2529,11 @@ function App() {
                         <button
                           onClick={() => {
                             setActiveMultiId(null);
-                            if (patches.length > 0 && !activePatchId) {
-                              loadPatch(patches[0]);
+                            engineRef.current?.setActiveMulti(null, patches);
+                            const targetId = lastSinglePatchIdRef.current || activePatchId;
+                            const targetPatch = (targetId && patches.find(p => p.id === targetId)) || (patches.length > 0 ? patches[0] : null);
+                            if (targetPatch) {
+                              loadPatch(targetPatch, false);
                             }
                           }}
                           className={`px-3 py-1 text-[10px] font-bold uppercase tracking-widest border transition-all rounded-none ${
