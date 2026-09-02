@@ -2166,17 +2166,23 @@ function App() {
 
   const APP_VERSION = '1.6.1';
 
-  const NavButton = ({ target, label, icon: Icon }: { target: Screen, label: string, icon: any }) => (
-    <button 
-      onClick={() => setCurrentScreen(target)}
-      className={`flex items-center gap-1.5 px-2 sm:px-3 h-full border-b-2 transition-all uppercase text-[9px] font-bold tracking-widest shrink-0 ${
-        currentScreen === target ? 'border-orange-500 text-white bg-white/5' : 'border-transparent text-zinc-500 hover:text-zinc-300'
-      }`}
-    >
-      <Icon size={12} className="shrink-0" />
-      <span className="hidden lg:inline">{label === 'Synthesizer' ? 'SYNTH' : label === 'Arpeggio' ? 'ARP' : label === 'Master FX' ? 'FX' : 'LIB'}</span>
-    </button>
-  );
+  const NavButton = ({ target, label, icon: Icon }: { target: Screen, label: string, icon: any }) => {
+    const isActive = currentScreen === target;
+    const shortLabel = label === 'Synthesizer' ? 'SYNTH' : label === 'Arpeggio' ? 'ARP' : label === 'Master FX' ? 'FX' : 'LIB';
+    return (
+      <button 
+        onClick={() => setCurrentScreen(target)}
+        className={`flex items-center gap-1.5 px-2.5 sm:px-3.5 py-1.5 sm:py-2 text-[10px] sm:text-[11px] font-bold uppercase tracking-wider transition-all rounded-none shrink-0 ${
+          isActive 
+            ? 'bg-orange-500 text-black font-black shadow-[0_0_10px_rgba(249,115,22,0.4)]' 
+            : 'text-zinc-400 hover:text-white hover:bg-white/5'
+        }`}
+      >
+        <Icon size={12} className="shrink-0" />
+        <span>{shortLabel}</span>
+      </button>
+    );
+  };
 
   return (
     <div className={`w-screen h-[100dvh] overflow-hidden bg-synth-bg text-white font-sans select-none flex flex-col theme-${settings.theme}`}>
@@ -2211,7 +2217,7 @@ function App() {
         </div>
 
         {/* Live Mode vs Song Mode vs Edit Mode Toggle */}
-        <div className="flex items-center bg-black/50 p-0.5 rounded-none border border-zinc-800 shrink-0">
+        <div className="flex items-center bg-black/50 p-0.5 sm:p-1 rounded-none border border-zinc-800 shrink-0">
           <button
             onClick={() => {
               setAppMode('LIVE');
@@ -2219,13 +2225,13 @@ function App() {
                 setActiveSetlistId(setlists[0].id);
               }
             }}
-            className={`flex items-center gap-1.5 px-2.5 py-1 text-[9px] font-bold uppercase tracking-wider transition-all rounded-none ${
+            className={`flex items-center gap-1.5 px-2.5 sm:px-3.5 py-1.5 sm:py-2 text-[10px] sm:text-[11px] font-bold uppercase tracking-wider transition-all rounded-none ${
               appMode === 'LIVE'
                 ? 'bg-red-600 text-white font-black shadow-[0_0_12px_rgba(220,38,38,0.5)]'
                 : 'text-zinc-400 hover:text-white hover:bg-white/5'
             }`}
           >
-            <Radio size={10} className="animate-pulse" />
+            <Radio size={12} className="animate-pulse" />
             <span>LIVE MODE</span>
           </button>
           <button
@@ -2235,30 +2241,30 @@ function App() {
                 loadMulti(multis[0]);
               }
             }}
-            className={`flex items-center gap-1.5 px-2.5 py-1 text-[9px] font-bold uppercase tracking-wider transition-all rounded-none ${
+            className={`flex items-center gap-1.5 px-2.5 sm:px-3.5 py-1.5 sm:py-2 text-[10px] sm:text-[11px] font-bold uppercase tracking-wider transition-all rounded-none ${
               appMode === 'SONG'
                 ? 'bg-amber-500 text-black font-black shadow-[0_0_10px_rgba(245,158,11,0.4)]'
                 : 'text-zinc-400 hover:text-white hover:bg-white/5'
             }`}
           >
-            <Play size={10} className="fill-current" />
+            <Play size={12} className="fill-current" />
             <span>SONG MODE</span>
           </button>
           <button
             onClick={() => setAppMode('EDIT')}
-            className={`flex items-center gap-1.5 px-2.5 py-1 text-[9px] font-bold uppercase tracking-wider transition-all rounded-none ${
+            className={`flex items-center gap-1.5 px-2.5 sm:px-3.5 py-1.5 sm:py-2 text-[10px] sm:text-[11px] font-bold uppercase tracking-wider transition-all rounded-none ${
               appMode === 'EDIT'
                 ? 'bg-orange-500 text-black font-black shadow-[0_0_10px_rgba(249,115,22,0.4)]'
                 : 'text-zinc-400 hover:text-white hover:bg-white/5'
             }`}
           >
-            <Sliders size={10} />
+            <Sliders size={12} />
             <span>EDIT MODE</span>
           </button>
         </div>
 
         {/* Primary Navigation Buttons */}
-        <nav className="flex items-center gap-0.5 shrink-0 flex-wrap">
+        <nav className="flex items-center bg-black/50 p-0.5 sm:p-1 rounded-none border border-zinc-800 shrink-0">
           <NavButton target="SYNTH" label="Synthesizer" icon={Sliders} />
           <NavButton target="ARP" label="Arpeggio" icon={Activity} />
           <NavButton target="FX" label="Master FX" icon={Waves} />
