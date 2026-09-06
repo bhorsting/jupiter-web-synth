@@ -184,6 +184,8 @@ interface GlobalSectionProps {
   bpm: number;
   timeSignature: string;
   synthEngine: 'jupiter' | 'hammond' | 'dx7';
+  midiChannel?: 'default' | number;
+  globalMidiChannel?: number;
   updateParam: (key: keyof VoiceParams, val: any) => void;
   isRecording?: boolean;
   isEncoding?: boolean;
@@ -196,6 +198,8 @@ export const GlobalSection = React.memo<GlobalSectionProps>(({
   bpm, 
   timeSignature, 
   synthEngine, 
+  midiChannel = 'default',
+  globalMidiChannel = 0,
   updateParam,
   isRecording = false,
   isEncoding = false,
@@ -207,7 +211,7 @@ export const GlobalSection = React.memo<GlobalSectionProps>(({
 
   return (
     <div className="flex flex-col sm:flex-row lg:flex-col border-b lg:border-b-0 lg:border-r border-synth-border p-4 gap-6 items-start bg-zinc-950/50 backdrop-blur-sm w-full lg:w-[240px] lg:shrink-0 lg:h-full lg:overflow-y-auto">
-      <div className="flex flex-col gap-3">
+      <div className="flex flex-col gap-3 w-full">
         {/* Master Tempo */}
         <div className="flex flex-col gap-1">
           <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-[0.2em]">Master Tempo</span>
@@ -219,6 +223,45 @@ export const GlobalSection = React.memo<GlobalSectionProps>(({
             {bpm} 
             <span className="text-[10px] text-zinc-700 group-hover:text-zinc-500 uppercase font-bold">bpm</span>
           </div>
+        </div>
+
+        {/* Patch MIDI Channel */}
+        <div className="flex flex-col gap-1 w-full">
+          <div className="flex justify-between items-center">
+            <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-[0.2em]">Patch MIDI Ch</span>
+            <span className="text-[8px] font-mono text-orange-500/80 uppercase">
+              {String(midiChannel) === 'default' || midiChannel === undefined 
+                ? `SYS (${globalMidiChannel === 0 ? 'OMNI' : `CH${globalMidiChannel}`})` 
+                : Number(midiChannel) === 0 
+                  ? 'OMNI' 
+                  : `CH ${midiChannel}`}
+            </span>
+          </div>
+          <select
+            value={midiChannel === undefined || midiChannel === 'default' ? 'default' : String(midiChannel)}
+            onChange={(e) => {
+              const val = e.target.value;
+              if (val === 'default') {
+                updateParam('midiChannel', 'default');
+              } else {
+                updateParam('midiChannel', parseInt(val, 10));
+              }
+            }}
+            className="bg-black border border-zinc-800 text-orange-400 font-mono text-[11px] font-bold px-2 py-1.5 rounded-none outline-none focus:border-orange-500 cursor-pointer w-full hover:border-zinc-700 transition-colors"
+            title="Patch MIDI Channel (Default listens to Global System MIDI Channel)"
+          >
+            <option value="default" className="bg-zinc-900 text-orange-400">
+              Default ({globalMidiChannel === 0 ? 'Omni' : `Ch ${globalMidiChannel}`})
+            </option>
+            <option value="0" className="bg-zinc-900 text-zinc-300">
+              Omni (All Channels)
+            </option>
+            {Array.from({ length: 16 }, (_, i) => i + 1).map(ch => (
+              <option key={ch} value={String(ch)} className="bg-zinc-900 text-zinc-300">
+                Channel {ch}
+              </option>
+            ))}
+          </select>
         </div>
 
         {/* Engine Selection Toggle Switch */}
@@ -1124,50 +1167,17 @@ export const VCASection = React.memo<{
 
 export const VolumeSection = React.memo<{
   masterVolume: number;
-  updateParam: (key: keyof VoiceParams, val: any) => void;
-  isMidiMappingMode: boolean;
-  handleMapClick: (param: keyof VoiceParams) => void;
-  getMappedCC: (param: keyof VoiceParams) => string | undefined;
-  selectedMapParam: string | null;
-}>(({ masterVolume, updateParam, isMidiMappingMode, handleMapClick, getMappedCC, selectedMapParam }) => (
-  <Section title="VOLUME">
-    <JupiterSlider 
-      label="Master" 
-      value={masterVolume} 
-      min={0} max={1} 
-      onChange={(v) => updateParam('masterVolume', v)} 
-      color="bg-white"
-      isMapMode={isMidiMappingMode}
-      onMapClick={() => handleMapClick('masterVolume')}
-      mappedCC={getMappedCC('masterVolume')}
-      isSelected={selectedMapParam === 'masterVolume'}
-    />
-  </Section>
-));
-
-export const VCOModSection = React.memo<{
-  portamentoTime: number;
-  portamentoMode: string;
-  vcoLfoAmount: number;
-  vcoLfoSelect: string;
   pitchBendRange?: number;
   globalPitchBendRange?: number;
-  midiChannel?: 'default' | number;
-  globalMidiChannel?: number;
   updateParam: (key: keyof VoiceParams, val: any) => void;
   isMidiMappingMode: boolean;
   handleMapClick: (param: keyof VoiceParams) => void;
   getMappedCC: (param: keyof VoiceParams) => string | undefined;
   selectedMapParam: string | null;
 }>(({ 
-  portamentoTime, 
-  portamentoMode, 
-  vcoLfoAmount, 
-  vcoLfoSelect, 
+  masterVolume, 
   pitchBendRange, 
-  globalPitchBendRange = 2,
-  midiChannel = 'default',
-  globalMidiChannel = 0,
+  globalPitchBendRange = 2, 
   updateParam, 
   isMidiMappingMode, 
   handleMapClick, 
@@ -1178,6 +1188,80 @@ export const VCOModSection = React.memo<{
   const currentBendVal = isOverridden ? pitchBendRange : -1;
   const sliderLabel = isOverridden ? `Bend ${pitchBendRange}st` : `Bend Sys (${globalPitchBendRange}st)`;
 
+  return (
+    <Section title="VOLUME">
+      <JupiterSlider 
+        label="Master" 
+        value={masterVolume} 
+        min={0} max={1} 
+        onChange={(v) => updateParam('masterVolume', v)} 
+        color="bg-white"
+        isMapMode={isMidiMappingMode}
+        onMapClick={() => handleMapClick('masterVolume')}
+        mappedCC={getMappedCC('masterVolume')}
+        isSelected={selectedMapParam === 'masterVolume'}
+      />
+      <div className="flex flex-col items-center h-full border-l border-zinc-800/80 pl-2">
+        <button
+          type="button"
+          title={isOverridden ? "Click to revert to Global Settings bend range" : "Click to override Global Settings bend range for this patch"}
+          onClick={() => {
+            if (isOverridden) {
+              updateParam('pitchBendRange', -1);
+            } else {
+              updateParam('pitchBendRange', globalPitchBendRange ?? 2);
+            }
+          }}
+          className={`text-[8px] font-mono px-1 py-0.5 border cursor-pointer transition-all mb-1 ${
+            isOverridden 
+              ? 'bg-amber-500/25 border-amber-500/80 text-amber-300 font-bold shadow-[0_0_8px_rgba(245,158,11,0.3)]' 
+              : 'bg-zinc-900 border-zinc-700/60 text-zinc-400 hover:text-zinc-200'
+          }`}
+        >
+          {isOverridden ? 'OVR' : 'SYS'}
+        </button>
+        <JupiterSlider 
+          label={sliderLabel}
+          value={currentBendVal} 
+          min={-1} 
+          max={24} 
+          step={1}
+          onChange={(v) => {
+            const rounded = Math.round(v);
+            updateParam('pitchBendRange', rounded < 0 ? -1 : rounded);
+          }} 
+          color={isOverridden ? "bg-amber-500" : "bg-zinc-600"}
+          isMapMode={isMidiMappingMode}
+          onMapClick={() => handleMapClick('pitchBendRange')}
+          mappedCC={getMappedCC('pitchBendRange')}
+          isSelected={selectedMapParam === 'pitchBendRange'}
+        />
+      </div>
+    </Section>
+  );
+});
+
+export const VCOModSection = React.memo<{
+  portamentoTime: number;
+  portamentoMode: string;
+  vcoLfoAmount: number;
+  vcoLfoSelect: string;
+  updateParam: (key: keyof VoiceParams, val: any) => void;
+  isMidiMappingMode: boolean;
+  handleMapClick: (param: keyof VoiceParams) => void;
+  getMappedCC: (param: keyof VoiceParams) => string | undefined;
+  selectedMapParam: string | null;
+}>(({ 
+  portamentoTime, 
+  portamentoMode, 
+  vcoLfoAmount, 
+  vcoLfoSelect, 
+  updateParam, 
+  isMidiMappingMode, 
+  handleMapClick, 
+  getMappedCC, 
+  selectedMapParam 
+}) => {
   return (
     <Section title="VCO-MOD">
       <JupiterSlider 
@@ -1221,77 +1305,6 @@ export const VCOModSection = React.memo<{
         mappedCC={getMappedCC('portamentoMode')}
         isSelected={selectedMapParam === 'portamentoMode'}
       />
-      <div className="flex flex-col items-center h-full">
-        <button
-          type="button"
-          title={isOverridden ? "Click to revert to Global Settings bend range" : "Click to override Global Settings bend range for this patch"}
-          onClick={() => {
-            if (isOverridden) {
-              updateParam('pitchBendRange', -1);
-            } else {
-              updateParam('pitchBendRange', globalPitchBendRange ?? 2);
-            }
-          }}
-          className={`text-[8px] font-mono px-1 py-0.5 border cursor-pointer transition-all mb-1 ${
-            isOverridden 
-              ? 'bg-amber-500/25 border-amber-500/80 text-amber-300 font-bold shadow-[0_0_8px_rgba(245,158,11,0.3)]' 
-              : 'bg-zinc-900 border-zinc-700/60 text-zinc-400 hover:text-zinc-200'
-          }`}
-        >
-          {isOverridden ? 'OVR' : 'SYS'}
-        </button>
-        <JupiterSlider 
-          label={sliderLabel}
-          value={currentBendVal} 
-          min={-1} 
-          max={24} 
-          step={1}
-          onChange={(v) => {
-            const rounded = Math.round(v);
-            updateParam('pitchBendRange', rounded < 0 ? -1 : rounded);
-          }} 
-          color={isOverridden ? "bg-amber-500" : "bg-zinc-600"}
-          isMapMode={isMidiMappingMode}
-          onMapClick={() => handleMapClick('pitchBendRange')}
-          mappedCC={getMappedCC('pitchBendRange')}
-          isSelected={selectedMapParam === 'pitchBendRange'}
-        />
-      </div>
-      <div className="flex flex-col items-center justify-between h-full min-w-[64px] border-l border-zinc-800/80 pl-2">
-        <span className="text-[8px] font-bold uppercase tracking-widest text-zinc-400">MIDI CH</span>
-        <select
-          value={midiChannel === undefined || midiChannel === 'default' ? 'default' : String(midiChannel)}
-          onChange={(e) => {
-            const val = e.target.value;
-            if (val === 'default') {
-              updateParam('midiChannel', 'default');
-            } else {
-              updateParam('midiChannel', parseInt(val, 10));
-            }
-          }}
-          className="bg-black border border-zinc-700 text-amber-400 font-mono text-[10px] font-bold px-1 py-1 rounded-none outline-none focus:border-amber-500 cursor-pointer w-full text-center"
-          title="Patch MIDI Channel (Default is global config channel)"
-        >
-          <option value="default" className="bg-zinc-900 text-amber-300">
-            DEF ({globalMidiChannel === 0 ? 'OMNI' : `CH ${globalMidiChannel}`})
-          </option>
-          <option value="0" className="bg-zinc-900 text-zinc-300">
-            OMNI (ALL)
-          </option>
-          {Array.from({ length: 16 }, (_, i) => i + 1).map(ch => (
-            <option key={ch} value={String(ch)} className="bg-zinc-900 text-zinc-300">
-              CH {ch}
-            </option>
-          ))}
-        </select>
-        <span className="text-[7px] font-mono text-zinc-500 uppercase text-center mt-1">
-          {String(midiChannel) === 'default' || midiChannel === undefined 
-            ? `SYS (${globalMidiChannel === 0 ? 'OMNI' : `CH${globalMidiChannel}`})` 
-            : Number(midiChannel) === 0 
-              ? 'OMNI' 
-              : `CH ${midiChannel}`}
-        </span>
-      </div>
     </Section>
   );
 });

@@ -341,7 +341,7 @@ interface PresetCardProps {
   showCustomPrompt: (title: string, message: string, defaultValue: string, onConfirm: (val: string) => void) => void;
 }
 
-const HOLD_TIMEOUT_MS = 600;
+const HOLD_TIMEOUT_MS = 1000;
 
 const PresetCard: React.FC<PresetCardProps> = ({
   type,
@@ -437,44 +437,6 @@ const PresetCard: React.FC<PresetCardProps> = ({
     onRename();
   };
 
-  // Card header / name long-press support for touch devices
-  const nameTouchStartRef = useRef<{ x: number; y: number } | null>(null);
-  const nameHoldTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const nameHoldTriggeredRef = useRef(false);
-
-  const handleNamePointerDown = (e: React.PointerEvent) => {
-    if (e.pointerType === 'touch' || e.pointerType === 'pen') {
-      nameHoldTriggeredRef.current = false;
-      nameTouchStartRef.current = { x: e.clientX, y: e.clientY };
-      if (nameHoldTimerRef.current) clearTimeout(nameHoldTimerRef.current);
-      nameHoldTimerRef.current = setTimeout(() => {
-        nameHoldTriggeredRef.current = true;
-        try {
-          navigator.vibrate?.(50);
-        } catch {}
-        onRename();
-      }, HOLD_TIMEOUT_MS);
-    }
-  };
-
-  const handleNamePointerMove = (e: React.PointerEvent) => {
-    if (nameTouchStartRef.current) {
-      const dist = Math.hypot(e.clientX - nameTouchStartRef.current.x, e.clientY - nameTouchStartRef.current.y);
-      if (dist > 10) {
-        if (nameHoldTimerRef.current) clearTimeout(nameHoldTimerRef.current);
-        nameTouchStartRef.current = null;
-      }
-    }
-  };
-
-  const handleNamePointerUp = () => {
-    if (nameHoldTimerRef.current) {
-      clearTimeout(nameHoldTimerRef.current);
-      nameHoldTimerRef.current = null;
-    }
-    nameTouchStartRef.current = null;
-  };
-
   return (
     <div
       id={`preset-card-${item.id}`}
@@ -489,13 +451,13 @@ const PresetCard: React.FC<PresetCardProps> = ({
       {isHolding && (
         <div className="absolute -top-3 right-1 z-30 bg-orange-500 text-black font-mono text-[8px] font-black px-2 py-0.5 uppercase tracking-wider shadow-xl flex items-center gap-1 border border-orange-300 pointer-events-none animate-pulse">
           <span className="w-1.5 h-1.5 rounded-full bg-black animate-ping shrink-0" />
-          <span>HOLD 0.6S TO RENAME...</span>
+          <span>HOLD 1.0S TO RENAME...</span>
         </div>
       )}
       {showHoldHint && !isHolding && (
         <div className="absolute -top-3 right-1 z-30 bg-zinc-950 border border-amber-500/80 text-amber-400 font-mono text-[8px] font-bold px-2 py-0.5 uppercase tracking-wider shadow-xl flex items-center gap-1 pointer-events-none animate-in fade-in duration-150">
           <span className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0" />
-          <span>PATCH LOADED (HOLD 0.6S TO RENAME)</span>
+          <span>PATCH SELECTED (HOLD 1.0S TO RENAME)</span>
         </div>
       )}
 
@@ -517,7 +479,7 @@ const PresetCard: React.FC<PresetCardProps> = ({
                 ? 'text-orange-400 bg-orange-500/20'
                 : 'opacity-70 hover:opacity-100 sm:opacity-0 sm:group-hover:opacity-100 hover:bg-white/10'
             }`}
-            title="Rename (Hold 0.6s on touch device)"
+            title="Rename (Hold 1.0s on touch device)"
           >
             {/* SVG Circular Progress Ring during Hold */}
             {isHolding && (
@@ -562,11 +524,7 @@ const PresetCard: React.FC<PresetCardProps> = ({
         </div>
       </div>
 
-      <div
-        onPointerDown={handleNamePointerDown}
-        onPointerMove={handleNamePointerMove}
-        onPointerUp={handleNamePointerUp}
-      >
+      <div>
         <h3 className="text-xs font-bold uppercase truncate leading-none py-0.5 text-zinc-100">
           {item.name}
         </h3>

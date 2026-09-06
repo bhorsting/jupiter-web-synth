@@ -79,6 +79,19 @@ class Voice {
   private vco1Drift: number = 0;
   private vco2Drift: number = 0;
 
+  // Filter envelope modulation nodes
+  private filterEnvGain: GainNode;
+  private filterEnvSource: ConstantSourceNode;
+
+  // Envelope timing & state tracking for smooth real-time modulation
+  private vcaAttackDuration: number = 0;
+  private vcaHoldDuration: number = 0;
+  private vcaDecayDuration: number = 0;
+  private vcfAttackDuration: number = 0;
+  private vcfHoldDuration: number = 0;
+  private vcfDecayDuration: number = 0;
+  private lastSustainLevel: number = 1.0;
+
   // State for voice management
   public midiNote: number | null = null;
   public originalMidiNote: number | null = null;
@@ -112,6 +125,19 @@ class Voice {
     this.vcaLfoMod = ctx.createGain();
     this.vcoLfoMod = ctx.createGain();
     this.crossModGain = ctx.createGain();
+
+    // Filter dynamic envelope routing:
+    // filterEnvSource generates constant 1.0, and filterEnvGain modulates how many Hz the envelope adds to filter.frequency
+    this.filterEnvGain = ctx.createGain();
+    this.filterEnvGain.gain.value = 0;
+    this.filterEnvGain.connect(this.filter.frequency);
+
+    this.filterEnvSource = ctx.createConstantSource();
+    this.filterEnvSource.offset.value = 1.0;
+    try {
+      this.filterEnvSource.start();
+    } catch(e) {}
+    this.filterEnvSource.connect(this.filterEnvGain);
 
     // Initialize with safe values
     this.vca.gain.value = 0;
@@ -196,10 +222,11 @@ class Voice {
         });
       }
       this.filter.type = 'lowpass';
-      this.filter.Q.setTargetAtTime(params.filterResonance * 10, time, 0.05);
+      this.filter.Q.setTargetAtTime(params.filterResonance * 10, time, 0.02);
       if (!this.isReleasing) {
-        this.filter.frequency.setTargetAtTime(Math.max(20, params.filterCutoff), time, 0.05);
+        this.filter.frequency.setTargetAtTime(Math.max(20, params.filterCutoff), time, 0.02);
       }
+      this.output.gain.setTargetAtTime(params.vcaLevel, time, 0.03);
       return;
     }
 
@@ -240,15 +267,13 @@ class Voice {
       });
 
       this.filter.type = 'lowpass'; 
-      this.filter.Q.setTargetAtTime(params.filterResonance * 10, time, 0.05);
+      this.filter.Q.setTargetAtTime(params.filterResonance * 10, time, 0.02);
 
       if (!this.isReleasing) {
-        this.filter.frequency.setTargetAtTime(Math.max(20, params.filterCutoff), time, 0.05);
+        this.filter.frequency.setTargetAtTime(Math.max(20, params.filterCutoff), time, 0.02);
       }
 
-      if (!this.isReleasing) {
-        this.output.gain.setTargetAtTime(params.vcaLevel, time, 0.05);
-      }
+      this.output.gain.setTargetAtTime(params.vcaLevel, time, 0.03);
       return;
     }
 
@@ -277,6 +302,18 @@ class Voice {
         this.vco1.frequency.setTargetAtTime(Math.max(1, targetFreq1), time, 0.02);
       }
     }
+
+    if (this.vco1SoundfontNodes && this.vco1SoundfontNodes.length > 0 && this.midiNote !== null) {
+      const freq = 440 * Math.pow(2, (this.midiNote - 69) / 12);
+      const range1 = 8 / params.vco1Range;
+      const bendFactor = Math.pow(2, this.pitchBendOffset / 12);
+      const targetFreq1 = freq * range1 * Math.pow(2, (params.vco1Freq + this.vco1Drift) / 12) * bendFactor;
+      this.vco1SoundfontNodes.forEach(node => {
+        const tuneFactor = Math.pow(2, (node.coarseTune + node.fineTune / 100) / 12);
+        const targetRate1 = (targetFreq1 / node.rootFreq) * tuneFactor;
+        node.src.playbackRate.setTargetAtTime(Math.max(0.01, targetRate1), time, 0.02);
+      });
+    }
     
     if (this.vco2 && !isVco2Noise) {
       this.vco2.type = params.vco2Waveform === 'pulse' ? 'square' : params.vco2Waveform as OscillatorType;
@@ -289,6 +326,18 @@ class Voice {
         const targetFreq2 = freq * range2 * Math.pow(2, (params.vco2Freq + (params.vco2Detune / 100) + this.vco2Drift) / 12) * bendFactor;
         this.vco2.frequency.setTargetAtTime(Math.max(1, targetFreq2), time, 0.02);
       }
+    }
+
+    if (this.vco2SoundfontNodes && this.vco2SoundfontNodes.length > 0 && this.midiNote !== null) {
+      const freq = 440 * Math.pow(2, (this.midiNote - 69) / 12);
+      const range2 = 8 / params.vco2Range;
+      const bendFactor = Math.pow(2, this.pitchBendOffset / 12);
+      const targetFreq2 = freq * range2 * Math.pow(2, (params.vco2Freq + (params.vco2Detune / 100) + this.vco2Drift) / 12) * bendFactor;
+      this.vco2SoundfontNodes.forEach(node => {
+        const tuneFactor = Math.pow(2, (node.coarseTune + node.fineTune / 100) / 12);
+        const targetRate2 = (targetFreq2 / node.rootFreq) * tuneFactor;
+        node.src.playbackRate.setTargetAtTime(Math.max(0.01, targetRate2), time, 0.02);
+      });
     }
 
     if (this.subOsc) {
@@ -319,29 +368,52 @@ class Voice {
     this.vco2NoiseGain.gain.setTargetAtTime(isVco2Noise ? vco2Level : 0, time, 0.005);
 
     this.filter.type = 'lowpass'; 
-    this.filter.Q.setTargetAtTime(params.filterResonance * 10, time, 0.05);
+    this.filter.Q.setTargetAtTime(params.filterResonance * 10, time, 0.02);
 
-    // Update Filter Cutoff in real-time
-    // Note: If an envelope is active, this will move the 'base' but might be overwritten by the next ramp.
-    // However, jupiter-8 filter cutoff slider is the MOST important one to work in real-time.
-    if (!this.isReleasing) {
-      this.filter.frequency.setTargetAtTime(Math.max(20, params.filterCutoff), time, 0.05);
-    }
+    // Update Filter Cutoff in real-time without resetting or clobbering active envelopes
+    if (this.midiNote !== null) {
+      const safeCutoff = Math.max(20, params.filterCutoff);
+      const scale = Math.max(0, Math.min(1, Math.log(safeCutoff / 20) / Math.log(20000 / 20)));
+      const kbdMod = (this.midiNote - 64) * (params.filterKeyboardTrack * 100) * scale;
+      const baseCutoff = Math.max(20, Math.min(20000, params.filterCutoff + kbdMod));
+      this.filter.frequency.setTargetAtTime(baseCutoff, time, 0.02);
 
-    // VCA Sustain and base Level real-time update
-    if (!this.isReleasing) {
-      const velocityScale = 1.0 - (1.0 - this.velocity) * this.perfSettings.velocitySensitivity;
-      let targetSustain = params.env2Sustain;
-      if (params.vcaSource === 'env1') {
-        targetSustain = params.env1Sustain;
-      } else if (params.vcaSource === 'lfo' || params.vco1SoundfontEnabled || params.vco2SoundfontEnabled) {
-        targetSustain = 1.0;
+      // If note is in sustained phase, update the sustained envelope depth if env amount changed
+      if (!this.isReleasing && this.startTime > 0) {
+        const isPastVcfAttackDecay = time >= (this.startTime + this.vcfAttackDuration + this.vcfHoldDuration + this.vcfDecayDuration);
+        if (isPastVcfAttackDecay && this.filterEnvGain) {
+          const velCutoffBoost = this.velocity * params.filterVelocitySensitivity * 4000 * scale;
+          const envPeak = (params.filterEnvAmount * 10000 + velCutoffBoost) * scale;
+          const envSustain = params.filterEnvSource === 'env1' ? params.env1Sustain : params.env2Sustain;
+          this.filterEnvGain.gain.setTargetAtTime(envPeak * envSustain, time, 0.03);
+        }
       }
-      this.vca.gain.setTargetAtTime(Math.max(0.0001, targetSustain * velocityScale), time, 0.05);
-      
-      // Incorporate vcaLevel as a constant offset/initial gain
-      this.output.gain.setTargetAtTime(params.vcaLevel, time, 0.05);
+    } else {
+      this.filter.frequency.setTargetAtTime(Math.max(20, params.filterCutoff), time, 0.02);
     }
+
+    // Only update VCA gain if the note is already in its sustain phase and the sustain parameter actually changed!
+    // Never interrupt attack or decay phases, and never set gain to silence when touching other sliders!
+    if (!this.isReleasing && this.startTime > 0) {
+      const isPastAttackAndDecay = time >= (this.startTime + this.vcaAttackDuration + this.vcaHoldDuration + this.vcaDecayDuration);
+      if (isPastAttackAndDecay) {
+        const velocityScale = 1.0 - (1.0 - this.velocity) * this.perfSettings.velocitySensitivity;
+        let targetSustain = params.env2Sustain;
+        if (params.vcaSource === 'env1') {
+          targetSustain = params.env1Sustain;
+        } else if (params.vcaSource === 'lfo' || params.vco1SoundfontEnabled || params.vco2SoundfontEnabled) {
+          targetSustain = 1.0;
+        }
+        const newSustainLevel = Math.max(0.0001, targetSustain * velocityScale);
+        if (Math.abs(newSustainLevel - this.lastSustainLevel) > 0.001) {
+          this.vca.gain.setTargetAtTime(newSustainLevel, time, 0.05);
+          this.lastSustainLevel = newSustainLevel;
+        }
+      }
+    }
+
+    // Voice output level slider (vcaLevel) updates smoothly in real-time
+    this.output.gain.setTargetAtTime(params.vcaLevel, time, 0.03);
 
     // LFO Modulations with Delay protection (with velocity scaling)
     const delay = params.lfoDelay || 0;
@@ -1177,15 +1249,20 @@ class Voice {
     this.vca.gain.setValueAtTime(0.0001, time);
     
     const effectiveVcaAttack = Math.max(0.003, vcaAttack);
+    this.vcaAttackDuration = effectiveVcaAttack;
+    this.vcaHoldDuration = (this.params.vcaSource === 'env1' && (this.params.env1Hold || 0) > 0) ? this.params.env1Hold : 0;
+    this.vcaDecayDuration = Math.max(0.01, vcaDecay);
+
     this.vca.gain.linearRampToValueAtTime(velocityScale, time + effectiveVcaAttack);
     
     const sustainLevel = Math.max(0.0001, vcaSustain * velocityScale);
-    const vcaHoldTime = (this.params.vcaSource === 'env1' && (this.params.env1Hold || 0) > 0) ? this.params.env1Hold : 0;
-    if (vcaHoldTime > 0) {
-      this.vca.gain.setValueAtTime(velocityScale, time + effectiveVcaAttack + vcaHoldTime);
-      this.vca.gain.setTargetAtTime(sustainLevel, time + effectiveVcaAttack + vcaHoldTime, Math.max(0.01, vcaDecay / 3));
+    this.lastSustainLevel = sustainLevel;
+
+    if (this.vcaHoldDuration > 0) {
+      this.vca.gain.setValueAtTime(velocityScale, time + effectiveVcaAttack + this.vcaHoldDuration);
+      this.vca.gain.setTargetAtTime(sustainLevel, time + effectiveVcaAttack + this.vcaHoldDuration, this.vcaDecayDuration / 3);
     } else {
-      this.vca.gain.setTargetAtTime(sustainLevel, time + effectiveVcaAttack, Math.max(0.01, vcaDecay / 3));
+      this.vca.gain.setTargetAtTime(sustainLevel, time + effectiveVcaAttack, this.vcaDecayDuration / 3);
     }
 
     const safeCutoff = Math.max(20, filterCutoff);
@@ -1232,25 +1309,33 @@ class Voice {
     const kbdMod = (midiNote - 64) * (this.params.filterKeyboardTrack * 100) * scale;
     
     // Base cutoff is never crushed below filterCutoff by velocity
-    const baseCutoff = Math.max(20, filterCutoff + kbdMod);
+    const baseCutoff = Math.max(20, Math.min(20000, filterCutoff + kbdMod));
     const velCutoffBoost = velocity * this.params.filterVelocitySensitivity * 4000 * scale;
-    const targetCutoff = Math.min(20000, Math.max(baseCutoff, baseCutoff + (filterEnvAmount * 10000 + velCutoffBoost) * scale));
+    const envPeak = (filterEnvAmount * 10000 + velCutoffBoost) * scale;
 
-    // Smooth VCF attack sweep starting from baseCutoff
-    this.filter.frequency.cancelScheduledValues(time);
-    this.filter.frequency.setValueAtTime(baseCutoff, time);
-    
     const effectiveEnvAttack = Math.max(0.005, envAttack);
     const vcfHoldTime = (filterEnvSource === 'env1' && (this.params.env1Hold || 0) > 0) ? this.params.env1Hold : 0;
-    
-    // Ramps cleanly from baseCutoff to targetCutoff over envAttack
-    this.filter.frequency.linearRampToValueAtTime(Math.max(20, targetCutoff), time + effectiveEnvAttack);
-    const sustainFilterFreq = Math.max(20, baseCutoff + (targetCutoff - baseCutoff) * envSustain);
+    const effectiveEnvDecay = Math.max(0.01, envDecay);
+
+    this.vcfAttackDuration = effectiveEnvAttack;
+    this.vcfHoldDuration = vcfHoldTime;
+    this.vcfDecayDuration = effectiveEnvDecay;
+
+    // Set base cutoff on this.filter.frequency
+    this.filter.frequency.cancelScheduledValues(time);
+    this.filter.frequency.setValueAtTime(baseCutoff, time);
+
+    // Schedule dynamic filter envelope on this.filterEnvGain.gain
+    this.filterEnvGain.gain.cancelScheduledValues(time);
+    this.filterEnvGain.gain.setValueAtTime(0, time);
+    this.filterEnvGain.gain.linearRampToValueAtTime(envPeak, time + effectiveEnvAttack);
+
+    const sustainEnvLevel = envPeak * envSustain;
     if (vcfHoldTime > 0) {
-      this.filter.frequency.setValueAtTime(Math.max(20, targetCutoff), time + effectiveEnvAttack + vcfHoldTime);
-      this.filter.frequency.setTargetAtTime(sustainFilterFreq, time + effectiveEnvAttack + vcfHoldTime, Math.max(0.01, envDecay / 3));
+      this.filterEnvGain.gain.setValueAtTime(envPeak, time + effectiveEnvAttack + vcfHoldTime);
+      this.filterEnvGain.gain.setTargetAtTime(sustainEnvLevel, time + effectiveEnvAttack + vcfHoldTime, effectiveEnvDecay / 3);
     } else {
-      this.filter.frequency.setTargetAtTime(sustainFilterFreq, time + effectiveEnvAttack, Math.max(0.01, envDecay / 3));
+      this.filterEnvGain.gain.setTargetAtTime(sustainEnvLevel, time + effectiveEnvAttack, effectiveEnvDecay / 3);
     }
 
     // Set initial levels for VCOs scaled by velocity sensitivity
@@ -1593,9 +1678,15 @@ class Voice {
       this.vca.gain.setValueAtTime(this.vca.gain.value, time);
       this.vca.gain.setTargetAtTime(0, time, Math.max(0.001, vcaRelease / 3));
       
-      this.filter.frequency.cancelScheduledValues(time);
-      this.filter.frequency.setValueAtTime(this.filter.frequency.value, time);
-      this.filter.frequency.setTargetAtTime(this.params.filterCutoff, time, Math.max(0.001, envRelease / 3));
+      this.filterEnvGain.gain.cancelScheduledValues(time);
+      this.filterEnvGain.gain.setValueAtTime(this.filterEnvGain.gain.value, time);
+      this.filterEnvGain.gain.setTargetAtTime(0, time, Math.max(0.001, envRelease / 3));
+
+      // Keep filter base frequency at current cutoff
+      const scale = Math.max(0, Math.min(1, Math.log(Math.max(20, this.params.filterCutoff) / 20) / Math.log(20000 / 20)));
+      const kbdMod = this.midiNote !== null ? (this.midiNote - 64) * (this.params.filterKeyboardTrack * 100) * scale : 0;
+      const baseCutoff = Math.max(20, Math.min(20000, this.params.filterCutoff + kbdMod));
+      this.filter.frequency.setTargetAtTime(baseCutoff, time, Math.max(0.001, envRelease / 3));
 
       // Schedule soundfont nodes to stop cleanly AFTER the release envelope completes
       const fontStopTime = time + releaseDuration + 0.2;
@@ -1656,6 +1747,13 @@ class Voice {
       this.dx7Gains.forEach(g => {
         try { g.gain.cancelScheduledValues(now); g.gain.setValueAtTime(0, now); } catch(e) {}
       });
+    }
+
+    if (this.filterEnvGain) {
+      try {
+        this.filterEnvGain.gain.cancelScheduledValues(now);
+        this.filterEnvGain.gain.setValueAtTime(0, now);
+      } catch(e) {}
     }
 
     this.killTransientNodes(now);
@@ -2262,11 +2360,28 @@ export class JupiterEngine {
 
   setLibraryPatches(patches: Patch[]) {
     this.updatePatchMap(patches);
+    if (this.activeMulti) {
+      this.activeMulti.slots.forEach((slot, index) => {
+        const patch = this.patchMap.get(slot.patchId);
+        const patchParams = patch ? patch.params : this.params;
+        if (this.slotFXChains[index]) {
+          this.slotFXChains[index].updateParams(patchParams);
+        }
+      });
+    }
   }
 
   setActiveMulti(multi: Multi | null, patches: Patch[]) {
-    this.panic();
     const prevMulti = this.activeMulti;
+    const multiChanged = (prevMulti === null && multi !== null) ||
+                         (prevMulti !== null && multi === null) ||
+                         (prevMulti !== null && multi !== null && prevMulti.id !== multi.id);
+
+    // Only stop active notes if actually switching between different multis or multi/single modes
+    if (multiChanged) {
+      this.panic();
+    }
+
     this.updateMultiSlotMap(multi);
     this.updatePatchMap(patches);
 
@@ -3632,7 +3747,7 @@ export class JupiterEngine {
     midiNote: number, 
     velocity: number = 0.8, 
     patchId?: string | null, 
-    patchParams?: VoiceParams,
+    patchParamsOrChannel?: VoiceParams | number,
     channel?: number
   ) {
     if (!this.ctx) this.init();
@@ -3642,8 +3757,17 @@ export class JupiterEngine {
     if (this.ctx.state === 'suspended') {
       this.ctx.resume();
     }
+
+    let targetParams: VoiceParams | undefined = undefined;
+    let effectiveChannel = channel;
+
+    if (typeof patchParamsOrChannel === 'number') {
+      effectiveChannel = patchParamsOrChannel;
+    } else if (patchParamsOrChannel && typeof patchParamsOrChannel === 'object') {
+      targetParams = patchParamsOrChannel;
+    }
     
-    if (this.activeMulti && !patchId && !patchParams) {
+    if (this.activeMulti && !patchId && !targetParams) {
       const incomingVel127 = Math.round(velocity * 127);
       
       this.activeMulti.slots.forEach((slot, index) => {
@@ -3651,9 +3775,9 @@ export class JupiterEngine {
         if (!patch) return;
 
         // Check MIDI channel routing for this slot
-        if (channel && channel > 0) {
+        if (effectiveChannel && effectiveChannel > 0) {
           const slotChannel = this.getEffectiveSlotMidiChannel(slot, patch.params);
-          if (slotChannel > 0 && slotChannel !== channel) {
+          if (slotChannel > 0 && slotChannel !== effectiveChannel) {
             return; // Slot does not respond to this incoming channel
           }
         }
@@ -3703,14 +3827,13 @@ export class JupiterEngine {
             }
 
             // Trigger note internally with specific patch, transpose info, and channel
-            this.internalNoteOn(playedNote, mappedVelocity, slot.patchId, patch.params, midiNote, channel || 0);
+            this.internalNoteOn(playedNote, mappedVelocity, slot.patchId, patch.params, midiNote, effectiveChannel || 0);
           }
         }
       });
       return;
     }
 
-    let targetParams = patchParams;
     if (!targetParams && patchId) {
       const p = this.patchMap.get(patchId);
       if (p) targetParams = p.params;
@@ -3719,9 +3842,9 @@ export class JupiterEngine {
     const effectiveParams = targetParams || this.params;
 
     // Check MIDI channel routing for single patch
-    if (channel && channel > 0) {
+    if (effectiveChannel && effectiveChannel > 0) {
       const patchChannel = this.getEffectivePatchMidiChannel(effectiveParams);
-      if (patchChannel > 0 && patchChannel !== channel) {
+      if (patchChannel > 0 && patchChannel !== effectiveChannel) {
         return; // Patch does not listen on this MIDI channel
       }
     }
@@ -3752,7 +3875,7 @@ export class JupiterEngine {
       return;
     }
 
-    this.internalNoteOn(midiNote, velocity, patchId, effectiveParams, undefined, channel || 0);
+    this.internalNoteOn(midiNote, velocity, patchId, effectiveParams, undefined, effectiveChannel || 0);
   }
 
   private internalNoteOn(
@@ -3851,13 +3974,22 @@ export class JupiterEngine {
     return voice;
   }
 
-  noteOff(midiNote: number, patchId?: string | null, channel?: number) {
+  noteOff(midiNote: number, patchIdOrChannel?: string | null | number, channel?: number) {
+    let patchId: string | null | undefined = undefined;
+    let effectiveChannel = channel;
+
+    if (typeof patchIdOrChannel === 'number') {
+      effectiveChannel = patchIdOrChannel;
+    } else if (typeof patchIdOrChannel === 'string') {
+      patchId = patchIdOrChannel;
+    }
+
     if (this.activeMulti && !patchId) {
       this.activeMulti.slots.forEach((slot, index) => {
         const patch = slot.patchId ? this.patchMap.get(slot.patchId) : undefined;
-        if (channel && channel > 0) {
+        if (effectiveChannel && effectiveChannel > 0) {
           const slotCh = this.getEffectiveSlotMidiChannel(slot, patch?.params);
-          if (slotCh > 0 && slotCh !== channel) return;
+          if (slotCh > 0 && slotCh !== effectiveChannel) return;
         }
         const key = `slot_${index}`;
         const arp = this.activeArps.get(key);
@@ -3876,7 +4008,7 @@ export class JupiterEngine {
       const matchingVoices = this.voices.filter(v => {
         if (v.originalMidiNote !== midiNote) return false;
         if (patchId && v.currentPatchId !== patchId) return false;
-        if (channel && channel > 0 && v.midiChannel > 0 && v.midiChannel !== channel) return false;
+        if (effectiveChannel && effectiveChannel > 0 && v.midiChannel > 0 && v.midiChannel !== effectiveChannel) return false;
         if (v.currentPatchId && this.activeMulti) {
           const slotIndex = this.slotIndexByPatchIdMap.has(v.currentPatchId) ? this.slotIndexByPatchIdMap.get(v.currentPatchId)! : -1;
           if (slotIndex !== -1) {
@@ -3903,9 +4035,9 @@ export class JupiterEngine {
     const arpKey = patchId ? `patch_${patchId}` : "single";
     const singleArp = this.activeArps.get(arpKey);
     if (singleArp) {
-      if (channel && channel > 0) {
+      if (effectiveChannel && effectiveChannel > 0) {
         const patchCh = this.getEffectivePatchMidiChannel(singleArp.patchParams);
-        if (patchCh > 0 && patchCh !== channel) {
+        if (patchCh > 0 && patchCh !== effectiveChannel) {
           return;
         }
       }
@@ -3921,7 +4053,7 @@ export class JupiterEngine {
     const matchingVoices = this.voices.filter(v => 
       v.midiNote === midiNote && 
       (!patchId || v.currentPatchId === patchId) &&
-      (!channel || channel === 0 || !v.midiChannel || v.midiChannel === 0 || v.midiChannel === channel)
+      (!effectiveChannel || effectiveChannel === 0 || !v.midiChannel || v.midiChannel === 0 || v.midiChannel === effectiveChannel)
     );
     if (matchingVoices.length > 0 && this.ctx) {
       matchingVoices.forEach(voice => {

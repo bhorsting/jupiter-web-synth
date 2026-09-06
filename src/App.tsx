@@ -526,21 +526,30 @@ function App() {
   const updateParam = React.useCallback((key: keyof VoiceParams, val: any) => {
     setParams(prev => {
       const nextParams = { ...prev, [key]: val };
+      let targetPatchId: string | null = null;
       if (activeMultiId) {
         const activeMulti = multis.find(m => m.id === activeMultiId);
         if (activeMulti && activeMulti.slots && activeMulti.slots[selectedSlotIndex]) {
           const slot = activeMulti.slots[selectedSlotIndex];
+          targetPatchId = slot.patchId;
           setPatches(prevPatches => {
             const updated = prevPatches.map(p => p.id === slot.patchId ? { ...p, params: nextParams } : p);
             return updated;
           });
         }
       } else if (activePatchId) {
+        targetPatchId = activePatchId;
         setPatches(prevPatches => {
           const updated = prevPatches.map(p => p.id === activePatchId ? { ...p, params: nextParams } : p);
           return updated;
         });
       }
+
+      // Zero-latency immediate update directly to audio engine nodes
+      if (engineRef.current) {
+        engineRef.current.setParams(nextParams, targetPatchId);
+      }
+
       return nextParams;
     });
   }, [activeMultiId, activePatchId, multis, selectedSlotIndex]);
@@ -805,7 +814,11 @@ function App() {
     }
 
     // 1. Audio engine gets absolute highest priority - immediate dispatch
-    engineRef.current?.noteOn(note, velocity, undefined, channel);
+    try {
+      engineRef.current?.noteOn(note, velocity, undefined, undefined, channel);
+    } catch (e) {
+      console.error('engine.noteOn error:', e);
+    }
     
     // 2. Schedule visual state in animation frame to prevent blocking audio thread
     requestAnimationFrame(() => {
@@ -1029,7 +1042,7 @@ function App() {
     }
   }, [activeMultiId, selectedSlotIndex]);
 
-  // Sync active multi to engine
+  // Sync active multi to engine only when multi selection or structure changes
   useEffect(() => {
     if (engineRef.current) {
       if (activeMultiId) {
@@ -1039,7 +1052,14 @@ function App() {
         engineRef.current.setActiveMulti(null, patches);
       }
     }
-  }, [activeMultiId, multis, patches]);
+  }, [activeMultiId, multis]);
+
+  // Sync library patches without disturbing or stopping active voices
+  useEffect(() => {
+    if (engineRef.current) {
+      engineRef.current.setLibraryPatches(patches);
+    }
+  }, [patches]);
 
   useEffect(() => {
     if (midiRef.current) {
@@ -1145,7 +1165,11 @@ function App() {
       if (!midiRef.current) {
         midiRef.current = new MIDIService(
           (note, velocity, channel) => {
-            midiNoteOnRef.current(note, velocity / 127, channel);
+            try {
+              midiNoteOnRef.current(note, velocity / 127, channel);
+            } catch (err) {
+              console.error('Error during midiNoteOn:', err);
+            }
             if (isMidiDebuggerOpenRef.current) {
               const noteNames = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
               const name = noteNames[note % 12] + (Math.floor(note / 12) - 1);
@@ -1153,7 +1177,11 @@ function App() {
             }
           },
           (note, velocity, channel) => {
-            midiNoteOffRef.current(note, velocity / 127, channel);
+            try {
+              midiNoteOffRef.current(note, velocity / 127, channel);
+            } catch (err) {
+              console.error('Error during midiNoteOff:', err);
+            }
             if (isMidiDebuggerOpenRef.current) {
               const noteNames = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
               const name = noteNames[note % 12] + (Math.floor(note / 12) - 1);
@@ -1919,6 +1947,8 @@ function App() {
         bpm={params.bpm}
         timeSignature={params.timeSignature}
         synthEngine={params.synthEngine}
+        midiChannel={params.midiChannel}
+        globalMidiChannel={settings.midiChannel}
         updateParam={updateParam}
         isRecording={isRecording}
         isEncoding={isEncoding}
@@ -1989,10 +2019,6 @@ function App() {
             portamentoMode={params.portamentoMode}
             vcoLfoAmount={params.vcoLfoAmount}
             vcoLfoSelect={params.vcoLfoSelect}
-            pitchBendRange={params.pitchBendRange}
-            globalPitchBendRange={settings.pitchBendRange}
-            midiChannel={params.midiChannel}
-            globalMidiChannel={settings.midiChannel}
             updateParam={updateParam}
             isMidiMappingMode={isMidiMappingMode}
             handleMapClick={handleMapClick}
@@ -2125,6 +2151,8 @@ function App() {
 
       <VolumeSection 
         masterVolume={params.masterVolume}
+        pitchBendRange={params.pitchBendRange}
+        globalPitchBendRange={settings.pitchBendRange}
         updateParam={updateParam}
         isMidiMappingMode={isMidiMappingMode}
         handleMapClick={handleMapClick}
@@ -2140,6 +2168,8 @@ function App() {
         bpm={params.bpm}
         timeSignature={params.timeSignature}
         synthEngine={params.synthEngine}
+        midiChannel={params.midiChannel}
+        globalMidiChannel={settings.midiChannel}
         updateParam={updateParam}
         isRecording={isRecording}
         isEncoding={isEncoding}
@@ -2171,6 +2201,8 @@ function App() {
         bpm={params.bpm}
         timeSignature={params.timeSignature}
         synthEngine={params.synthEngine}
+        midiChannel={params.midiChannel}
+        globalMidiChannel={settings.midiChannel}
         updateParam={updateParam}
         isRecording={isRecording}
         isEncoding={isEncoding}
