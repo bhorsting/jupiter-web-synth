@@ -145,6 +145,22 @@ class SoundfontService {
   }
 
   /**
+   * List only Soundfont files (.sf2, .sf3, .sft) currently downloaded in OPFS (including built-in default soundfonts)
+   */
+  async listDownloadedSoundfonts(): Promise<string[]> {
+    const files = await this.listDownloadedFiles();
+    return files.filter(f => {
+      const lower = f.toLowerCase();
+      return (
+        lower.endsWith('.sf2') ||
+        lower.endsWith('.sf3') ||
+        lower.endsWith('.sft') ||
+        Object.keys(DEFAULT_SOUNDFONTS).includes(f)
+      );
+    });
+  }
+
+  /**
    * Save a file ArrayBuffer directly to OPFS
    */
   async saveFileToOPFS(name: string, arrayBuffer: ArrayBuffer): Promise<void> {

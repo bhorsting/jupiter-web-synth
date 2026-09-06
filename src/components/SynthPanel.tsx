@@ -492,7 +492,7 @@ export const VCO1Section: React.FC<VCO1SectionProps> = React.memo(({
 
   React.useEffect(() => {
     const updateList = () => {
-      soundfontService.listDownloadedFiles().then(setLocalSoundfonts);
+      soundfontService.listDownloadedSoundfonts().then(setLocalSoundfonts);
     };
     updateList();
     window.addEventListener('focus', updateList);
@@ -503,13 +503,27 @@ export const VCO1Section: React.FC<VCO1SectionProps> = React.memo(({
     };
   }, []);
 
+  const soundfontOptions = React.useMemo(() => {
+    return localSoundfonts
+      .filter(sf => {
+        const lower = sf.toLowerCase();
+        return lower.endsWith('.sf2') || lower.endsWith('.sf3') || lower.endsWith('.sft') || sf === 'GeneralUser-GS.sf2';
+      })
+      .map(sf => ({ value: sf, label: sf }));
+  }, [localSoundfonts]);
+
   React.useEffect(() => {
-    if (vco1SoundfontEnabled && !vco1SoundfontName) {
-      const defaultSf = localSoundfonts.includes('GeneralUser-GS.sf2') ? 'GeneralUser-GS.sf2' : (localSoundfonts[0] || 'GeneralUser-GS.sf2');
-      updateParam('vco1SoundfontName', defaultSf);
-      updateParam('vco1SoundfontSampleIndex', 0);
+    if (vco1SoundfontEnabled) {
+      const lower = (vco1SoundfontName || '').toLowerCase();
+      const isInvalid = !vco1SoundfontName || lower.endsWith('.wav') || lower.endsWith('.mid') || lower.endsWith('.midi') || lower.endsWith('.mp3');
+      if (isInvalid) {
+        const validSfs = soundfontOptions.map(o => o.value);
+        const defaultSf = validSfs.includes('GeneralUser-GS.sf2') ? 'GeneralUser-GS.sf2' : (validSfs[0] || 'GeneralUser-GS.sf2');
+        updateParam('vco1SoundfontName', defaultSf);
+        updateParam('vco1SoundfontSampleIndex', 0);
+      }
     }
-  }, [vco1SoundfontEnabled, vco1SoundfontName, localSoundfonts, updateParam]);
+  }, [vco1SoundfontEnabled, vco1SoundfontName, soundfontOptions, updateParam]);
 
   React.useEffect(() => {
     if (vco1SoundfontName) {
@@ -544,8 +558,8 @@ export const VCO1Section: React.FC<VCO1SectionProps> = React.memo(({
               updateParam('vco1SoundfontName', val);
               updateParam('vco1SoundfontSampleIndex', 0);
             }}
-            placeholder={localSoundfonts.length === 0 ? "No Offline SF" : "Select SF..."}
-            options={localSoundfonts.map(sf => ({ value: sf, label: sf }))}
+            placeholder={soundfontOptions.length === 0 ? "No Offline SF" : "Select SF..."}
+            options={soundfontOptions}
             accentColor="cyan"
           />
 
@@ -675,7 +689,7 @@ export const VCO2Section: React.FC<VCO2SectionProps> = React.memo(({
 
   React.useEffect(() => {
     const updateList = () => {
-      soundfontService.listDownloadedFiles().then(setLocalSoundfonts);
+      soundfontService.listDownloadedSoundfonts().then(setLocalSoundfonts);
     };
     updateList();
     window.addEventListener('focus', updateList);
@@ -686,13 +700,27 @@ export const VCO2Section: React.FC<VCO2SectionProps> = React.memo(({
     };
   }, []);
 
+  const soundfontOptions = React.useMemo(() => {
+    return localSoundfonts
+      .filter(sf => {
+        const lower = sf.toLowerCase();
+        return lower.endsWith('.sf2') || lower.endsWith('.sf3') || lower.endsWith('.sft') || sf === 'GeneralUser-GS.sf2';
+      })
+      .map(sf => ({ value: sf, label: sf }));
+  }, [localSoundfonts]);
+
   React.useEffect(() => {
-    if (vco2SoundfontEnabled && !vco2SoundfontName) {
-      const defaultSf = localSoundfonts.includes('GeneralUser-GS.sf2') ? 'GeneralUser-GS.sf2' : (localSoundfonts[0] || 'GeneralUser-GS.sf2');
-      updateParam('vco2SoundfontName', defaultSf);
-      updateParam('vco2SoundfontSampleIndex', 0);
+    if (vco2SoundfontEnabled) {
+      const lower = (vco2SoundfontName || '').toLowerCase();
+      const isInvalid = !vco2SoundfontName || lower.endsWith('.wav') || lower.endsWith('.mid') || lower.endsWith('.midi') || lower.endsWith('.mp3');
+      if (isInvalid) {
+        const validSfs = soundfontOptions.map(o => o.value);
+        const defaultSf = validSfs.includes('GeneralUser-GS.sf2') ? 'GeneralUser-GS.sf2' : (validSfs[0] || 'GeneralUser-GS.sf2');
+        updateParam('vco2SoundfontName', defaultSf);
+        updateParam('vco2SoundfontSampleIndex', 0);
+      }
     }
-  }, [vco2SoundfontEnabled, vco2SoundfontName, localSoundfonts, updateParam]);
+  }, [vco2SoundfontEnabled, vco2SoundfontName, soundfontOptions, updateParam]);
 
   React.useEffect(() => {
     if (vco2SoundfontName) {
@@ -727,8 +755,8 @@ export const VCO2Section: React.FC<VCO2SectionProps> = React.memo(({
               updateParam('vco2SoundfontName', val);
               updateParam('vco2SoundfontSampleIndex', 0);
             }}
-            placeholder={localSoundfonts.length === 0 ? "No Offline SF" : "Select SF..."}
-            options={localSoundfonts.map(sf => ({ value: sf, label: sf }))}
+            placeholder={soundfontOptions.length === 0 ? "No Offline SF" : "Select SF..."}
+            options={soundfontOptions}
             accentColor="cyan"
           />
 

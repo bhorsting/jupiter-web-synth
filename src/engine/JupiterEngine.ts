@@ -1043,6 +1043,9 @@ class Voice {
           lfoGain.gain.setValueAtTime(0, time);
         }
         offset.offset.setValueAtTime((this.params.vco1PulseWidth - 0.5) * 1.8, time);
+      } else if (vco1Waveform === 'noise') {
+        this.vco1.type = 'sawtooth';
+        this.vco1.connect(this.vco1Gain);
       } else {
         this.vco1.type = vco1Waveform as OscillatorType;
         this.vco1.connect(this.vco1Gain);
@@ -1085,6 +1088,9 @@ class Voice {
           lfoGain.gain.setValueAtTime(0, time);
         }
         offset.offset.setValueAtTime((this.params.vco2PulseWidth - 0.5) * 1.8, time);
+      } else if (vco2Waveform === 'noise') {
+        this.vco2.type = 'sawtooth';
+        this.vco2.connect(this.vco2Gain);
       } else {
         this.vco2.type = vco2Waveform as OscillatorType;
         this.vco2.connect(this.vco2Gain);
