@@ -3,9 +3,9 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-export type MIDICallback = (note: number, velocity: number) => void;
+export type MIDICallback = (note: number, velocity: number, channel?: number) => void;
 export type MIDICCCallback = (cc: number, value: number, channel: number) => void;
-export type MIDIPitchBendCallback = (value: number, channel: number) => void;
+export type MIDIPitchBendCallback = (value: number, channel?: number) => void;
 export type MIDIPanicCallback = () => void;
 export type MIDIRawCallback = (data: Uint8Array) => void;
 export type MIDIProgramChangeCallback = (program: number, channel: number) => void;
@@ -191,11 +191,11 @@ export class MIDIService {
           if (this.channel === 0 || this.channel === channel) {
             if (type === 0x90 && byte2 > 0) { // Note On
               if (!this.isDuplicateNoteEvent(`on_${channel}_${byte1}`)) {
-                this.onNoteOn(byte1, byte2);
+                this.onNoteOn(byte1, byte2, channel);
               }
             } else if (type === 0x80 || (type === 0x90 && byte2 === 0)) { // Note Off
               if (!this.isDuplicateNoteEvent(`off_${channel}_${byte1}`)) {
-                this.onNoteOff(byte1, 0);
+                this.onNoteOff(byte1, 0, channel);
               }
             } else if (type === 0xB0) { // CC
               // CC 120 (All Sound Off) or 123 (All Notes Off) -> Panic!
@@ -206,7 +206,7 @@ export class MIDIService {
               }
             } else if (type === 0xE0) { // Pitch Bend
               const value = (byte2 << 7) | byte1;
-              if (this.onPitchBend) this.onPitchBend(value, channel - 1);
+              if (this.onPitchBend) this.onPitchBend(value, channel);
             }
           }
         } else {

@@ -137,6 +137,35 @@ export class GoogleDriveService {
   }
 
   /**
+   * List MIDI and Audio files (such as CLICK_*.wav, SOUND_*.wav) available in Google Drive
+   */
+  async listAudioAndMidiFiles(folderId?: string): Promise<DriveFileItem[]> {
+    const token = googleSheetsService.getAccessToken();
+    if (!token) return [];
+
+    try {
+      let query = `(mimeType contains 'audio/' or name contains '.wav' or name contains '.mp3' or name contains '.mid' or name contains '.midi') and trashed = false`;
+      if (folderId) {
+        query += ` and '${folderId}' in parents`;
+      }
+
+      const res = await fetch(
+        `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}&fields=files(id,name,mimeType,size,modifiedTime)`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+
+      if (!res.ok) return [];
+      const text = await res.text();
+      if (text.startsWith('<!DOCTYPE') || text.startsWith('<html')) return [];
+      const data = JSON.parse(text);
+      return data.files || [];
+    } catch (err) {
+      console.error('[GoogleDriveService] listAudioAndMidiFiles error:', err);
+      return [];
+    }
+  }
+
+  /**
    * List MIDI files available in Google Drive
    */
   async listMidiFiles(folderId?: string): Promise<DriveFileItem[]> {
@@ -155,7 +184,9 @@ export class GoogleDriveService {
       );
 
       if (!res.ok) return [];
-      const data = await res.json();
+      const text = await res.text();
+      if (text.startsWith('<!DOCTYPE') || text.startsWith('<html')) return [];
+      const data = JSON.parse(text);
       return data.files || [];
     } catch (err) {
       console.error('[GoogleDriveService] listMidiFiles error:', err);

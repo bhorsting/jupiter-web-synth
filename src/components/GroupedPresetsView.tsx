@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef, useCallback, useEffect } from 'react';
 import { Folder, FolderPlus, Edit2, Trash2, ChevronDown, ChevronRight, Layers, Tag, Grid, List, Sparkles } from 'lucide-react';
 import { Patch, Multi } from '../types';
 
@@ -341,6 +341,8 @@ interface PresetCardProps {
   showCustomPrompt: (title: string, message: string, defaultValue: string, onConfirm: (val: string) => void) => void;
 }
 
+const HOLD_TIMEOUT_MS = 600;
+
 const PresetCard: React.FC<PresetCardProps> = ({
   type,
   item,
@@ -352,30 +354,207 @@ const PresetCard: React.FC<PresetCardProps> = ({
   onUpdateGroup,
   showCustomPrompt,
 }) => {
+  const [isHolding, setIsHolding] = useState(false);
+  const [showHoldHint, setShowHoldHint] = useState(false);
+
+  const holdTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const startPosRef = useRef<{ x: number; y: number } | null>(null);
+  const didTriggerHoldRef = useRef(false);
+  const isTouchInteractionRef = useRef(false);
+  const hintTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const cancelHold = useCallback(() => {
+    if (holdTimerRef.current) {
+      clearTimeout(holdTimerRef.current);
+      holdTimerRef.current = null;
+    }
+    setIsHolding(false);
+    startPosRef.current = null;
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (holdTimerRef.current) clearTimeout(holdTimerRef.current);
+      if (hintTimerRef.current) clearTimeout(hintTimerRef.current);
+    };
+  }, []);
+
+  const handleEditPointerDown = (e: React.PointerEvent) => {
+    if (e.pointerType === 'touch' || e.pointerType === 'pen') {
+      isTouchInteractionRef.current = true;
+      didTriggerHoldRef.current = false;
+      startPosRef.current = { x: e.clientX, y: e.clientY };
+      setIsHolding(true);
+
+      if (holdTimerRef.current) clearTimeout(holdTimerRef.current);
+      holdTimerRef.current = setTimeout(() => {
+        didTriggerHoldRef.current = true;
+        setIsHolding(false);
+        try {
+          navigator.vibrate?.(50);
+        } catch {}
+        onRename();
+      }, HOLD_TIMEOUT_MS);
+    } else {
+      isTouchInteractionRef.current = false;
+    }
+  };
+
+  const handleEditPointerMove = (e: React.PointerEvent) => {
+    if (isHolding && startPosRef.current) {
+      const dist = Math.hypot(e.clientX - startPosRef.current.x, e.clientY - startPosRef.current.y);
+      if (dist > 10) {
+        cancelHold();
+      }
+    }
+  };
+
+  const handleEditPointerUp = () => {
+    if (isTouchInteractionRef.current) {
+      if (!didTriggerHoldRef.current) {
+        cancelHold();
+        // On touch: quick tap selects the patch instead of accidentally opening rename!
+        onSelect();
+        setShowHoldHint(true);
+        if (hintTimerRef.current) clearTimeout(hintTimerRef.current);
+        hintTimerRef.current = setTimeout(() => setShowHoldHint(false), 1800);
+      }
+    }
+  };
+
+  const handleEditPointerCancel = () => {
+    cancelHold();
+  };
+
+  const handleEditClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (isTouchInteractionRef.current) {
+      // Touch interaction is governed by hold timeout, prevent synthetic click from opening rename
+      e.preventDefault();
+      return;
+    }
+    // Desktop mouse click: immediate rename
+    onRename();
+  };
+
+  // Card header / name long-press support for touch devices
+  const nameTouchStartRef = useRef<{ x: number; y: number } | null>(null);
+  const nameHoldTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const nameHoldTriggeredRef = useRef(false);
+
+  const handleNamePointerDown = (e: React.PointerEvent) => {
+    if (e.pointerType === 'touch' || e.pointerType === 'pen') {
+      nameHoldTriggeredRef.current = false;
+      nameTouchStartRef.current = { x: e.clientX, y: e.clientY };
+      if (nameHoldTimerRef.current) clearTimeout(nameHoldTimerRef.current);
+      nameHoldTimerRef.current = setTimeout(() => {
+        nameHoldTriggeredRef.current = true;
+        try {
+          navigator.vibrate?.(50);
+        } catch {}
+        onRename();
+      }, HOLD_TIMEOUT_MS);
+    }
+  };
+
+  const handleNamePointerMove = (e: React.PointerEvent) => {
+    if (nameTouchStartRef.current) {
+      const dist = Math.hypot(e.clientX - nameTouchStartRef.current.x, e.clientY - nameTouchStartRef.current.y);
+      if (dist > 10) {
+        if (nameHoldTimerRef.current) clearTimeout(nameHoldTimerRef.current);
+        nameTouchStartRef.current = null;
+      }
+    }
+  };
+
+  const handleNamePointerUp = () => {
+    if (nameHoldTimerRef.current) {
+      clearTimeout(nameHoldTimerRef.current);
+      nameHoldTimerRef.current = null;
+    }
+    nameTouchStartRef.current = null;
+  };
+
   return (
     <div
-      className={`p-3 border transition-all cursor-pointer flex flex-col justify-between gap-2.5 group ${
+      id={`preset-card-${item.id}`}
+      className={`p-3 border transition-all cursor-pointer flex flex-col justify-between gap-2.5 group relative select-none ${
         isActive
           ? 'bg-orange-600/10 border-orange-500 shadow-[0_0_15px_rgba(249,115,22,0.1)]'
           : 'bg-zinc-900/50 border-zinc-800 hover:border-zinc-600'
       }`}
       onClick={onSelect}
     >
+      {/* Touch feedback tooltips */}
+      {isHolding && (
+        <div className="absolute -top-3 right-1 z-30 bg-orange-500 text-black font-mono text-[8px] font-black px-2 py-0.5 uppercase tracking-wider shadow-xl flex items-center gap-1 border border-orange-300 pointer-events-none animate-pulse">
+          <span className="w-1.5 h-1.5 rounded-full bg-black animate-ping shrink-0" />
+          <span>HOLD 0.6S TO RENAME...</span>
+        </div>
+      )}
+      {showHoldHint && !isHolding && (
+        <div className="absolute -top-3 right-1 z-30 bg-zinc-950 border border-amber-500/80 text-amber-400 font-mono text-[8px] font-bold px-2 py-0.5 uppercase tracking-wider shadow-xl flex items-center gap-1 pointer-events-none animate-in fade-in duration-150">
+          <span className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0" />
+          <span>PATCH LOADED (HOLD 0.6S TO RENAME)</span>
+        </div>
+      )}
+
       <div className="flex justify-between items-center">
         <span className="text-zinc-500 font-mono text-[9px]">
           {type === 'PATCHES' ? 'P' : 'M'}-{item.id.slice(-4)}
         </span>
-        <div className="flex gap-0.5" onClick={e => e.stopPropagation()}>
+        <div className="flex gap-1 items-center" onClick={e => e.stopPropagation()}>
+          {/* Rename Button with Touch Hold Timeout Protection */}
           <button
-            onClick={onRename}
-            className="opacity-0 group-hover:opacity-100 p-1 hover:bg-white/10 text-zinc-400 hover:text-white rounded-none transition-all"
-            title="Rename"
+            id={`preset-rename-${item.id}`}
+            onPointerDown={handleEditPointerDown}
+            onPointerMove={handleEditPointerMove}
+            onPointerUp={handleEditPointerUp}
+            onPointerCancel={handleEditPointerCancel}
+            onClick={handleEditClick}
+            className={`relative p-1.5 text-zinc-400 hover:text-white rounded-none transition-all touch-manipulation ${
+              isHolding
+                ? 'text-orange-400 bg-orange-500/20'
+                : 'opacity-70 hover:opacity-100 sm:opacity-0 sm:group-hover:opacity-100 hover:bg-white/10'
+            }`}
+            title="Rename (Hold 0.6s on touch device)"
           >
-            <Edit2 size={11} />
+            {/* SVG Circular Progress Ring during Hold */}
+            {isHolding && (
+              <svg className="absolute inset-0 w-full h-full -rotate-90 pointer-events-none p-0.5" viewBox="0 0 24 24">
+                <circle
+                  cx="12"
+                  cy="12"
+                  r="10"
+                  fill="none"
+                  stroke="rgba(249, 115, 22, 0.25)"
+                  strokeWidth="2.5"
+                />
+                <circle
+                  cx="12"
+                  cy="12"
+                  r="10"
+                  fill="none"
+                  stroke="#f97316"
+                  strokeWidth="2.5"
+                  strokeDasharray="62.8"
+                  strokeDashoffset={isHolding ? "0" : "62.8"}
+                  style={{
+                    transition: isHolding ? `stroke-dashoffset ${HOLD_TIMEOUT_MS}ms linear` : 'none',
+                  }}
+                />
+              </svg>
+            )}
+            <Edit2 size={11} className={isHolding ? 'text-orange-400' : ''} />
           </button>
+
           <button
-            onClick={onDelete}
-            className="opacity-0 group-hover:opacity-100 p-1 hover:bg-red-500/20 text-red-500 rounded-none transition-all"
+            id={`preset-delete-${item.id}`}
+            onClick={(e) => {
+              e.stopPropagation();
+              onDelete();
+            }}
+            className="opacity-70 hover:opacity-100 sm:opacity-0 sm:group-hover:opacity-100 p-1.5 hover:bg-red-500/20 text-red-500 rounded-none transition-all touch-manipulation"
             title="Delete"
           >
             <Trash2 size={11} />
@@ -383,7 +562,11 @@ const PresetCard: React.FC<PresetCardProps> = ({
         </div>
       </div>
 
-      <div>
+      <div
+        onPointerDown={handleNamePointerDown}
+        onPointerMove={handleNamePointerMove}
+        onPointerUp={handleNamePointerUp}
+      >
         <h3 className="text-xs font-bold uppercase truncate leading-none py-0.5 text-zinc-100">
           {item.name}
         </h3>
@@ -403,6 +586,7 @@ const PresetCard: React.FC<PresetCardProps> = ({
           Group:
         </span>
         <select
+          id={`preset-group-select-${item.id}`}
           value={item.group || ''}
           onChange={(e) => {
             const val = e.target.value;

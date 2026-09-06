@@ -1150,56 +1150,151 @@ export const VCOModSection = React.memo<{
   portamentoMode: string;
   vcoLfoAmount: number;
   vcoLfoSelect: string;
+  pitchBendRange?: number;
+  globalPitchBendRange?: number;
+  midiChannel?: 'default' | number;
+  globalMidiChannel?: number;
   updateParam: (key: keyof VoiceParams, val: any) => void;
   isMidiMappingMode: boolean;
   handleMapClick: (param: keyof VoiceParams) => void;
   getMappedCC: (param: keyof VoiceParams) => string | undefined;
   selectedMapParam: string | null;
-}>(({ portamentoTime, portamentoMode, vcoLfoAmount, vcoLfoSelect, updateParam, isMidiMappingMode, handleMapClick, getMappedCC, selectedMapParam }) => (
-  <Section title="VCO-MOD">
-    <JupiterSlider 
-      label="LFO" 
-      value={vcoLfoAmount} 
-      min={0} max={1} 
-      onChange={(v) => updateParam('vcoLfoAmount', v)} 
-      color="bg-synth-vco"
-      isMapMode={isMidiMappingMode}
-      onMapClick={() => handleMapClick('vcoLfoAmount')}
-      mappedCC={getMappedCC('vcoLfoAmount')}
-      isSelected={selectedMapParam === 'vcoLfoAmount'}
-    />
-    <JupiterSelector 
-      label="LFO Route" 
-      options={['vco1', 'vco2', 'both']} 
-      value={vcoLfoSelect} 
-      onChange={(v) => updateParam('vcoLfoSelect', v)} 
-      isMapMode={isMidiMappingMode}
-      onMapClick={() => handleMapClick('vcoLfoSelect')}
-      mappedCC={getMappedCC('vcoLfoSelect')}
-      isSelected={selectedMapParam === 'vcoLfoSelect'}
-    />
-    <JupiterSlider 
-      label="Porta Time" 
-      value={portamentoTime} 
-      min={0} max={2} 
-      onChange={(v) => updateParam('portamentoTime', v)} 
-      isMapMode={isMidiMappingMode}
-      onMapClick={() => handleMapClick('portamentoTime')}
-      mappedCC={getMappedCC('portamentoTime')}
-      isSelected={selectedMapParam === 'portamentoTime'}
-    />
-    <JupiterSelector 
-      label="Porta Mode" 
-      options={['off', 'on', 'auto']} 
-      value={portamentoMode} 
-      onChange={(v) => updateParam('portamentoMode', v)} 
-      isMapMode={isMidiMappingMode}
-      onMapClick={() => handleMapClick('portamentoMode')}
-      mappedCC={getMappedCC('portamentoMode')}
-      isSelected={selectedMapParam === 'portamentoMode'}
-    />
-  </Section>
-));
+}>(({ 
+  portamentoTime, 
+  portamentoMode, 
+  vcoLfoAmount, 
+  vcoLfoSelect, 
+  pitchBendRange, 
+  globalPitchBendRange = 2,
+  midiChannel = 'default',
+  globalMidiChannel = 0,
+  updateParam, 
+  isMidiMappingMode, 
+  handleMapClick, 
+  getMappedCC, 
+  selectedMapParam 
+}) => {
+  const isOverridden = pitchBendRange !== undefined && pitchBendRange !== null && pitchBendRange >= 0;
+  const currentBendVal = isOverridden ? pitchBendRange : -1;
+  const sliderLabel = isOverridden ? `Bend ${pitchBendRange}st` : `Bend Sys (${globalPitchBendRange}st)`;
+
+  return (
+    <Section title="VCO-MOD">
+      <JupiterSlider 
+        label="LFO" 
+        value={vcoLfoAmount} 
+        min={0} max={1} 
+        onChange={(v) => updateParam('vcoLfoAmount', v)} 
+        color="bg-synth-vco"
+        isMapMode={isMidiMappingMode}
+        onMapClick={() => handleMapClick('vcoLfoAmount')}
+        mappedCC={getMappedCC('vcoLfoAmount')}
+        isSelected={selectedMapParam === 'vcoLfoAmount'}
+      />
+      <JupiterSelector 
+        label="LFO Route" 
+        options={['vco1', 'vco2', 'both']} 
+        value={vcoLfoSelect} 
+        onChange={(v) => updateParam('vcoLfoSelect', v)} 
+        isMapMode={isMidiMappingMode}
+        onMapClick={() => handleMapClick('vcoLfoSelect')}
+        mappedCC={getMappedCC('vcoLfoSelect')}
+        isSelected={selectedMapParam === 'vcoLfoSelect'}
+      />
+      <JupiterSlider 
+        label="Porta Time" 
+        value={portamentoTime} 
+        min={0} max={2} 
+        onChange={(v) => updateParam('portamentoTime', v)} 
+        isMapMode={isMidiMappingMode}
+        onMapClick={() => handleMapClick('portamentoTime')}
+        mappedCC={getMappedCC('portamentoTime')}
+        isSelected={selectedMapParam === 'portamentoTime'}
+      />
+      <JupiterSelector 
+        label="Porta Mode" 
+        options={['off', 'on', 'auto']} 
+        value={portamentoMode} 
+        onChange={(v) => updateParam('portamentoMode', v)} 
+        isMapMode={isMidiMappingMode}
+        onMapClick={() => handleMapClick('portamentoMode')}
+        mappedCC={getMappedCC('portamentoMode')}
+        isSelected={selectedMapParam === 'portamentoMode'}
+      />
+      <div className="flex flex-col items-center h-full">
+        <button
+          type="button"
+          title={isOverridden ? "Click to revert to Global Settings bend range" : "Click to override Global Settings bend range for this patch"}
+          onClick={() => {
+            if (isOverridden) {
+              updateParam('pitchBendRange', -1);
+            } else {
+              updateParam('pitchBendRange', globalPitchBendRange ?? 2);
+            }
+          }}
+          className={`text-[8px] font-mono px-1 py-0.5 border cursor-pointer transition-all mb-1 ${
+            isOverridden 
+              ? 'bg-amber-500/25 border-amber-500/80 text-amber-300 font-bold shadow-[0_0_8px_rgba(245,158,11,0.3)]' 
+              : 'bg-zinc-900 border-zinc-700/60 text-zinc-400 hover:text-zinc-200'
+          }`}
+        >
+          {isOverridden ? 'OVR' : 'SYS'}
+        </button>
+        <JupiterSlider 
+          label={sliderLabel}
+          value={currentBendVal} 
+          min={-1} 
+          max={24} 
+          step={1}
+          onChange={(v) => {
+            const rounded = Math.round(v);
+            updateParam('pitchBendRange', rounded < 0 ? -1 : rounded);
+          }} 
+          color={isOverridden ? "bg-amber-500" : "bg-zinc-600"}
+          isMapMode={isMidiMappingMode}
+          onMapClick={() => handleMapClick('pitchBendRange')}
+          mappedCC={getMappedCC('pitchBendRange')}
+          isSelected={selectedMapParam === 'pitchBendRange'}
+        />
+      </div>
+      <div className="flex flex-col items-center justify-between h-full min-w-[64px] border-l border-zinc-800/80 pl-2">
+        <span className="text-[8px] font-bold uppercase tracking-widest text-zinc-400">MIDI CH</span>
+        <select
+          value={midiChannel === undefined || midiChannel === 'default' ? 'default' : String(midiChannel)}
+          onChange={(e) => {
+            const val = e.target.value;
+            if (val === 'default') {
+              updateParam('midiChannel', 'default');
+            } else {
+              updateParam('midiChannel', parseInt(val, 10));
+            }
+          }}
+          className="bg-black border border-zinc-700 text-amber-400 font-mono text-[10px] font-bold px-1 py-1 rounded-none outline-none focus:border-amber-500 cursor-pointer w-full text-center"
+          title="Patch MIDI Channel (Default is global config channel)"
+        >
+          <option value="default" className="bg-zinc-900 text-amber-300">
+            DEF ({globalMidiChannel === 0 ? 'OMNI' : `CH ${globalMidiChannel}`})
+          </option>
+          <option value="0" className="bg-zinc-900 text-zinc-300">
+            OMNI (ALL)
+          </option>
+          {Array.from({ length: 16 }, (_, i) => i + 1).map(ch => (
+            <option key={ch} value={String(ch)} className="bg-zinc-900 text-zinc-300">
+              CH {ch}
+            </option>
+          ))}
+        </select>
+        <span className="text-[7px] font-mono text-zinc-500 uppercase text-center mt-1">
+          {String(midiChannel) === 'default' || midiChannel === undefined 
+            ? `SYS (${globalMidiChannel === 0 ? 'OMNI' : `CH${globalMidiChannel}`})` 
+            : Number(midiChannel) === 0 
+              ? 'OMNI' 
+              : `CH ${midiChannel}`}
+        </span>
+      </div>
+    </Section>
+  );
+});
 
 export const ArpSection = React.memo<{
   enabled: boolean;
@@ -1295,7 +1390,7 @@ export const FXSection = React.memo<{
     <Section title={label}>
       <JupiterSlider 
         label="Mix" 
-        value={mix} 
+        value={mix ?? 0} 
         min={0} max={1} 
         onChange={(v) => updateParam(mixKey, v)} 
         color="bg-purple-600"

@@ -19,27 +19,113 @@ class GoogleSheetsService {
     return this.accessToken;
   }
 
-  private extractSheetId(url: string): string | null {
-    const match = url.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
+  public extractSheetId(url: string): string | null {
+    if (!url) return null;
+    const trimmed = url.trim();
+
+    // Catch users pasting "Publish to web" URLs which are not standard Google Sheets API spreadsheets
+    if (trimmed.includes('/pubhtml') || trimmed.includes('/pub?') || trimmed.includes('/spreadsheets/d/e/')) {
+      throw new Error(
+        'You provided a "Publish to the web" URL. Please use the standard Google Sheet URL from your browser address bar (e.g., https://docs.google.com/spreadsheets/d/SPREADSHEET_ID/edit).'
+      );
+    }
+
+    // Direct Sheet ID (standard 25 to 70 character base64/uuid alphanumeric string)
+    if (/^[a-zA-Z0-9-_]{25,70}$/.test(trimmed)) {
+      return trimmed;
+    }
+
+    // Standard docs.google.com/spreadsheets/d/{ID} or /u/0/d/{ID}
+    const match = trimmed.match(/\/spreadsheets(?:\/u\/\d+)?\/d\/([a-zA-Z0-9-_]{25,70})/);
     return match ? match[1] : null;
+  }
+
+  /**
+   * Safe JSON fetcher that cleanly intercepts HTML error pages (e.g. <!DOCTYPE, <html>)
+   * preventing "SyntaxError: Unexpected token '<', '<!DOCTYPE '... is not valid JSON"
+   */
+  private async safeFetchJson<T = any>(
+    url: string,
+    options: RequestInit = {},
+    contextMsg: string = 'Google Sheets request'
+  ): Promise<T> {
+    const res = await fetch(url, options);
+
+    // If redirected to Google login or accounts page, session is expired
+    if (res.redirected || (res.url && res.url.includes('accounts.google.com'))) {
+      this.accessToken = null;
+      throw new Error(`Google authorization expired. Please click 'Reconnect' in Settings or Library.`);
+    }
+
+    const text = await res.text();
+    const trimmed = text.trim();
+
+    // Check for HTML responses (Google error pages, 404s, OAuth redirects)
+    if (
+      trimmed.startsWith('<!DOCTYPE') ||
+      trimmed.startsWith('<!doctype') ||
+      trimmed.startsWith('<html') ||
+      trimmed.startsWith('<head') ||
+      trimmed.includes('<!--DOCTYPE') ||
+      trimmed.includes('<!DOCTYPE')
+    ) {
+      if (res.status === 401) {
+        this.accessToken = null;
+        throw new Error('Google authorization token expired (HTTP 401). Please click "Reconnect" in Library or Settings.');
+      }
+      if (res.status === 403) {
+        throw new Error('Permission denied by Google Sheets (HTTP 403). Make sure your Google account has Editor access to this spreadsheet.');
+      }
+      if (res.status === 404) {
+        throw new Error('Spreadsheet or sheet tab not found (HTTP 404). Please verify your Google Sheet URL.');
+      }
+      throw new Error(`Received HTML error page instead of JSON (${contextMsg}, HTTP ${res.status}). Please check your Google Sheet URL and reconnect authorization.`);
+    }
+
+    if (!res.ok) {
+      try {
+        const json = JSON.parse(text);
+        if (json.error?.message) throw new Error(json.error.message);
+        if (json.message) throw new Error(json.message);
+      } catch (parseErr: any) {
+        if (parseErr.message && !parseErr.message.includes('JSON')) {
+          throw parseErr;
+        }
+      }
+      throw new Error(`${contextMsg} failed (HTTP ${res.status}: ${res.statusText || 'Error'})`);
+    }
+
+    if (!text || text.trim().length === 0) {
+      return {} as T;
+    }
+
+    try {
+      return JSON.parse(text) as T;
+    } catch (parseErr: any) {
+      throw new Error(`Failed to parse Google Sheets response for ${contextMsg}: ${parseErr.message}`);
+    }
   }
 
   private async getErrorMessage(res: Response, defaultMsg: string): Promise<string> {
     try {
       const text = await res.text();
+      const trimmed = text.trim();
+      if (
+        trimmed.startsWith('<!DOCTYPE') ||
+        trimmed.startsWith('<!doctype') ||
+        trimmed.startsWith('<html') ||
+        trimmed.includes('<!DOCTYPE')
+      ) {
+        if (res.status === 401) return 'Google authentication expired or invalid. Please reconnect in Settings.';
+        if (res.status === 403) return 'Permission denied. Please ensure your Google account has editor access to the spreadsheet.';
+        if (res.status === 404) return 'Spreadsheet or sheet tab not found. Please verify the Google Sheet URL.';
+        return `${defaultMsg} (HTTP ${res.status}: ${res.statusText || 'Error'})`;
+      }
       try {
         const json = JSON.parse(text);
         if (json.error?.message) return json.error.message;
         if (json.message) return json.message;
       } catch {
-        // Not valid JSON (e.g. Google HTML error page or proxy error)
-        if (text.includes('<!DOCTYPE') || text.includes('<html') || text.includes('<html>')) {
-          if (res.status === 401) return 'Google authentication expired or invalid. Please reconnect in Settings.';
-          if (res.status === 403) return 'Permission denied. Please ensure your Google account has editor access to the spreadsheet.';
-          if (res.status === 404) return 'Spreadsheet or sheet tab not found. Please verify the Google Sheet URL.';
-          if (res.status === 405) return `Method not allowed on spreadsheet endpoint (HTTP 405).`;
-          return `${defaultMsg} (HTTP ${res.status}: ${res.statusText || 'Error'})`;
-        }
         if (text && text.trim().length > 0 && text.length < 200) {
           return text.trim();
         }
@@ -94,20 +180,18 @@ class GoogleSheetsService {
   }
 
   async ensureSheetsExist(id: string, token: string): Promise<void> {
-    const response = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${id}`, {
-      headers: { Authorization: `Bearer ${token}` }
-    });
-    if (!response.ok) {
-      const errMsg = await this.getErrorMessage(response, 'Failed to retrieve spreadsheet metadata. Make sure the sheet exists and you have edit permissions.');
-      throw new Error(errMsg);
-    }
     let meta: any;
     try {
-      meta = await response.json();
-    } catch (e: any) {
-      throw new Error(`Failed to parse spreadsheet metadata: ${e.message}`);
+      meta = await this.safeFetchJson(
+        `https://sheets.googleapis.com/v4/spreadsheets/${id}`,
+        { headers: { Authorization: `Bearer ${token}` } },
+        'fetch spreadsheet structure'
+      );
+    } catch (err: any) {
+      throw new Error(`Cannot access spreadsheet: ${err.message}`);
     }
-    const existingSheetTitles = meta.sheets?.map((s: any) => s.properties.title) || [];
+
+    const existingSheetTitles: string[] = meta?.sheets?.map((s: any) => s.properties?.title) || [];
     
     const requests: any[] = [];
     if (!existingSheetTitles.includes('Patches')) {
@@ -132,17 +216,21 @@ class GoogleSheetsService {
     }
     
     if (requests.length > 0) {
-      const batchRes = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${id}:batchUpdate`, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ requests })
-      });
-      if (!batchRes.ok) {
-        const errMsg = await this.getErrorMessage(batchRes, 'Failed to create sheet tabs automatically');
-        console.warn(errMsg);
+      try {
+        await this.safeFetchJson(
+          `https://sheets.googleapis.com/v4/spreadsheets/${id}:batchUpdate`,
+          {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${token}`,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ requests })
+          },
+          'create required sheet tabs'
+        );
+      } catch (err: any) {
+        console.warn('Failed to auto-create sheet tabs:', err);
       }
     }
   }
@@ -172,7 +260,9 @@ class GoogleSheetsService {
     }
 
     const id = this.extractSheetId(url);
-    if (!id) throw new Error('Invalid Sheet URL');
+    if (!id) {
+      throw new Error('Invalid Sheet URL. Please check the Google Sheet link in Settings.');
+    }
 
     const token = await this.signIn();
     await this.ensureSheetsExist(id, token);
@@ -198,26 +288,34 @@ class GoogleSheetsService {
       });
 
       // Clear Patches sheet
-      await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${id}/values/Patches!A:Z:clear`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      try {
+        await this.safeFetchJson(
+          `https://sheets.googleapis.com/v4/spreadsheets/${id}/values/Patches!A:Z:clear`,
+          {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${token}` }
+          },
+          'clear Patches sheet'
+        );
+      } catch (e) {
+        console.warn('Clear Patches sheet warning:', e);
+      }
 
       // Write Patches
-      const resPatches = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${id}/values/Patches!A1?valueInputOption=RAW`, {
-        method: 'PUT',
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'Content-Type': 'application/json'
+      await this.safeFetchJson(
+        `https://sheets.googleapis.com/v4/spreadsheets/${id}/values/Patches!A1?valueInputOption=RAW`,
+        {
+          method: 'PUT',
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            values: [headers, ...values]
+          })
         },
-        body: JSON.stringify({
-          values: [headers, ...values]
-        })
-      });
-      if (!resPatches.ok) {
-        const errMsg = await this.getErrorMessage(resPatches, 'Failed to sync Patches to Google Sheets');
-        throw new Error(errMsg);
-      }
+        'write Patches'
+      );
     }
 
     // 2. Save Multis to "Multis" sheet
@@ -228,25 +326,33 @@ class GoogleSheetsService {
     });
 
     // Clear Multis sheet
-    await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${id}/values/Multis!A:Z:clear`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${token}` }
-    });
-
-    const resMultis = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${id}/values/Multis!A1?valueInputOption=RAW`, {
-      method: 'PUT',
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        values: [multiHeaders, ...multiValues]
-      })
-    });
-    if (!resMultis.ok) {
-      const errMsg = await this.getErrorMessage(resMultis, 'Failed to sync Multis to Google Sheets');
-      throw new Error(errMsg);
+    try {
+      await this.safeFetchJson(
+        `https://sheets.googleapis.com/v4/spreadsheets/${id}/values/Multis!A:Z:clear`,
+        {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}` }
+        },
+        'clear Multis sheet'
+      );
+    } catch (e) {
+      console.warn('Clear Multis sheet warning:', e);
     }
+
+    await this.safeFetchJson(
+      `https://sheets.googleapis.com/v4/spreadsheets/${id}/values/Multis!A1?valueInputOption=RAW`,
+      {
+        method: 'PUT',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          values: [multiHeaders, ...multiValues]
+        })
+      },
+      'write Multis'
+    );
 
     // 3. Save Setlists to "Setlists" sheet
     if (hasSetlistsArg) {
@@ -256,26 +362,33 @@ class GoogleSheetsService {
         return [s.id, s.name, songsJson];
       });
 
-      await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${id}/values/Setlists!A:Z:clear`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}` }
-      });
-
-      // Note: Google Sheets API v4 requires 'PUT' for writing values to a range
-      const resSetlists = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${id}/values/Setlists!A1?valueInputOption=RAW`, {
-        method: 'PUT',
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          values: [setlistHeaders, ...setlistValues]
-        })
-      });
-      if (!resSetlists.ok) {
-        const errMsg = await this.getErrorMessage(resSetlists, 'Failed to sync Setlists to Google Sheets');
-        throw new Error(errMsg);
+      try {
+        await this.safeFetchJson(
+          `https://sheets.googleapis.com/v4/spreadsheets/${id}/values/Setlists!A:Z:clear`,
+          {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${token}` }
+          },
+          'clear Setlists sheet'
+        );
+      } catch (e) {
+        console.warn('Clear Setlists sheet warning:', e);
       }
+
+      await this.safeFetchJson(
+        `https://sheets.googleapis.com/v4/spreadsheets/${id}/values/Setlists!A1?valueInputOption=RAW`,
+        {
+          method: 'PUT',
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            values: [setlistHeaders, ...setlistValues]
+          })
+        },
+        'write Setlists'
+      );
     }
 
     // 4. Save Settings to "Settings" sheet
@@ -287,56 +400,75 @@ class GoogleSheetsService {
         ['enableSurround51', globalSettings.enableSurround51 !== undefined ? String(globalSettings.enableSurround51) : ''],
       ];
 
-      await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${id}/values/Settings!A:Z:clear`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}` }
-      });
-
-      const resSettings = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${id}/values/Settings!A1?valueInputOption=RAW`, {
-        method: 'PUT',
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          values: [settingHeaders, ...settingRows]
-        })
-      });
-      if (!resSettings.ok) {
-        const errMsg = await this.getErrorMessage(resSettings, 'Failed to sync Settings to Google Sheets');
-        console.warn(errMsg);
+      try {
+        await this.safeFetchJson(
+          `https://sheets.googleapis.com/v4/spreadsheets/${id}/values/Settings!A:Z:clear`,
+          {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${token}` }
+          },
+          'clear Settings sheet'
+        );
+      } catch (e) {
+        console.warn('Clear Settings sheet warning:', e);
       }
+
+      await this.safeFetchJson(
+        `https://sheets.googleapis.com/v4/spreadsheets/${id}/values/Settings!A1?valueInputOption=RAW`,
+        {
+          method: 'PUT',
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            values: [settingHeaders, ...settingRows]
+          })
+        },
+        'write Settings'
+      );
     }
   }
 
   async loadFromSheet(url: string): Promise<{ patches: Patch[], multis: Multi[], setlists: Setlist[], settings?: Partial<PerformanceSettings> }> {
     const id = this.extractSheetId(url);
-    if (!id) throw new Error('Invalid Sheet URL');
+    if (!id) {
+      throw new Error('Invalid Sheet URL. Please check the Google Sheet link in Settings.');
+    }
 
     const token = await this.signIn();
     await this.ensureSheetsExist(id, token);
 
     // Try reading Patches
     let patches: Patch[] = [];
-    const patchesResponse = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${id}/values/Patches!A1:Z`, {
-      headers: { Authorization: `Bearer ${token}` }
-    });
+    let patchesData: any = null;
+    try {
+      patchesData = await this.safeFetchJson(
+        `https://sheets.googleapis.com/v4/spreadsheets/${id}/values/Patches!A1:Z`,
+        { headers: { Authorization: `Bearer ${token}` } },
+        'read Patches'
+      );
+    } catch (e) {
+      console.warn('Failed to read Patches tab:', e);
+    }
 
-    let patchesData = patchesResponse.ok ? await patchesResponse.json() : null;
     let patchRows = patchesData?.values;
     let patchHeaders = patchRows?.[0];
 
     // Fallback to Sheet1 if Patches is empty/missing
     if (!patchRows || patchRows.length < 2) {
-      const fallbackResponse = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${id}/values/Sheet1!A1:Z`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      if (fallbackResponse.ok) {
-        const fallbackData = await fallbackResponse.json();
-        if (fallbackData.values && fallbackData.values.length >= 2) {
+      try {
+        const fallbackData = await this.safeFetchJson(
+          `https://sheets.googleapis.com/v4/spreadsheets/${id}/values/Sheet1!A1:Z`,
+          { headers: { Authorization: `Bearer ${token}` } },
+          'read Sheet1 fallback'
+        );
+        if (fallbackData?.values && fallbackData.values.length >= 2) {
           patchRows = fallbackData.values;
           patchHeaders = fallbackData.values[0];
         }
+      } catch (e) {
+        console.warn('Failed to read Sheet1 fallback:', e);
       }
     }
 
@@ -394,13 +526,14 @@ class GoogleSheetsService {
 
     // Load Multis
     let multis: Multi[] = [];
-    const multisResponse = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${id}/values/Multis!A1:Z`, {
-      headers: { Authorization: `Bearer ${token}` }
-    });
+    try {
+      const multisData = await this.safeFetchJson(
+        `https://sheets.googleapis.com/v4/spreadsheets/${id}/values/Multis!A1:Z`,
+        { headers: { Authorization: `Bearer ${token}` } },
+        'read Multis'
+      );
 
-    if (multisResponse.ok) {
-      const multisData = await multisResponse.json();
-      if (multisData.values && multisData.values.length >= 2) {
+      if (multisData?.values && multisData.values.length >= 2) {
         const multiRows = multisData.values.slice(1);
         multis = multiRows.map((row: any[], index: number) => {
           const multiId = row[0];
@@ -423,17 +556,20 @@ class GoogleSheetsService {
           } as Multi;
         });
       }
+    } catch (e) {
+      console.warn('Failed to read Multis tab:', e);
     }
 
     // Load Setlists
     let setlists: Setlist[] = [];
-    const setlistsResponse = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${id}/values/Setlists!A1:Z`, {
-      headers: { Authorization: `Bearer ${token}` }
-    });
+    try {
+      const setlistsData = await this.safeFetchJson(
+        `https://sheets.googleapis.com/v4/spreadsheets/${id}/values/Setlists!A1:Z`,
+        { headers: { Authorization: `Bearer ${token}` } },
+        'read Setlists'
+      );
 
-    if (setlistsResponse.ok) {
-      const setlistsData = await setlistsResponse.json();
-      if (setlistsData.values && setlistsData.values.length >= 2) {
+      if (setlistsData?.values && setlistsData.values.length >= 2) {
         const setlistRows = setlistsData.values.slice(1);
         setlists = setlistRows.map((row: any[], index: number) => {
           const setlistId = row[0];
@@ -456,32 +592,33 @@ class GoogleSheetsService {
           } as Setlist;
         });
       }
+    } catch (e) {
+      console.warn('Failed to read Setlists tab:', e);
     }
 
     // Load Settings
     const parsedSettings: Partial<PerformanceSettings> = {};
     try {
-      const settingsResponse = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${id}/values/Settings!A1:Z`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      const settingsData = await this.safeFetchJson(
+        `https://sheets.googleapis.com/v4/spreadsheets/${id}/values/Settings!A1:Z`,
+        { headers: { Authorization: `Bearer ${token}` } },
+        'read Settings'
+      );
 
-      if (settingsResponse.ok) {
-        const settingsData = await settingsResponse.json();
-        if (settingsData.values && settingsData.values.length >= 2) {
-          const rows = settingsData.values.slice(1);
-          rows.forEach((row: any[]) => {
-            const key = row[0];
-            const val = row[1];
-            if (!key || val === undefined || val === '') return;
-            if (key === 'songPlayPauseCc') {
-              parsedSettings.songPlayPauseCc = isNaN(Number(val)) ? null : Number(val);
-            } else if (key === 'songPlayPauseChannel') {
-              parsedSettings.songPlayPauseChannel = isNaN(Number(val)) ? null : Number(val);
-            } else if (key === 'enableSurround51') {
-              parsedSettings.enableSurround51 = val === 'true';
-            }
-          });
-        }
+      if (settingsData?.values && settingsData.values.length >= 2) {
+        const rows = settingsData.values.slice(1);
+        rows.forEach((row: any[]) => {
+          const key = row[0];
+          const val = row[1];
+          if (!key || val === undefined || val === '') return;
+          if (key === 'songPlayPauseCc') {
+            parsedSettings.songPlayPauseCc = isNaN(Number(val)) ? null : Number(val);
+          } else if (key === 'songPlayPauseChannel') {
+            parsedSettings.songPlayPauseChannel = isNaN(Number(val)) ? null : Number(val);
+          } else if (key === 'enableSurround51') {
+            parsedSettings.enableSurround51 = val === 'true';
+          }
+        });
       }
     } catch (e) {
       console.warn('Failed to parse Settings sheet', e);

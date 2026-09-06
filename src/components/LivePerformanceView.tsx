@@ -1,6 +1,8 @@
 import React from 'react';
-import { Play, Pause, Square, SkipBack, SkipForward, Music, Layers, Sliders, Check, Radio, Volume2 } from 'lucide-react';
+import { Play, Pause, Square, SkipBack, SkipForward, Music, Layers, Sliders, Check, Radio, Volume2, Disc } from 'lucide-react';
 import { Setlist, Song, Patch, Multi } from '../types';
+import { AudioWaveform } from './AudioWaveform';
+import { ClickProgressIndicator } from './ClickProgressIndicator';
 
 interface LivePerformanceViewProps {
   setlists: Setlist[];
@@ -20,6 +22,12 @@ interface LivePerformanceViewProps {
   selectedMapParam: string | null;
   setSelectedMapParam: (param: any) => void;
   songPlayPauseCc: number | null | undefined;
+  onSeek?: (seconds: number) => void;
+  onBpmChange?: (bpm: number) => void;
+  audioContext?: AudioContext | null;
+  isClickToMain?: boolean;
+  onToggleClickToMain?: () => void;
+  onToggleSongMidiReceive?: (songId: string) => void;
 }
 
 export const LivePerformanceView: React.FC<LivePerformanceViewProps> = ({
@@ -39,9 +47,19 @@ export const LivePerformanceView: React.FC<LivePerformanceViewProps> = ({
   isMidiMappingMode,
   selectedMapParam,
   setSelectedMapParam,
-  songPlayPauseCc
+  songPlayPauseCc,
+  onSeek,
+  onBpmChange,
+  audioContext,
+  isClickToMain = false,
+  onToggleClickToMain,
+  onToggleSongMidiReceive,
 }) => {
   const currentSetlist = setlists.find(s => s.id === activeSetlistId) || setlists[0];
+
+  const isAudioClickSong = activeSong ? (
+    activeSong.trackType === 'audio_click' || !!activeSong.clickAudioFile || !!activeSong.soundAudioFile
+  ) : false;
 
   const formatTime = (seconds: number) => {
     if (!seconds || isNaN(seconds)) return '0:00';
@@ -118,6 +136,20 @@ export const LivePerformanceView: React.FC<LivePerformanceViewProps> = ({
         </div>
 
         <div className="flex items-center gap-2 text-xs font-mono text-zinc-400">
+          {onToggleClickToMain && (
+            <button
+              onClick={onToggleClickToMain}
+              className={`px-2.5 py-1 text-[10px] font-mono font-bold uppercase tracking-wider rounded-none border transition-all cursor-pointer flex items-center gap-1.5 ${
+                isClickToMain
+                  ? 'bg-amber-500 text-black border-amber-300 font-black shadow-[0_0_12px_rgba(245,158,11,0.5)]'
+                  : 'bg-zinc-900 text-zinc-300 border-zinc-700 hover:text-white'
+              }`}
+              title="Practice Mode: Mix metronome/click into Main PA audio output"
+            >
+              <Volume2 size={12} className={isClickToMain ? 'text-black' : 'text-amber-400'} />
+              <span>CLICK TO MAIN: {isClickToMain ? 'ON' : 'OFF'}</span>
+            </button>
+          )}
           <span>{currentSetlist?.songs?.length || 0} SONGS IN SET</span>
           {songPlayPauseCc !== null && songPlayPauseCc !== undefined && (
             <span className="px-2 py-0.5 bg-amber-950 text-amber-300 border border-amber-600/50 text-[10px] font-bold rounded-none">
@@ -212,6 +244,20 @@ export const LivePerformanceView: React.FC<LivePerformanceViewProps> = ({
 
             {activeSong && (
               <div className="flex items-center gap-2 shrink-0">
+                {onToggleSongMidiReceive && (
+                  <button
+                    onClick={() => onToggleSongMidiReceive(activeSong.id)}
+                    className={`px-2.5 py-1 border font-mono text-[11px] font-bold uppercase tracking-wider rounded-none flex items-center gap-1 cursor-pointer transition-colors ${
+                      activeSong.midiReceive !== false
+                        ? 'bg-emerald-950/80 border-emerald-500/60 text-emerald-400 hover:bg-emerald-900/80'
+                        : 'bg-red-950/80 border-red-500/60 text-red-400 hover:bg-red-900/80'
+                    }`}
+                    title={activeSong.midiReceive !== false ? "MIDI Receive ON: synth responds to incoming notes" : "MIDI Receive OFF: clicktrack only, external synth in use"}
+                  >
+                    <Radio size={11} className={activeSong.midiReceive !== false ? "text-emerald-400" : "text-red-400"} />
+                    <span>MIDI RX: {activeSong.midiReceive !== false ? 'ON' : 'OFF'}</span>
+                  </button>
+                )}
                 <div className="px-2.5 py-1 bg-orange-500/10 border border-orange-500/40 text-orange-400 font-mono text-[11px] font-bold uppercase tracking-wider rounded-none">
                   MIDI PC #{activeSong.programChange ?? (currentSetlist?.songs?.findIndex(s => s.id === activeSong.id) >= 0 ? currentSetlist?.songs?.findIndex(s => s.id === activeSong.id) : 0)}
                 </div>
@@ -222,23 +268,27 @@ export const LivePerformanceView: React.FC<LivePerformanceViewProps> = ({
             )}
           </div>
 
-          {/* Song Backing Track Progress Bar */}
-          <div>
-            <div className="flex items-center justify-between text-xs font-mono font-bold mb-1">
-              <span className="text-amber-400">{formatTime(midiProgress.current)}</span>
-              <span className="text-zinc-500">{formatTime(midiProgress.duration)}</span>
-            </div>
-            <div className="w-full h-3 bg-zinc-900 border border-zinc-800 rounded-none overflow-hidden relative">
-              <div
-                className={`h-full transition-all duration-200 ${
-                  isMidiPlaying ? 'bg-amber-500 shadow-[0_0_12px_rgba(245,158,11,0.8)]' : 'bg-zinc-700'
-                }`}
-                style={{
-                  width: `${midiProgress.duration > 0 ? (midiProgress.current / midiProgress.duration) * 100 : 0}%`
-                }}
-              />
-            </div>
-          </div>
+          {/* DYNAMIC BACKING TRACK DISPLAY: WAVEFORM FOR AUDIO CLICK TRACK, OR PROGRESS INDICATOR FOR NORMAL CLICK */}
+          {activeSong && isAudioClickSong ? (
+            <AudioWaveform
+              song={activeSong}
+              currentTime={midiProgress.current}
+              duration={midiProgress.duration}
+              isPlaying={isMidiPlaying}
+              onSeek={onSeek}
+              onBpmChange={onBpmChange}
+              audioContext={audioContext}
+            />
+          ) : (
+            <ClickProgressIndicator
+              currentTime={midiProgress.current}
+              duration={midiProgress.duration}
+              isPlaying={isMidiPlaying}
+              bpm={activeSong?.bpm || 120}
+              onBpmChange={onBpmChange}
+              title={activeSong?.midiFile ? `MIDI CLICK: ${activeSong.midiFile}` : 'METRONOME CLICK'}
+            />
+          )}
         </div>
       </div>
 
@@ -304,15 +354,46 @@ export const LivePerformanceView: React.FC<LivePerformanceViewProps> = ({
                         )}
                       </div>
 
-                      <div className="flex items-center gap-3 mt-0.5 text-[10px] font-mono text-zinc-400">
+                      <div className="flex items-center gap-2 sm:gap-3 mt-0.5 text-[10px] font-mono text-zinc-400 flex-wrap">
                         <span className="text-amber-400/90 font-semibold">{soundLabel}</span>
                         <span>•</span>
-                        <span>{song.midiFile ? 'MIDI BACKING LOADED' : 'NO BACKING TRACK'}</span>
+                        {song.trackType === 'audio_click' || song.clickAudioFile || song.soundAudioFile ? (
+                          <span className="text-cyan-400 font-bold flex items-center gap-1">
+                            <Disc size={10} className="text-cyan-400" />
+                            DUAL AUDIO CLICK
+                          </span>
+                        ) : song.midiFile ? (
+                          <span className="text-amber-300">MIDI BACKING LOADED</span>
+                        ) : (
+                          <span className="text-zinc-500">NO BACKING TRACK</span>
+                        )}
+                        {song.bpm && (
+                          <>
+                            <span>•</span>
+                            <span className="text-amber-400 font-bold">{song.bpm} BPM</span>
+                          </>
+                        )}
                       </div>
                     </div>
                   </div>
 
                   <div className="flex items-center gap-2 shrink-0">
+                    {onToggleSongMidiReceive && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onToggleSongMidiReceive(song.id);
+                        }}
+                        className={`px-1.5 py-0.5 border text-[9px] font-mono font-bold uppercase rounded-none transition-colors ${
+                          song.midiReceive !== false
+                            ? 'bg-emerald-950/60 border-emerald-600/50 text-emerald-400 hover:bg-emerald-900/60'
+                            : 'bg-red-950/60 border-red-600/50 text-red-400 hover:bg-red-900/60'
+                        }`}
+                        title={song.midiReceive !== false ? "MIDI Receive ON (Click to disable for clicktrack only)" : "MIDI Receive OFF (Click to enable)"}
+                      >
+                        RX {song.midiReceive !== false ? 'ON' : 'OFF'}
+                      </button>
+                    )}
                     <span className="px-2 py-1 bg-zinc-900 border border-zinc-800 text-orange-400 font-mono text-[10px] font-bold uppercase tracking-wider shrink-0">
                       PC #{song.programChange ?? idx}
                     </span>

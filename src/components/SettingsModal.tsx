@@ -1,15 +1,17 @@
 import React, { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { X, Settings2, Sliders, Cpu, Volume2, Palette, ShieldAlert, Piano, RotateCw, Bluetooth, Cloud, RefreshCw, Trash2, Download } from 'lucide-react';
+import { X, Settings2, Sliders, Cpu, Volume2, Palette, ShieldAlert, Piano, RotateCw, Bluetooth, Cloud, RefreshCw, Trash2, Download, Gauge, Zap, CheckCircle2, AlertTriangle, Info, HelpCircle, ChevronDown, ChevronUp } from 'lucide-react';
 import { useSettings } from '../contexts/SettingsContext';
 import { soundfontService, getGoogleDriveApiKey, DEFAULT_SOUNDFONTS } from '../services/SoundfontService';
+import type { JupiterEngine } from '../engine/JupiterEngine';
 
 interface SettingsModalProps {
   isOpen: boolean;
   onClose: () => void;
+  engine?: JupiterEngine | null;
 }
 
-export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
+export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, engine }) => {
   const { settings, updateSettings, resetSettings } = useSettings();
   const [midiInputs, setMidiInputs] = useState<{ id: string; name: string }[]>([]);
   const [driveFiles, setDriveFiles] = useState<any[]>([]);
@@ -17,6 +19,34 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
   const [isListing, setIsListing] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
   const [downloadingFileId, setDownloadingFileId] = useState<string | null>(null);
+  const [showDacGuide, setShowDacGuide] = useState(false);
+  const [latencyMetrics, setLatencyMetrics] = useState<{
+    baseLatencyMs: number;
+    outputLatencyMs: number;
+    totalLatencyMs: number;
+    sampleRate: number;
+    bufferSamples: number;
+    state: AudioContextState | 'closed';
+    isNativeRate: boolean;
+  } | null>(null);
+
+  // Poll latency & audio hardware metrics in real-time when modal is open
+  useEffect(() => {
+    if (!isOpen) return;
+    const activeEngine: JupiterEngine | undefined = engine || (window as any).jupiterEngine;
+    if (!activeEngine) return;
+
+    const poll = () => {
+      const metrics = activeEngine.getLatencyMetrics();
+      if (metrics) {
+        setLatencyMetrics(metrics);
+      }
+    };
+
+    poll();
+    const interval = setInterval(poll, 400);
+    return () => clearInterval(interval);
+  }, [isOpen, engine]);
 
   const loadDownloadedList = async () => {
     try {
@@ -306,28 +336,107 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                     </div>
 
                     <div className="space-y-2">
-                      <label className="text-[10px] uppercase tracking-widest text-zinc-500 font-bold">Sample Rate</label>
+                      <div className="flex items-center justify-between">
+                        <label className="text-[10px] uppercase tracking-widest text-zinc-500 font-bold">Sample Rate</label>
+                        {latencyMetrics && (
+                          <span className={`text-[9px] font-mono px-1.5 py-0.5 rounded border ${
+                            latencyMetrics.isNativeRate
+                              ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
+                              : 'bg-amber-500/10 border-amber-500/30 text-amber-400'
+                          }`}>
+                            Active: {latencyMetrics.sampleRate.toLocaleString()} Hz {latencyMetrics.isNativeRate ? '• Native' : '• Resampled'}
+                          </span>
+                        )}
+                      </div>
                       <select 
                         value={settings.sampleRate}
                         onChange={(e) => updateSettings({ sampleRate: parseInt(e.target.value) })}
                         className="w-full bg-black/40 border border-zinc-800 rounded px-3 py-2 text-xs text-zinc-300 outline-none focus:border-orange-500/50"
                       >
+                        <option value={0}>Auto / Native DAC Clock (Recommended - No Resampling)</option>
+                        <option value={48000}>48000 Hz (Studio Standard / ESI U168XT)</option>
+                        <option value={44100}>44100 Hz (Standard CD Quality)</option>
+                        <option value={96000}>96000 Hz (Hi-Res Audio)</option>
+                        <option value={192000}>192000 Hz (Ultra Hi-Res)</option>
+                        <option value={32000}>32000 Hz (Legacy 32k)</option>
                         <option value={22050}>22050 Hz (Low CPU)</option>
-                        <option value={32000}>32000 Hz (Standard)</option>
-                        <option value={44100}>44100 Hz (High Quality)</option>
-                        <option value={48000}>48000 Hz (Studio)</option>
                       </select>
+                      <p className="text-[9px] text-zinc-500">
+                        {settings.sampleRate === 0 
+                          ? 'Locks directly to your DAC hardware clock. Bypasses Windows software resamplers to reduce latency.'
+                          : 'Selecting a fixed rate when your DAC is running at a different rate adds 20-50ms of resampling buffer delay.'}
+                      </p>
                     </div>
                   </div>
                 </section>
 
                 {/* Audio Latency Section */}
                 <section className="space-y-4">
-                  <div className="flex items-center gap-2 text-blue-500/80">
-                    <Sliders className="w-4 h-4" />
-                    <h3 className="text-xs font-bold uppercase tracking-wider">Audio Interface</h3>
+                  <div className="flex items-center justify-between text-blue-500/80">
+                    <div className="flex items-center gap-2">
+                      <Sliders className="w-4 h-4" />
+                      <h3 className="text-xs font-bold uppercase tracking-wider">Audio Interface & Latency</h3>
+                    </div>
+                    {latencyMetrics && (
+                      <div className="flex items-center gap-1.5 text-[10px] font-mono">
+                        <span className="text-zinc-500">Total Latency:</span>
+                        <span className={`font-bold px-1.5 py-0.5 rounded border ${
+                          latencyMetrics.totalLatencyMs <= 15
+                            ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
+                            : latencyMetrics.totalLatencyMs <= 30
+                            ? 'bg-amber-500/10 border-amber-500/30 text-amber-400'
+                            : 'bg-rose-500/10 border-rose-500/30 text-rose-400'
+                        }`}>
+                          {latencyMetrics.totalLatencyMs} ms
+                        </span>
+                      </div>
+                    )}
                   </div>
                   
+                  {/* Real-time Hardware Latency Readout Card */}
+                  {latencyMetrics && (
+                    <div className="p-3 bg-zinc-950/80 border border-zinc-800 rounded space-y-2.5">
+                      <div className="flex items-center justify-between border-b border-zinc-800/80 pb-2">
+                        <div className="flex items-center gap-1.5 text-xs text-zinc-300 font-bold">
+                          <Gauge className="w-3.5 h-3.5 text-orange-500" />
+                          <span>Hardware Buffer & Latency Diagnostic</span>
+                        </div>
+                        <span className="text-[9px] uppercase font-mono tracking-wider text-zinc-500">
+                          Status: <span className="text-emerald-400 font-bold">{latencyMetrics.state.toUpperCase()}</span>
+                        </span>
+                      </div>
+
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center">
+                        <div className="p-2 bg-black/40 border border-zinc-800/60 rounded">
+                          <span className="text-[9px] uppercase text-zinc-500 block">Base Buffer</span>
+                          <span className="text-xs font-mono font-bold text-zinc-200">{latencyMetrics.baseLatencyMs} ms</span>
+                          <span className="text-[8px] text-zinc-500 block font-mono">({latencyMetrics.bufferSamples} samples)</span>
+                        </div>
+                        <div className="p-2 bg-black/40 border border-zinc-800/60 rounded">
+                          <span className="text-[9px] uppercase text-zinc-500 block">Device Output</span>
+                          <span className="text-xs font-mono font-bold text-zinc-200">{latencyMetrics.outputLatencyMs} ms</span>
+                          <span className="text-[8px] text-zinc-500 block font-mono">WASAPI Shared</span>
+                        </div>
+                        <div className="p-2 bg-black/40 border border-zinc-800/60 rounded">
+                          <span className="text-[9px] uppercase text-zinc-500 block">System Roundtrip</span>
+                          <span className={`text-xs font-mono font-bold ${
+                            latencyMetrics.totalLatencyMs <= 15 ? 'text-emerald-400' : latencyMetrics.totalLatencyMs <= 30 ? 'text-amber-400' : 'text-rose-400'
+                          }`}>
+                            {latencyMetrics.totalLatencyMs} ms
+                          </span>
+                          <span className="text-[8px] text-zinc-500 block font-mono">WebAudio Engine</span>
+                        </div>
+                        <div className="p-2 bg-black/40 border border-zinc-800/60 rounded">
+                          <span className="text-[9px] uppercase text-zinc-500 block">Hardware Clock</span>
+                          <span className="text-xs font-mono font-bold text-zinc-200">{(latencyMetrics.sampleRate / 1000).toFixed(1)} kHz</span>
+                          <span className={`text-[8px] block font-mono font-bold ${latencyMetrics.isNativeRate ? 'text-emerald-400' : 'text-amber-400'}`}>
+                            {latencyMetrics.isNativeRate ? 'Bit-Perfect Native' : 'Resampled'}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div className="space-y-2">
                       <label className="text-[10px] uppercase tracking-widest text-zinc-500 font-bold">Latency Mode</label>
@@ -336,13 +445,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                           <button
                             key={String(mode)}
                             onClick={() => updateSettings({ latencyHint: mode })}
-                            className={`px-3 py-2 rounded text-left text-[10px] uppercase font-bold transition-all border ${
+                            className={`px-3 py-2 rounded text-left text-[10px] uppercase font-bold transition-all border flex items-center justify-between ${
                               settings.latencyHint === mode 
                                 ? 'bg-orange-500/10 border-orange-500 text-orange-500' 
                                 : 'bg-black/20 border-zinc-800 text-zinc-500 hover:border-zinc-700'
                             }`}
                           >
-                            {mode === 0 ? 'ultra-low latency (0)' : mode}
+                            <span>{mode === 0 ? 'Ultra-Low (0 ms / Hardware Minimum)' : mode}</span>
+                            {settings.latencyHint === mode && <CheckCircle2 className="w-3.5 h-3.5" />}
                           </button>
                         ))}
                       </div>
@@ -370,6 +480,49 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                         </button>
                       </div>
                     </div>
+                  </div>
+
+                  {/* ESI U168XT & Windows Latency Guide */}
+                  <div className="border border-zinc-800/80 bg-black/40 rounded overflow-hidden">
+                    <button
+                      type="button"
+                      onClick={() => setShowDacGuide(!showDacGuide)}
+                      className="w-full px-3 py-2 flex items-center justify-between text-left text-xs font-bold text-zinc-300 hover:bg-zinc-900/50 transition-colors"
+                    >
+                      <div className="flex items-center gap-2 text-orange-400">
+                        <Zap className="w-3.5 h-3.5" />
+                        <span className="uppercase tracking-wider text-[11px]">ESI U168XT & DAC Zero-Latency Setup Guide</span>
+                      </div>
+                      {showDacGuide ? <ChevronUp className="w-4 h-4 text-zinc-500" /> : <ChevronDown className="w-4 h-4 text-zinc-500" />}
+                    </button>
+                    {showDacGuide && (
+                      <div className="p-3 border-t border-zinc-800/80 bg-black/60 space-y-3 text-[11px] text-zinc-400 font-mono leading-relaxed">
+                        <div className="space-y-1">
+                          <p className="text-zinc-200 font-bold">Why is there latency if my DAC is on Ultra-Low?</p>
+                          <p className="text-zinc-400">
+                            Browsers cannot run ASIO directly; they use Windows WASAPI Shared Mode. If Windows or Chrome has a mismatched sample rate or large safety buffer, it introduces 20–60 ms of extra delay.
+                          </p>
+                        </div>
+                        <div className="space-y-1.5 border-t border-zinc-800/60 pt-2">
+                          <span className="text-orange-400 font-bold block">3 Key Steps to achieve &lt;10ms browser latency:</span>
+                          <ol className="list-decimal pl-4 space-y-1.5 text-zinc-300">
+                            <li>
+                              <strong className="text-zinc-100">Set Sample Rate to Auto / Native DAC Clock</strong> in the dropdown above. This avoids the OS software resampler stage.
+                            </li>
+                            <li>
+                              <strong className="text-zinc-100">Match Windows Sound Setting:</strong> Press <kbd className="px-1 py-0.5 bg-zinc-800 rounded text-[9px]">Win+R</kbd> &rarr; run <code className="text-amber-300">mmsys.cpl</code> &rarr; double click ESI U168XT &rarr; <em>Advanced</em> tab &rarr; select <strong>24-bit, 48000 Hz</strong> (or your DAC rate) and <strong>uncheck "Enable audio enhancements"</strong>.
+                            </li>
+                            <li>
+                              <strong className="text-zinc-100">Force Chrome Minimal Buffer Size:</strong> Launch Chrome with the command flag:
+                              <div className="mt-1 p-1.5 bg-zinc-950 border border-zinc-800 text-emerald-400 font-mono text-[10px] select-all">
+                                chrome.exe --audio-buffer-size=128
+                              </div>
+                              This forces the browser audio renderer to request 128-sample chunks from WASAPI instead of 512–1024 frames.
+                            </li>
+                          </ol>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </section>
 

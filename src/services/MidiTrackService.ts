@@ -67,6 +67,9 @@ class MidiTrackService {
     events: MidiScheduledEvent[];
     eventPointer: number;
     schedulerInterval: any;
+    trackOverrides?: Record<number, { patchId?: string; mute?: boolean; solo?: boolean; volume?: number }>;
+    patches?: Patch[];
+    autoGMMode?: boolean;
   } | null = null;
 
   private activeTrackNotesCount: Map<number, number> = new Map();
@@ -345,6 +348,9 @@ class MidiTrackService {
         events,
         eventPointer: 0,
         schedulerInterval: null as any,
+        trackOverrides,
+        patches,
+        autoGMMode,
       };
       this.activePlayer = player;
 
@@ -456,6 +462,31 @@ class MidiTrackService {
 
     engine.panic();
     this.notifyProgress(Math.max(0, currentPos), this.activePlayer.midi.duration, false, new Set());
+  }
+
+  seekPlayback(seconds: number, engine?: JupiterEngine) {
+    if (!this.activePlayer) return;
+    const isCurrentlyPlaying = this.activePlayer.isPlaying;
+    const currentFileName = this.activePlayer.fileName;
+    const trackOverrides = this.activePlayer.trackOverrides;
+    const patches = this.activePlayer.patches;
+    const autoGMMode = this.activePlayer.autoGMMode;
+    const duration = this.activePlayer.midi.duration;
+
+    if (isCurrentlyPlaying && engine) {
+      this.startPlayback(
+        currentFileName,
+        engine,
+        trackOverrides,
+        seconds,
+        0,
+        patches,
+        autoGMMode
+      );
+    } else {
+      this.activePlayer.pauseOffset = seconds;
+      this.notifyProgress(seconds, duration, false, new Set());
+    }
   }
 
   getIsPlaying(fileName?: string): boolean {

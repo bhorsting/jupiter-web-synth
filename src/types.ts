@@ -321,6 +321,8 @@ export interface VoiceParams {
   // Performance
   bpm: number;
   timeSignature: string;
+  pitchBendRange?: number; // Per-patch override in semitones (0 to 24; -1 or undefined = use global setting)
+  midiChannel?: 'default' | number; // Per-patch MIDI channel ('default' = use global config, 0 = Omni/All, 1-16 = specific channel)
   
   // Arpeggiator
   arpEnabled: boolean;
@@ -374,6 +376,14 @@ export interface VoiceParams {
   reverbTime: number;
   reverbDecay: number;
   reverbDamping: number;
+
+  // Flanger (Classic analog BBD comb filter emulation)
+  flangerMix: number;
+  flangerRate: number;
+  flangerDepth: number;
+  flangerFeedback: number;
+  flangerDelay: number;
+  flangerPhase?: 'norm' | 'inv';
 
   // Distortion / Saturation
   distortionMix: number;
@@ -462,6 +472,7 @@ export interface MultiSlot {
   highMapVelocity: number;// 0-127 (Mapped velocity)
   transposeOctave: number;// -3 to +3
   transposeNote: number;  // -12 to +12 semitones
+  midiChannel?: 'patch' | 'default' | number; // 'patch' = follow patch setting, 'default' = follow config, 0 = Omni, 1-16 = specific channel
 }
 
 export interface Multi {
@@ -478,6 +489,8 @@ export interface MidiTrackOverride {
   volume?: number;
 }
 
+export type SongTrackType = 'midi' | 'audio_click' | 'none';
+
 export interface Song {
   id: string;
   name: string;
@@ -488,6 +501,11 @@ export interface Song {
   midiTrackOverrides?: Record<number, MidiTrackOverride>;
   leadInBars?: number;
   autoGMMode?: boolean;
+  trackType?: SongTrackType;
+  clickAudioFile?: string; // CLICK_{Name}.wav
+  soundAudioFile?: string; // SOUND_{name}.wav
+  bpm?: number; // Manual BPM
+  midiReceive?: boolean; // When false, synth ignores incoming MIDI notes/controllers (for click-only songs or extra synths)
 }
 
 export interface Setlist {
@@ -529,6 +547,8 @@ export const DEFAULT_PARAMS: VoiceParams = {
   portamentoMode: 'off',
   bpm: 120,
   timeSignature: '4/4',
+  pitchBendRange: -1, // -1: use global setting; 0-24: override semitones
+  midiChannel: 'default', // 'default': use global setting; 0: Omni; 1-16: specific channel
 
   // Arpeggiator
   arpEnabled: false,
@@ -581,6 +601,14 @@ export const DEFAULT_PARAMS: VoiceParams = {
   reverbTime: 2.0,
   reverbDecay: 2.0,
   reverbDamping: 0.5,
+
+  // Flanger defaults (not enabled on any patch yet)
+  flangerMix: 0,
+  flangerRate: 0.3,
+  flangerDepth: 0.7,
+  flangerFeedback: 0.6,
+  flangerDelay: 0.003,
+  flangerPhase: 'norm',
 
   distortionMix: 0,
   distortionAmount: 0.1,
@@ -641,7 +669,7 @@ export const DEFAULT_PARAMS: VoiceParams = {
 
 export interface PerformanceSettings {
   maxVoices: number;
-  sampleRate: number;
+  sampleRate: number; // 0 for Native DAC Hardware Rate (Auto-lock DAC clock), or explicit Hz like 44100, 48000, 96000
   audioBufferLength: 128 | 256 | 512 | 1024 | 2048;
   latencyHint: 'balanced' | 'interactive' | 'playback' | 0;
   theme: 'jupiter' | 'dark' | 'light';
@@ -660,9 +688,9 @@ export interface PerformanceSettings {
 
 export const DEFAULT_PERFORMANCE_SETTINGS: PerformanceSettings = {
   maxVoices: 8,
-  sampleRate: 44100,
+  sampleRate: 0, // 0 = Auto / Native DAC Hardware Rate (prevents Windows/Chrome resampling buffer latency)
   audioBufferLength: 512,
-  latencyHint: 'interactive',
+  latencyHint: 0, // Default to lowest possible latency mode
   theme: 'jupiter',
   midiInputId: 'all',
   midiChannel: 0,
@@ -698,6 +726,16 @@ export function cleanVoiceParams(rawParams: any): VoiceParams {
         } catch {
           params.dx7Voice = createDefaultDX7Voice();
         }
+      }
+      return;
+    }
+
+    if (typedKey === 'midiChannel') {
+      if (rawValue === 'default' || rawValue === undefined || rawValue === null || rawValue === '' || rawValue === -1) {
+        params.midiChannel = 'default';
+      } else {
+        const num = Number(rawValue);
+        params.midiChannel = isNaN(num) ? 'default' : Math.max(0, Math.min(16, Math.floor(num)));
       }
       return;
     }

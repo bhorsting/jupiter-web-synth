@@ -15,8 +15,9 @@ interface MidiEditorModalProps {
   onClose: () => void;
   initialFileName?: string;
   songName?: string;
+  songBpm?: number;
   engine: JupiterEngine | null;
-  onAssignToSong?: (fileName: string) => void;
+  onAssignToSong?: (fileName: string, bpm?: number) => void;
 }
 
 interface EditorNote {
@@ -82,13 +83,14 @@ export const MidiEditorModal: React.FC<MidiEditorModalProps> = ({
   onClose,
   initialFileName,
   songName,
+  songBpm,
   engine,
   onAssignToSong
 }) => {
   const { settings } = useSettings();
   const defaultFile = initialFileName || (songName ? `${songName.replace(/[^a-zA-Z0-9_-]/g, '_')}.mid` : 'New_Backing_Track.mid');
   const [fileName, setFileName] = useState<string>(defaultFile);
-  const [bpm, setBpm] = useState<number>(120);
+  const [bpm, setBpm] = useState<number>(songBpm || 120);
   const [beatsPerBar, setBeatsPerBar] = useState<number>(4);
   const [tracks, setTracks] = useState<EditorTrack[]>([]);
   const [activeTrackId, setActiveTrackId] = useState<string>('');
@@ -129,14 +131,20 @@ export const MidiEditorModal: React.FC<MidiEditorModalProps> = ({
       const targetFile = initialFileName || (songName ? `${songName.replace(/[^a-zA-Z0-9_-]/g, '_')}.mid` : 'New_Backing_Track.mid');
       setFileName(targetFile);
       setSaveStatus({ type: 'idle', message: '' });
+      if (songBpm) setBpm(songBpm);
 
-      if (initialFileName) {
+      // Attempt to load either initialFileName or the songName.mid
+      const candidateFiles = [initialFileName, `${songName?.replace(/[^a-zA-Z0-9_-]/g, '_')}.mid`].filter(Boolean) as string[];
+
+      for (const candidate of candidateFiles) {
         try {
-          const buffer = await soundfontService.getFileBuffer(initialFileName);
+          const buffer = await soundfontService.getFileBuffer(candidate);
           const parsed = new Midi(buffer);
 
           if (parsed.header.tempos.length > 0) {
             setBpm(Math.round(parsed.header.tempos[0].bpm));
+          } else if (songBpm) {
+            setBpm(songBpm);
           }
           if (parsed.header.timeSignatures.length > 0) {
             setBeatsPerBar(parsed.header.timeSignatures[0].timeSignature[0]);
@@ -494,7 +502,7 @@ export const MidiEditorModal: React.FC<MidiEditorModalProps> = ({
       });
 
       if (onAssignToSong) {
-        onAssignToSong(sanitizedName);
+        onAssignToSong(sanitizedName, bpm);
       }
     } catch (err: any) {
       console.error('Failed to save MIDI:', err);

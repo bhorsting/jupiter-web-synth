@@ -28,7 +28,7 @@ import {
 } from './components/SynthPanel';
 import { DX7Panel } from './components/DX7Panel';
 import { DEFAULT_PARAMS, VoiceParams, Patch, MidiMapping, cleanVoiceParams, Multi, MultiSlot, Song, Setlist } from './types';
-import { Power, Save, FolderOpen, Sliders, Waves, Activity, Trash2, X, Keyboard as PianoIcon, Cloud, UploadCloud, DownloadCloud, Link, Maximize, Minimize, Settings2, Plus, Layers, Edit2, Play, Pause, Square, Radio } from 'lucide-react';
+import { Power, Save, FolderOpen, Sliders, Waves, Activity, Trash2, X, Keyboard as PianoIcon, Cloud, UploadCloud, DownloadCloud, Link, Maximize, Minimize, Settings2, Plus, Layers, Edit2, Play, Pause, Square, Radio, Volume2 } from 'lucide-react';
 import React from 'react';
 import Keyboard from 'react-simple-keyboard';
 import { PianoKeyboard } from './components/PianoKeyboard';
@@ -43,6 +43,10 @@ import { googleSheetsService } from './services/GoogleSheetsService';
 import { indexedDBService } from './services/IndexedDBService';
 import { soundfontService, getGoogleDriveApiKey } from './services/SoundfontService';
 import { midiTrackService } from './services/MidiTrackService';
+import { audioClickTrackService } from './services/AudioClickTrackService';
+import { googleDriveService } from './services/GoogleDriveService';
+import { AudioWaveform } from './components/AudioWaveform';
+import { ClickProgressIndicator } from './components/ClickProgressIndicator';
 import { PRESET_PATCHES } from './constants/presetPatches';
 import { DURAN_PATCHES, DURAN_MULTIS, DURAN_SETLIST } from './constants/duranPresets';
 import { LIVE_SONG_PATCHES, SETLIST_SET_1, SETLIST_SET_2 } from './constants/liveSongPresets';
@@ -110,6 +114,7 @@ function App() {
   const [activeSetlistId, setActiveSetlistId] = useState<string | null>(null);
   const [selectedSetlistId, setSelectedSetlistId] = useState<string | null>(null);
   const [activeSong, setActiveSong] = useState<Song | null>(null);
+  const [isClickToMain, setIsClickToMain] = useState<boolean>(false);
   const [isMidiPlaying, setIsMidiPlaying] = useState<boolean>(false);
   const [midiProgress, setMidiProgress] = useState<{ current: number; duration: number }>({ current: 0, duration: 0 });
   const [newSongName, setNewSongName] = useState('');
@@ -197,18 +202,34 @@ function App() {
   const lastMidiProgressUpdateRef = useRef<number>(0);
 
   useEffect(() => {
-    const unsub = midiTrackService.addProgressListener((cur, dur, playing) => {
+    const unsubMidi = midiTrackService.addProgressListener((cur, dur, playing) => {
       if (playing !== isMidiPlayingRef.current) {
         isMidiPlayingRef.current = playing;
         setIsMidiPlaying(playing);
       }
       const now = Date.now();
-      if (now - lastMidiProgressUpdateRef.current >= 250 || playing !== isMidiPlayingRef.current) {
+      if (now - lastMidiProgressUpdateRef.current >= 150 || playing !== isMidiPlayingRef.current) {
         lastMidiProgressUpdateRef.current = now;
         setMidiProgress({ current: cur, duration: dur });
       }
     });
-    return unsub;
+
+    const unsubAudio = audioClickTrackService.addProgressListener((cur, dur, playing) => {
+      if (playing !== isMidiPlayingRef.current) {
+        isMidiPlayingRef.current = playing;
+        setIsMidiPlaying(playing);
+      }
+      const now = Date.now();
+      if (now - lastMidiProgressUpdateRef.current >= 100 || playing !== isMidiPlayingRef.current) {
+        lastMidiProgressUpdateRef.current = now;
+        setMidiProgress({ current: cur, duration: dur });
+      }
+    });
+
+    return () => {
+      unsubMidi();
+      unsubAudio();
+    };
   }, []);
 
   const triggerMidiLedFlashRef = useRef<(() => void) | null>(null);
@@ -548,6 +569,7 @@ function App() {
       filterSlope: [12, 24],
       filterEnvSource: ['env1', 'env2'],
       chorusMode: [1, 2, 3],
+      flangerPhase: ['norm', 'inv'],
       reverbMode: [1, 2, 3],
       leslieSpeed: ['off', 'lo', 'high'],
       hammondPercussionHarmonic: ['second', 'third'],
@@ -588,6 +610,7 @@ function App() {
       mixerVco1: [0, 1], mixerVco2: [0, 1],
       // FX
       chorusMix: [0, 1], delayMix: [0, 1], delayTime: [0, 4], delayFeedback: [0, 0.9],
+      flangerMix: [0, 1], flangerRate: [0.05, 10], flangerDepth: [0, 1], flangerFeedback: [0, 0.95], flangerDelay: [0.001, 0.015],
       reverbMix: [0, 1], reverbTime: [0.1, 10], reverbDecay: [0.1, 10], reverbDamping: [0, 0.99],
       compThreshold: [-60, 0], compRatio: [1, 20], compAttack: [0.001, 0.5], compRelease: [0.01, 1], compMix: [0, 1],
       leslieMix: [0, 1], leslieRate: [0.1, 15], leslieDepth: [0, 1],
@@ -597,6 +620,7 @@ function App() {
       eqBand1: [-12, 12], eqBand2: [-12, 12], eqBand3: [-12, 12], eqBand4: [-12, 12], eqBand5: [-12, 12],
       masterVolume: [0, 1],
       metronomeVolume: [0, 1],
+      pitchBendRange: [-1, 24],
       // Hammond Drawbars
       hammondDb16: [0, 8],
       hammondDb513: [0, 8],
@@ -620,6 +644,9 @@ function App() {
 
     // Apply integer rounding to Hammond DRAWBAR sliders
     if (key.startsWith('hammondDb') && key !== 'hammondKeyClick') {
+      mappedValue = Math.round(mappedValue);
+    }
+    if (key === 'pitchBendRange') {
       mappedValue = Math.round(mappedValue);
     }
 
@@ -715,6 +742,11 @@ function App() {
       }
     }
 
+    // Check if active song has MIDI receive disabled (clicktrack only song)
+    if (activeSongRef.current && activeSongRef.current.midiReceive === false) {
+      return;
+    }
+
     // Route to slider / toggle / selector
     const mapping = midiMappings.find(m => m.cc === cc && m.channel === channel);
     if (mapping) {
@@ -724,7 +756,7 @@ function App() {
 
     // Default Mod Wheel modifier
     if (cc === 1) {
-      engineRef.current?.setModWheel(value);
+      engineRef.current?.setModWheel(value, channel + 1);
     }
   }, [isMidiMappingMode, selectedMapParam, activePatchId, midiMappings, settings, updateSettings, patches, multis, setlists, showCustomAlert]);
 
@@ -766,26 +798,54 @@ function App() {
     addMidiDebugEvent('Panic', 'All', 'Panic/Reset', 0, 0);
   }, [addMidiDebugEvent]);
 
-  const handleNoteOn = React.useCallback((note: number, velocity: number = 0.8) => {
-    engineRef.current?.noteOn(note, velocity);
-    setActiveNotes(prev => [...prev.filter(n => n !== note), note]);
+  const handleNoteOn = React.useCallback((note: number, velocity: number = 0.8, channel?: number) => {
+    // If current song has MIDI receive disabled, ignore incoming notes
+    if (activeSongRef.current && activeSongRef.current.midiReceive === false) {
+      return;
+    }
+
+    // 1. Audio engine gets absolute highest priority - immediate dispatch
+    engineRef.current?.noteOn(note, velocity, undefined, channel);
     
-    const noteNames = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
-    const name = noteNames[note % 12] + (Math.floor(note / 12) - 1);
-    addMidiDebugEvent('Note On', 'V-Keys', `${name} (${note})`, note, Math.round(velocity * 127));
+    // 2. Schedule visual state in animation frame to prevent blocking audio thread
+    requestAnimationFrame(() => {
+      setActiveNotes(prev => (prev.includes(note) ? prev : [...prev, note]));
+    });
+    
+    // 3. Debug logging only if debugger modal is open
+    if (isMidiDebuggerOpenRef.current) {
+      const noteNames = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+      const name = noteNames[note % 12] + (Math.floor(note / 12) - 1);
+      addMidiDebugEvent('Note On', channel ? `Ch ${channel}` : 'V-Keys', `${name} (${note})`, note, Math.round(velocity * 127));
+    }
   }, [addMidiDebugEvent]);
 
-  const handleNoteOff = React.useCallback((note: number) => {
-    engineRef.current?.noteOff(note);
-    setActiveNotes(prev => prev.filter(n => n !== note));
+  const handleNoteOff = React.useCallback((note: number, _velocity?: number, channel?: number) => {
+    if (activeSongRef.current && activeSongRef.current.midiReceive === false) {
+      return;
+    }
 
-    const noteNames = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
-    const name = noteNames[note % 12] + (Math.floor(note / 12) - 1);
-    addMidiDebugEvent('Note Off', 'V-Keys', `${name} (${note})`, note, 0);
+    // 1. Audio engine gets absolute highest priority - immediate dispatch
+    engineRef.current?.noteOff(note, undefined, channel);
+    
+    // 2. Schedule visual state in animation frame
+    requestAnimationFrame(() => {
+      setActiveNotes(prev => prev.filter(n => n !== note));
+    });
+
+    // 3. Debug logging only if debugger modal is open
+    if (isMidiDebuggerOpenRef.current) {
+      const noteNames = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+      const name = noteNames[note % 12] + (Math.floor(note / 12) - 1);
+      addMidiDebugEvent('Note Off', channel ? `Ch ${channel}` : 'V-Keys', `${name} (${note})`, note, 0);
+    }
   }, [addMidiDebugEvent]);
 
-  const handlePitchBend = React.useCallback((value: number) => {
-    engineRef.current?.setPitchBend(value);
+  const handlePitchBend = React.useCallback((value: number, channel?: number) => {
+    if (activeSongRef.current && activeSongRef.current.midiReceive === false) {
+      return;
+    }
+    engineRef.current?.setPitchBend(value, channel);
   }, []);
 
   const handleProgramChange = React.useCallback((program: number, channel: number) => {
@@ -809,11 +869,27 @@ function App() {
     }
   }, [setlists, activeSetlistId, settings.midiChannel, addMidiDebugEvent]);
 
+  const activeSongRef = useRef<Song | null>(activeSong);
+  activeSongRef.current = activeSong;
+
+  const handleToggleSongMidiReceive = React.useCallback((songId: string) => {
+    setSetlists(prev => prev.map(sl => ({
+      ...sl,
+      songs: sl.songs.map(s => s.id === songId ? { ...s, midiReceive: s.midiReceive === false ? true : false } : s)
+    })));
+    setActiveSong(prev => {
+      if (prev && prev.id === songId) {
+        return { ...prev, midiReceive: prev.midiReceive === false ? true : false };
+      }
+      return prev;
+    });
+  }, []);
+
   // Use refs for MIDI callbacks. Assign them directly in render to prevent stale closure lag
   const midiCCRef = useRef<(cc: number, value: number, channel: number) => void>(() => {});
-  const midiNoteOnRef = useRef<(note: number, velocity: number) => void>(() => {});
-  const midiNoteOffRef = useRef<(note: number) => void>(() => {});
-  const midiPitchBendRef = useRef<(value: number) => void>(() => {});
+  const midiNoteOnRef = useRef<(note: number, velocity: number, channel?: number) => void>(() => {});
+  const midiNoteOffRef = useRef<(note: number, velocity?: number, channel?: number) => void>(() => {});
+  const midiPitchBendRef = useRef<(value: number, channel?: number) => void>(() => {});
   const handlePanicRef = useRef<() => void>(() => {});
   const isMidiLogVisibleRef = useRef<boolean>(false);
   const addMidiLogRef = useRef<(data: Uint8Array) => void>(() => {});
@@ -1068,17 +1144,21 @@ function App() {
       
       if (!midiRef.current) {
         midiRef.current = new MIDIService(
-          (note, velocity) => {
-            const noteNames = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
-            const name = noteNames[note % 12] + (Math.floor(note / 12) - 1);
-            addMidiDebugRef.current('Note On', settings.midiChannel || 'Omni', `${name} (${note})`, note, velocity);
-            midiNoteOnRef.current(note, velocity / 127);
+          (note, velocity, channel) => {
+            midiNoteOnRef.current(note, velocity / 127, channel);
+            if (isMidiDebuggerOpenRef.current) {
+              const noteNames = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+              const name = noteNames[note % 12] + (Math.floor(note / 12) - 1);
+              addMidiDebugRef.current('Note On', channel ? `Ch ${channel}` : (settings.midiChannel || 'Omni'), `${name} (${note})`, note, velocity);
+            }
           },
-          (note) => {
-            const noteNames = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
-            const name = noteNames[note % 12] + (Math.floor(note / 12) - 1);
-            addMidiDebugRef.current('Note Off', settings.midiChannel || 'Omni', `${name} (${note})`, note, 0);
-            midiNoteOffRef.current(note);
+          (note, velocity, channel) => {
+            midiNoteOffRef.current(note, velocity / 127, channel);
+            if (isMidiDebuggerOpenRef.current) {
+              const noteNames = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+              const name = noteNames[note % 12] + (Math.floor(note / 12) - 1);
+              addMidiDebugRef.current('Note Off', channel ? `Ch ${channel}` : (settings.midiChannel || 'Omni'), `${name} (${note})`, note, 0);
+            }
           },
           (cc, value, channel) => {
             addMidiDebugRef.current('CC', channel, `CC ${cc}`, cc, value);
@@ -1093,9 +1173,9 @@ function App() {
               triggerMidiLedFlashRef.current?.();
             }
           },
-          (value) => {
-            addMidiDebugRef.current('Pitch Bend', 'Any', 'Bend', value, value - 8192);
-            midiPitchBendRef.current(value);
+          (value, channel) => {
+            addMidiDebugRef.current('Pitch Bend', channel ? `Ch ${channel}` : 'Any', 'Bend', value, value - 8192);
+            midiPitchBendRef.current(value, channel);
           },
           () => {
             addMidiDebugRef.current('Panic', 'All', 'Panic', 0, 0);
@@ -1547,6 +1627,34 @@ function App() {
         handleLoadSong(songToPlay);
       }
 
+      const isAudioTrack = songToPlay.trackType === 'audio_click' || !!(songToPlay.clickAudioFile || songToPlay.soundAudioFile);
+
+      if (isAudioTrack) {
+        if (audioClickTrackService.isPlaying()) {
+          audioClickTrackService.pausePlayback(engineRef.current);
+          setIsMidiPlaying(false);
+        } else {
+          const curTime = midiProgress.current;
+          const ok = await audioClickTrackService.startPlayback({
+            clickFile: songToPlay.clickAudioFile,
+            soundFile: songToPlay.soundAudioFile,
+            engine: engineRef.current,
+            startOffset: curTime > 0 ? curTime : 0,
+            bpm: songToPlay.bpm || 120,
+          });
+          if (ok) {
+            setIsMidiPlaying(true);
+          } else {
+            showCustomAlert(
+              'NOTICE',
+              `Could not start audio track "${songToPlay.name}". Please make sure audio files (${songToPlay.clickAudioFile || ''} ${songToPlay.soundAudioFile || ''}) are present in storage.`
+            );
+            setIsMidiPlaying(false);
+          }
+        }
+        return;
+      }
+
       if (!songToPlay.midiFile) {
         // Trigger brief audio test note on synth engine so user gets instant sound feedback on mobile
         engineRef.current.noteOn(60, 0.7);
@@ -1595,9 +1703,32 @@ function App() {
     if (engineRef.current) {
       await engineRef.current.resume();
       midiTrackService.stopPlayback(engineRef.current);
+      audioClickTrackService.stopPlayback(engineRef.current);
     }
     setIsMidiPlaying(false);
     setMidiProgress({ current: 0, duration: 0 });
+  };
+
+  const handleSeekMainSong = (seconds: number) => {
+    if (!activeSong) return;
+    if (activeSong.trackType === 'audio_click' || activeSong.clickAudioFile || activeSong.soundAudioFile) {
+      audioClickTrackService.seekPlayback(seconds, engineRef.current || undefined);
+    } else if (engineRef.current) {
+      midiTrackService.seekPlayback(seconds, engineRef.current);
+    }
+    setMidiProgress(prev => ({ ...prev, current: seconds }));
+  };
+
+  const handleBpmChangeMainSong = (newBpm: number) => {
+    if (!activeSong) return;
+    const curSet = setlists.find(s => s.id === activeSetlistId) || setlists[0];
+    if (!curSet) return;
+    const updated: Song = { ...activeSong, bpm: newBpm };
+    handleUpdateSongInSetlist(curSet.id, updated);
+    setActiveSong(updated);
+    if (engineRef.current) {
+      engineRef.current.params.bpm = newBpm;
+    }
   };
 
   const handleCreateMulti = async () => {
@@ -1858,6 +1989,10 @@ function App() {
             portamentoMode={params.portamentoMode}
             vcoLfoAmount={params.vcoLfoAmount}
             vcoLfoSelect={params.vcoLfoSelect}
+            pitchBendRange={params.pitchBendRange}
+            globalPitchBendRange={settings.pitchBendRange}
+            midiChannel={params.midiChannel}
+            globalMidiChannel={settings.midiChannel}
             updateParam={updateParam}
             isMidiMappingMode={isMidiMappingMode}
             handleMapClick={handleMapClick}
@@ -2050,6 +2185,25 @@ function App() {
           { label: 'Type', key: 'chorusMode', options: ['1', '2', '3'], value: params.chorusMode }
         ]}
         params={[]}
+        updateParam={updateParam}
+        isMidiMappingMode={isMidiMappingMode}
+        handleMapClick={handleMapClick}
+        getMappedCC={getMappedCC}
+        selectedMapParam={selectedMapParam}
+      />
+
+      <FXSection 
+        label="Flanger"
+        mix={params.flangerMix ?? 0}
+        selectors={[
+          { label: 'Phase', key: 'flangerPhase' as keyof VoiceParams, options: ['norm', 'inv'], value: params.flangerPhase || 'norm' }
+        ]}
+        params={[
+          { label: 'Rate', key: 'flangerRate' as keyof VoiceParams, value: params.flangerRate ?? 0.3, min: 0.05, max: 10 },
+          { label: 'Depth', key: 'flangerDepth' as keyof VoiceParams, value: params.flangerDepth ?? 0.7, min: 0, max: 1 },
+          { label: 'Feedback', key: 'flangerFeedback' as keyof VoiceParams, value: params.flangerFeedback ?? 0.6, min: 0, max: 0.95 },
+          { label: 'Delay', key: 'flangerDelay' as keyof VoiceParams, value: params.flangerDelay ?? 0.003, min: 0.001, max: 0.015 }
+        ]}
         updateParam={updateParam}
         isMidiMappingMode={isMidiMappingMode}
         handleMapClick={handleMapClick}
@@ -2441,171 +2595,249 @@ function App() {
             selectedMapParam={selectedMapParam}
             setSelectedMapParam={setSelectedMapParam}
             songPlayPauseCc={settings.songPlayPauseCc}
+            onSeek={handleSeekMainSong}
+            onBpmChange={handleBpmChangeMainSong}
+            audioContext={engineRef.current?.ctx || null}
+            isClickToMain={isClickToMain}
+            onToggleClickToMain={() => {
+              const next = !isClickToMain;
+              setIsClickToMain(next);
+              engineRef.current?.setClickToMain(next);
+            }}
+            onToggleSongMidiReceive={handleToggleSongMidiReceive}
           />
         ) : (
           <>
             {['SYNTH', 'ARP', 'FX'].includes(currentScreen) && (
-              <div className="bg-[#0b0b0c] border-b border-synth-border px-3 sm:px-4 py-2 flex flex-col md:flex-row items-start md:items-center justify-between gap-3 shrink-0 select-none">
+              <div className="bg-[#0b0b0c] border-b border-synth-border px-3 sm:px-4 py-2 flex flex-col items-start justify-between gap-2.5 shrink-0 select-none">
                 {appMode === 'SONG' ? (
                   /* SONG MODE PERFORMANCE SUB-HEADER */
-                  <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between w-full gap-3">
-                    <div className="flex flex-wrap items-center gap-2.5">
-                      <span className="text-[10px] font-mono font-bold tracking-widest uppercase text-amber-500 bg-amber-500/10 border border-amber-500/30 px-2 py-0.5 rounded-none">
-                        SONG MODE
-                      </span>
-
-                      {/* Current Song Selector */}
-                      <div className="flex items-center gap-2 bg-black/40 border border-amber-500/40 px-2 py-1 rounded-none">
-                        <span className="text-[9px] font-mono text-amber-400 font-bold uppercase tracking-wider shrink-0">
-                          SONG:
+                  <div className="flex flex-col w-full gap-2">
+                    <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between w-full gap-3">
+                      <div className="flex flex-wrap items-center gap-2.5">
+                        <span className="text-[10px] font-mono font-bold tracking-widest uppercase text-amber-500 bg-amber-500/10 border border-amber-500/30 px-2 py-0.5 rounded-none">
+                          SONG MODE
                         </span>
-                        <select
-                          value={activeSong?.id || ''}
-                          onChange={(e) => {
-                            const curSet = setlists.find(s => s.id === activeSetlistId) || setlists[0];
-                            const found = curSet?.songs?.find(s => s.id === e.target.value);
-                            if (found) {
-                              if (isMidiPlaying) {
-                                handleStopMainSongPlay();
-                              }
-                              handleLoadSong(found);
-                            }
-                          }}
-                          className="bg-zinc-900 border border-amber-500/60 text-amber-300 font-mono text-[11px] font-bold px-2 py-0.5 rounded-none focus:outline-none focus:border-amber-400 cursor-pointer max-w-[150px] sm:max-w-[200px] truncate"
-                        >
-                          {(() => {
-                            const curSet = setlists.find(s => s.id === activeSetlistId) || setlists[0];
-                            if (curSet?.songs && curSet.songs.length > 0) {
-                              return curSet.songs.map((s, index) => (
-                                <option key={s.id} value={s.id} className="bg-zinc-900 text-amber-200">
-                                  {index + 1}. {s.name} {s.midiFile ? '🎵' : ''}
-                                </option>
-                              ));
-                            }
-                            return <option value="" disabled className="bg-zinc-900 text-zinc-500">No songs in setlist</option>;
-                          })()}
-                        </select>
-                      </div>
 
-                      {/* Quick MIDI Editor Button for Current Song */}
-                      <button
-                        onClick={() => {
-                          if (isMidiPlaying) {
-                            handleStopMainSongPlay();
-                          }
-                          const curSet = setlists.find(s => s.id === activeSetlistId) || setlists[0];
-                          const targetSong = activeSong || (curSet?.songs && curSet.songs.length > 0 ? curSet.songs[0] : null);
-                          if (!activeSong && targetSong) {
-                            handleLoadSong(targetSong);
-                          }
-                          setIsMidiEditorOpen(true);
-                        }}
-                        className="flex items-center gap-1 px-2 py-1 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/50 text-[10px] font-mono font-bold uppercase tracking-wider transition-all cursor-pointer rounded-none"
-                        title={activeSong ? `Edit MIDI Backing Track for "${activeSong.name}"` : "Open MIDI Editor"}
-                      >
-                        <Radio size={11} className="text-amber-400" />
-                        <span>MIDI</span>
-                        {activeSong?.midiFile ? (
-                          <span className="text-[8px] bg-amber-500/30 text-amber-200 px-1 py-0.2 ml-0.5 truncate max-w-[80px]">
-                            {activeSong.midiFile}
+                        {/* Current Song Selector */}
+                        <div className="flex items-center gap-2 bg-black/40 border border-amber-500/40 px-2 py-1 rounded-none">
+                          <span className="text-[9px] font-mono text-amber-400 font-bold uppercase tracking-wider shrink-0">
+                            SONG:
                           </span>
-                        ) : (
-                          <span className="text-[8px] text-zinc-400 ml-0.5">(New)</span>
-                        )}
-                      </button>
-                      
-                      {/* Styled Combo Selector for Multi Patches */}
-                      <div className="flex items-center gap-2 bg-black/40 border border-amber-500/40 px-2 py-1 rounded-none">
-                        <span className="text-[9px] font-mono text-amber-400 font-bold uppercase tracking-wider shrink-0">
-                          EDIT PART:
-                        </span>
-                        <select
-                          value={selectedSlotIndex}
-                          onChange={(e) => {
-                            const newIdx = Number(e.target.value);
-                            setSelectedSlotIndex(newIdx);
-                            const curMulti = multis.find(m => m.id === activeMultiId) || multis[0];
-                            if (curMulti && curMulti.slots[newIdx]) {
-                              const p = patches.find(pt => pt.id === curMulti.slots[newIdx].patchId);
-                              if (p) setParams(cleanVoiceParams(p.params));
-                            }
-                          }}
-                          className="bg-zinc-900 border border-amber-500/60 text-amber-300 font-mono text-[11px] font-bold px-2 py-0.5 rounded-none focus:outline-none focus:border-amber-400 cursor-pointer max-w-[150px] sm:max-w-[200px] truncate"
-                        >
-                          {((multis.find(m => m.id === activeMultiId) || multis[0])?.slots || []).map((slot, index) => {
-                            const slPatch = patches.find(p => p.id === slot.patchId);
-                            return (
-                              <option key={index} value={index} className="bg-zinc-900 text-amber-200">
-                                Part {index + 1}: {slPatch?.name || 'Empty'} (Ch {slot.channel || index + 1})
-                              </option>
-                            );
-                          })}
-                        </select>
-                      </div>
-                    </div>
+                          <select
+                            value={activeSong?.id || ''}
+                            onChange={(e) => {
+                              const curSet = setlists.find(s => s.id === activeSetlistId) || setlists[0];
+                              const found = curSet?.songs?.find(s => s.id === e.target.value);
+                              if (found) {
+                                if (isMidiPlaying) {
+                                  handleStopMainSongPlay();
+                                }
+                                handleLoadSong(found);
+                              }
+                            }}
+                            className="bg-zinc-900 border border-amber-500/60 text-amber-300 font-mono text-[11px] font-bold px-2 py-0.5 rounded-none focus:outline-none focus:border-amber-400 cursor-pointer max-w-[150px] sm:max-w-[200px] truncate"
+                          >
+                            {(() => {
+                              const curSet = setlists.find(s => s.id === activeSetlistId) || setlists[0];
+                              if (curSet?.songs && curSet.songs.length > 0) {
+                                return curSet.songs.map((s, index) => (
+                                  <option key={s.id} value={s.id} className="bg-zinc-900 text-amber-200">
+                                    {index + 1}. {s.name} {s.trackType === 'audio_click' || s.clickAudioFile ? '🎧' : s.midiFile ? '🎵' : ''}
+                                  </option>
+                                ));
+                              }
+                              return <option value="" disabled className="bg-zinc-900 text-zinc-500">No songs in setlist</option>;
+                            })()}
+                          </select>
+                        </div>
 
-                    {/* Big Song Play / Pause / Stop Buttons - ONLY IN SONG MODE */}
-                    <div className="flex items-center gap-2 shrink-0">
-                      <div className="flex items-center">
+                        {/* Quick MIDI Editor Button for Current Song */}
                         <button
                           onClick={() => {
-                            if (isMidiMappingMode) {
-                              setSelectedMapParam('songPlayPause');
-                            } else {
-                              handleToggleMainSongPlay();
+                            if (isMidiPlaying) {
+                              handleStopMainSongPlay();
                             }
+                            const curSet = setlists.find(s => s.id === activeSetlistId) || setlists[0];
+                            const targetSong = activeSong || (curSet?.songs && curSet.songs.length > 0 ? curSet.songs[0] : null);
+                            if (!activeSong && targetSong) {
+                              handleLoadSong(targetSong);
+                            }
+                            setIsMidiEditorOpen(true);
                           }}
-                          className={`h-11 sm:h-12 px-5 sm:px-6 flex items-center gap-2 font-mono text-xs sm:text-sm font-black uppercase tracking-widest transition-all rounded-none border shadow-lg ${
-                            isMidiMappingMode && selectedMapParam === 'songPlayPause'
-                              ? 'bg-blue-600 text-white border-blue-400 animate-pulse ring-2 ring-blue-300 shadow-[0_0_15px_rgba(37,99,235,0.7)]'
-                              : isMidiPlaying
-                                ? 'bg-amber-500 text-black border-amber-400 shadow-[0_0_15px_rgba(245,158,11,0.5)]'
-                                : 'bg-emerald-600 hover:bg-emerald-500 text-white border-emerald-400 shadow-[0_0_15px_rgba(16,185,129,0.4)]'
-                          }`}
-                          title={isMidiMappingMode ? "Click to assign MIDI CC to Play/Pause button" : "Play / Pause Song"}
+                          className="flex items-center gap-1 px-2 py-1 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/50 text-[10px] font-mono font-bold uppercase tracking-wider transition-all cursor-pointer rounded-none"
+                          title={activeSong ? `Edit MIDI Backing Track for "${activeSong.name}"` : "Open MIDI Editor"}
                         >
-                          {isMidiPlaying ? (
-                            <>
-                              <Pause size={18} className="fill-current" />
-                              <span>PAUSE SONG</span>
-                            </>
+                          <Radio size={11} className="text-amber-400" />
+                          <span>MIDI</span>
+                          {activeSong?.midiFile ? (
+                            <span className="text-[8px] bg-amber-500/30 text-amber-200 px-1 py-0.2 ml-0.5 truncate max-w-[80px]">
+                              {activeSong.midiFile}
+                            </span>
                           ) : (
-                            <>
-                              <Play size={18} className="fill-current" />
-                              <span>PLAY SONG</span>
-                            </>
+                            <span className="text-[8px] text-zinc-400 ml-0.5">(New)</span>
                           )}
                         </button>
-
-                        {isMidiMappingMode ? (
-                          <button
-                            onClick={() => setSelectedMapParam('songPlayPause')}
-                            className={`ml-2 px-2.5 py-1 text-[9px] font-mono font-bold uppercase tracking-wider rounded-none border transition-all ${
-                              selectedMapParam === 'songPlayPause'
-                                ? 'bg-blue-500 text-white border-white animate-pulse'
-                                : 'bg-zinc-800 text-blue-400 border-blue-500/50 hover:bg-blue-600 hover:text-white'
-                            }`}
+                        
+                        {/* Styled Combo Selector for Multi Patches */}
+                        <div className="flex items-center gap-2 bg-black/40 border border-amber-500/40 px-2 py-1 rounded-none">
+                          <span className="text-[9px] font-mono text-amber-400 font-bold uppercase tracking-wider shrink-0">
+                            EDIT PART:
+                          </span>
+                          <select
+                            value={selectedSlotIndex}
+                            onChange={(e) => {
+                              const newIdx = Number(e.target.value);
+                              setSelectedSlotIndex(newIdx);
+                              const curMulti = multis.find(m => m.id === activeMultiId) || multis[0];
+                              if (curMulti && curMulti.slots[newIdx]) {
+                                const p = patches.find(pt => pt.id === curMulti.slots[newIdx].patchId);
+                                if (p) setParams(cleanVoiceParams(p.params));
+                              }
+                            }}
+                            className="bg-zinc-900 border border-amber-500/60 text-amber-300 font-mono text-[11px] font-bold px-2 py-0.5 rounded-none focus:outline-none focus:border-amber-400 cursor-pointer max-w-[150px] sm:max-w-[200px] truncate"
                           >
-                            {selectedMapParam === 'songPlayPause' ? 'LEARNING CC...' : settings.songPlayPauseCc !== null && settings.songPlayPauseCc !== undefined ? `MIDI CC ${settings.songPlayPauseCc}` : 'MAP MIDI'}
-                          </button>
-                        ) : (
-                          settings.songPlayPauseCc !== null && settings.songPlayPauseCc !== undefined && (
-                            <span className="ml-2 px-2 py-1 text-[9px] font-mono font-bold text-amber-400 bg-amber-950/80 border border-amber-500/40 rounded-none shadow-sm">
-                              CC {settings.songPlayPauseCc}
-                            </span>
-                          )
-                        )}
+                            {((multis.find(m => m.id === activeMultiId) || multis[0])?.slots || []).map((slot, index) => {
+                              const slPatch = patches.find(p => p.id === slot.patchId);
+                              return (
+                                <option key={index} value={index} className="bg-zinc-900 text-amber-200">
+                                  Part {index + 1}: {slPatch?.name || 'Empty'} (Ch {slot.channel || index + 1})
+                                </option>
+                              );
+                            })}
+                          </select>
+                        </div>
                       </div>
 
-                      <button
-                        onClick={handleStopMainSongPlay}
-                        className="h-11 sm:h-12 px-3 sm:px-4 flex items-center gap-1.5 bg-zinc-900 hover:bg-zinc-800 text-red-400 font-mono text-xs font-bold uppercase tracking-widest border border-zinc-800 hover:border-red-500/50 rounded-none transition-all shadow-md"
-                        title="Stop Song"
-                      >
-                        <Square size={16} className="fill-current text-red-500" />
-                        <span className="hidden sm:inline">STOP</span>
-                      </button>
+                      {/* Song Mode Aux Controls & Big Song Play / Pause / Stop Buttons */}
+                      <div className="flex items-center gap-2 shrink-0">
+                        {/* Global Click to Main Output Button */}
+                        <button
+                          onClick={() => {
+                            const next = !isClickToMain;
+                            setIsClickToMain(next);
+                            engineRef.current?.setClickToMain(next);
+                          }}
+                          className={`h-11 sm:h-12 px-3 flex items-center gap-1.5 font-mono text-[10px] sm:text-[11px] font-bold uppercase tracking-wider transition-all rounded-none border shadow-md cursor-pointer ${
+                            isClickToMain
+                              ? 'bg-amber-500 text-black border-amber-300 font-black shadow-[0_0_12px_rgba(245,158,11,0.5)]'
+                              : 'bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border-zinc-700 hover:text-white'
+                          }`}
+                          title="Practice Mode: Mix metronome/click into Main PA audio output so the band can hear it"
+                        >
+                          <Volume2 size={15} className={isClickToMain ? 'text-black' : 'text-amber-400'} />
+                          <span className="hidden sm:inline">CLICK TO MAIN:</span>
+                          <span className="sm:hidden">CLICK:</span>
+                          <span>{isClickToMain ? 'ON' : 'OFF'}</span>
+                        </button>
+
+                        {/* Active Song MIDI Receive Toggle */}
+                        {activeSong && (
+                          <button
+                            onClick={() => handleToggleSongMidiReceive(activeSong.id)}
+                            className={`h-11 sm:h-12 px-3 flex items-center gap-1.5 font-mono text-[10px] sm:text-[11px] font-bold uppercase tracking-wider transition-all rounded-none border shadow-md cursor-pointer ${
+                              activeSong.midiReceive !== false
+                                ? 'bg-emerald-950/80 border-emerald-500/60 text-emerald-300 hover:bg-emerald-900/80'
+                                : 'bg-red-950/80 border-red-500/60 text-red-300 hover:bg-red-900/80'
+                            }`}
+                            title={activeSong.midiReceive !== false ? "MIDI Receive ON: Synth responds to incoming notes" : "MIDI Receive OFF: Clicktrack only, external synth in use"}
+                          >
+                            <Radio size={13} className={activeSong.midiReceive !== false ? "text-emerald-400" : "text-red-400"} />
+                            <span className="hidden sm:inline">MIDI RX:</span>
+                            <span className="sm:hidden">RX:</span>
+                            <span>{activeSong.midiReceive !== false ? 'ON' : 'OFF'}</span>
+                          </button>
+                        )}
+
+                        <div className="flex items-center">
+                          <button
+                            onClick={() => {
+                              if (isMidiMappingMode) {
+                                setSelectedMapParam('songPlayPause');
+                              } else {
+                                handleToggleMainSongPlay();
+                              }
+                            }}
+                            className={`h-11 sm:h-12 px-5 sm:px-6 flex items-center gap-2 font-mono text-xs sm:text-sm font-black uppercase tracking-widest transition-all rounded-none border shadow-lg ${
+                              isMidiMappingMode && selectedMapParam === 'songPlayPause'
+                                ? 'bg-blue-600 text-white border-blue-400 animate-pulse ring-2 ring-blue-300 shadow-[0_0_15px_rgba(37,99,235,0.7)]'
+                                : isMidiPlaying
+                                  ? 'bg-amber-500 text-black border-amber-400 shadow-[0_0_15px_rgba(245,158,11,0.5)]'
+                                  : 'bg-emerald-600 hover:bg-emerald-500 text-white border-emerald-400 shadow-[0_0_15px_rgba(16,185,129,0.4)]'
+                            }`}
+                            title={isMidiMappingMode ? "Click to assign MIDI CC to Play/Pause button" : "Play / Pause Song"}
+                          >
+                            {isMidiPlaying ? (
+                              <>
+                                <Pause size={18} className="fill-current" />
+                                <span>PAUSE SONG</span>
+                              </>
+                            ) : (
+                              <>
+                                <Play size={18} className="fill-current" />
+                                <span>PLAY SONG</span>
+                              </>
+                            )}
+                          </button>
+
+                          {isMidiMappingMode ? (
+                            <button
+                              onClick={() => setSelectedMapParam('songPlayPause')}
+                              className={`ml-2 px-2.5 py-1 text-[9px] font-mono font-bold uppercase tracking-wider rounded-none border transition-all ${
+                                selectedMapParam === 'songPlayPause'
+                                  ? 'bg-blue-500 text-white border-white animate-pulse'
+                                  : 'bg-zinc-800 text-blue-400 border-blue-500/50 hover:bg-blue-600 hover:text-white'
+                              }`}
+                            >
+                              {selectedMapParam === 'songPlayPause' ? 'LEARNING CC...' : settings.songPlayPauseCc !== null && settings.songPlayPauseCc !== undefined ? `MIDI CC ${settings.songPlayPauseCc}` : 'MAP MIDI'}
+                            </button>
+                          ) : (
+                            settings.songPlayPauseCc !== null && settings.songPlayPauseCc !== undefined && (
+                              <span className="ml-2 px-2 py-1 text-[9px] font-mono font-bold text-amber-400 bg-amber-950/80 border border-amber-500/40 rounded-none shadow-sm">
+                                CC {settings.songPlayPauseCc}
+                              </span>
+                            )
+                          )}
+                        </div>
+
+                        <button
+                          onClick={handleStopMainSongPlay}
+                          className="h-11 sm:h-12 px-3 sm:px-4 flex items-center gap-1.5 bg-zinc-900 hover:bg-zinc-800 text-red-400 font-mono text-xs font-bold uppercase tracking-widest border border-zinc-800 hover:border-red-500/50 rounded-none transition-all shadow-md"
+                          title="Stop Song"
+                        >
+                          <Square size={16} className="fill-current text-red-500" />
+                          <span className="hidden sm:inline">STOP</span>
+                        </button>
+                      </div>
                     </div>
+
+                    {/* Backing Track Waveform or Progress Indicator in Song Mode */}
+                    {activeSong && (
+                      <div className="w-full pt-1.5 border-t border-zinc-900/80">
+                        {activeSong.trackType === 'audio_click' || activeSong.clickAudioFile || activeSong.soundAudioFile ? (
+                          <AudioWaveform
+                            song={activeSong}
+                            currentTime={midiProgress.current}
+                            duration={midiProgress.duration}
+                            isPlaying={isMidiPlaying}
+                            onSeek={handleSeekMainSong}
+                            onBpmChange={handleBpmChangeMainSong}
+                            audioContext={engineRef.current?.ctx || null}
+                            compact
+                          />
+                        ) : (
+                          <ClickProgressIndicator
+                            currentTime={midiProgress.current}
+                            duration={midiProgress.duration}
+                            isPlaying={isMidiPlaying}
+                            bpm={activeSong.bpm || 120}
+                            onBpmChange={handleBpmChangeMainSong}
+                            title={activeSong.midiFile ? `MIDI CLICK: ${activeSong.midiFile}` : 'METRONOME CLICK'}
+                            compact
+                          />
+                        )}
+                      </div>
+                    )}
                   </div>
                 ) : (
                   /* EDIT MODE SUB-HEADER */
@@ -3185,6 +3417,21 @@ function App() {
                                                 }`}>
                                                   {song.type}
                                                 </span>
+                                                <button
+                                                  type="button"
+                                                  onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    handleToggleSongMidiReceive(song.id);
+                                                  }}
+                                                  className={`px-1 text-[8px] font-bold tracking-widest uppercase border transition-colors cursor-pointer ${
+                                                    song.midiReceive !== false
+                                                      ? 'bg-emerald-950/60 border-emerald-500/50 text-emerald-400'
+                                                      : 'bg-red-950/60 border-red-500/50 text-red-400'
+                                                  }`}
+                                                  title={song.midiReceive !== false ? "MIDI Receive ON (click to disable for clicktrack only)" : "MIDI Receive OFF (click to enable)"}
+                                                >
+                                                  RX {song.midiReceive !== false ? 'ON' : 'OFF'}
+                                                </button>
                                                 <span className="truncate">{targetName || 'UNKNOWN'}</span>
                                               </div>
                                             </div>
@@ -3446,6 +3693,38 @@ function App() {
                                 </select>
                               </div>
 
+                              <div className="flex flex-col gap-1">
+                                <label className="text-[8px] font-bold uppercase tracking-widest text-zinc-500">MIDI Ch</label>
+                                <select
+                                  value={slot.midiChannel === undefined || slot.midiChannel === 'patch' ? 'patch' : String(slot.midiChannel)}
+                                  onChange={(e) => {
+                                    const val = e.target.value;
+                                    const resolvedVal = val === 'patch' ? 'patch' : val === 'default' ? 'default' : parseInt(val, 10);
+                                    handleUpdateSlot(index, { midiChannel: resolvedVal });
+                                  }}
+                                  className="bg-black border border-zinc-800 p-1 text-[11px] font-mono text-amber-400 focus:border-orange-500 outline-none"
+                                  onClick={(e) => e.stopPropagation()}
+                                  title="Part MIDI Channel override: Use original patch setting, global config setting, or specific channel"
+                                >
+                                  <option value="patch">
+                                    {(() => {
+                                      const pt = patches.find(p => p.id === slot.patchId);
+                                      const ch = pt?.params?.midiChannel === undefined || pt?.params?.midiChannel === 'default'
+                                        ? `Def (${settings.midiChannel === 0 ? 'Omni' : `Ch ${settings.midiChannel}`})`
+                                        : pt.params.midiChannel === 0 ? 'Omni' : `Ch ${pt.params.midiChannel}`;
+                                      return `PATCH (${ch})`;
+                                    })()}
+                                  </option>
+                                  <option value="default">
+                                    GLOBAL ({settings.midiChannel === 0 ? 'OMNI' : `CH ${settings.midiChannel}`})
+                                  </option>
+                                  <option value="0">OMNI (ALL)</option>
+                                  {Array.from({ length: 16 }, (_, i) => i + 1).map(ch => (
+                                    <option key={ch} value={String(ch)}>CH {ch}</option>
+                                  ))}
+                                </select>
+                              </div>
+
                               <button
                                 onClick={(e) => { e.stopPropagation(); handleDeleteSlot(index); }}
                                 className="p-2 hover:bg-red-500/10 text-red-500 hover:text-red-400 rounded-none transition-colors self-end md:self-auto xl:mt-3"
@@ -3551,7 +3830,11 @@ function App() {
           </div>
         )}
 
-        <SettingsModal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} />
+        <SettingsModal 
+          isOpen={isSettingsOpen} 
+          onClose={() => setIsSettingsOpen(false)} 
+          engine={engineRef.current}
+        />
 
         {(() => {
           const curSet = setlists.find(s => s.id === activeSetlistId) || setlists[0];
@@ -3565,12 +3848,14 @@ function App() {
               onClose={() => setIsMidiEditorOpen(false)}
               initialFileName={targetSong?.midiFile || (targetSong ? `${targetSong.name.replace(/[^a-zA-Z0-9_-]/g, '_')}.mid` : undefined)}
               songName={targetSong?.name}
+              songBpm={targetSong?.bpm}
               engine={engineRef.current}
-              onAssignToSong={(savedFileName) => {
+              onAssignToSong={(savedFileName, savedBpm) => {
                 if (targetSong && curSet) {
                   const updatedSong: Song = {
                     ...targetSong,
                     midiFile: savedFileName,
+                    bpm: savedBpm || targetSong.bpm,
                     midiTrackOverrides: targetSong.midiFile === savedFileName ? (targetSong.midiTrackOverrides || {}) : {}
                   };
                   handleUpdateSongInSetlist(curSet.id, updatedSong);

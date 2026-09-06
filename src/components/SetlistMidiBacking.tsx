@@ -1,11 +1,14 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { Play, Square, Pause, Music, Sliders, Wand2, Volume2, VolumeX, ChevronDown, ChevronUp, Search, X, Activity, Edit3 } from 'lucide-react';
+import { Play, Square, Pause, Music, Sliders, Wand2, Volume2, VolumeX, ChevronDown, ChevronUp, Search, X, Activity, Edit3, Radio, Disc } from 'lucide-react';
 import { Song, Patch, Multi } from '../types';
 import { midiTrackService, ParsedMidiFile, LeadInInfo } from '../services/MidiTrackService';
+import { audioClickTrackService, AudioClickSongPair } from '../services/AudioClickTrackService';
 import { soundfontService } from '../services/SoundfontService';
 import { JupiterEngine } from '../engine/JupiterEngine';
 import { useSettings } from '../contexts/SettingsContext';
 import { MidiEditorModal } from './MidiEditorModal';
+import { AudioWaveform } from './AudioWaveform';
+import { ClickProgressIndicator } from './ClickProgressIndicator';
 
 interface SearchableSoundSelectProps {
   value: string;
@@ -150,6 +153,7 @@ export const SetlistMidiBacking: React.FC<SetlistMidiBackingProps> = ({
 }) => {
   const { settings, updateSettings } = useSettings();
   const [midiFiles, setMidiFiles] = useState<string[]>([]);
+  const [audioClickPairs, setAudioClickPairs] = useState<AudioClickSongPair[]>([]);
   const [parsedMidi, setParsedMidi] = useState<ParsedMidiFile | null>(null);
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
   const [progress, setProgress] = useState<{ current: number; duration: number }>({ current: 0, duration: 0 });
@@ -159,19 +163,40 @@ export const SetlistMidiBacking: React.FC<SetlistMidiBackingProps> = ({
   const [isGenerating, setIsGenerating] = useState<boolean>(false);
   const [isEditorOpen, setIsEditorOpen] = useState<boolean>(false);
 
+  const isAudioClickSong = song.trackType === 'audio_click' || !!song.clickAudioFile || !!song.soundAudioFile;
+
   useEffect(() => {
     soundfontService.listDownloadedMidiFiles().then(setMidiFiles);
+    soundfontService.listDownloadedFiles().then(files => {
+      setAudioClickPairs(audioClickTrackService.detectAudioClickTracks(files));
+    });
     
     const handleUpdate = () => {
       soundfontService.listDownloadedMidiFiles().then(setMidiFiles);
+      soundfontService.listDownloadedFiles().then(files => {
+        setAudioClickPairs(audioClickTrackService.detectAudioClickTracks(files));
+      });
     };
 
     window.addEventListener('soundfontsUpdated', handleUpdate);
     return () => window.removeEventListener('soundfontsUpdated', handleUpdate);
   }, []);
 
+  // Audio click track progress listener
   useEffect(() => {
-    if (song.midiFile) {
+    if (!isAudioClickSong) return;
+    const unsub = audioClickTrackService.addProgressListener((cur, dur, playing) => {
+      if (playing !== isPlayingRef.current) {
+        isPlayingRef.current = playing;
+        setIsPlaying(playing);
+      }
+      setProgress({ current: cur, duration: dur });
+    });
+    return unsub;
+  }, [isAudioClickSong]);
+
+  useEffect(() => {
+    if (song.midiFile && !isAudioClickSong) {
       midiTrackService
         .parseMidiFile(song.midiFile)
         .then(setParsedMidi)
@@ -182,7 +207,7 @@ export const SetlistMidiBacking: React.FC<SetlistMidiBackingProps> = ({
     } else {
       setParsedMidi(null);
     }
-  }, [song.midiFile]);
+  }, [song.midiFile, isAudioClickSong]);
 
   const isPlayingRef = useRef<boolean>(false);
   const lastProgressRef = useRef<number>(0);
@@ -190,6 +215,8 @@ export const SetlistMidiBacking: React.FC<SetlistMidiBackingProps> = ({
   const leadInKeyRef = useRef<string>('');
 
   useEffect(() => {
+    if (isAudioClickSong) return;
+
     const unsub = midiTrackService.addProgressListener((cur, dur, playing, activeTracks, lInInfo) => {
       if (song.midiFile && midiTrackService.getPlayingFileName() === song.midiFile) {
         if (playing !== isPlayingRef.current) {
@@ -230,14 +257,47 @@ export const SetlistMidiBacking: React.FC<SetlistMidiBackingProps> = ({
       }
     });
     return unsub;
-  }, [song.midiFile]);
+  }, [song.midiFile, isAudioClickSong]);
 
   const handleMidiSelect = (fileName: string) => {
     onUpdateSong({
       ...song,
+      trackType: 'midi',
       midiFile: fileName || undefined,
       midiTrackOverrides: {},
     });
+  };
+
+  const handleAudioPairSelect = (pairSongName: string) => {
+    if (!pairSongName) {
+      onUpdateSong({
+        ...song,
+        trackType: 'none',
+        clickAudioFile: undefined,
+        soundAudioFile: undefined,
+      });
+      return;
+    }
+    const found = audioClickPairs.find(p => p.songName === pairSongName);
+    if (found) {
+      onUpdateSong({
+        ...song,
+        trackType: 'audio_click',
+        clickAudioFile: found.clickFile,
+        soundAudioFile: found.soundFile,
+        bpm: song.bpm || 120,
+      });
+    }
+  };
+
+  const handleBpmChange = (newBpm: number) => {
+    onUpdateSong({
+      ...song,
+      bpm: newBpm,
+    });
+    if (engine) {
+      engine.params.bpm = newBpm;
+    }
   };
 
   const handleLeadInChange = (leadInBars: number) => {
@@ -248,7 +308,29 @@ export const SetlistMidiBacking: React.FC<SetlistMidiBackingProps> = ({
   };
 
   const handleTogglePlay = async () => {
-    if (!engine || !song.midiFile) return;
+    if (!engine) return;
+
+    if (isAudioClickSong) {
+      if (isPlaying) {
+        audioClickTrackService.pausePlayback(engine);
+        setIsPlaying(false);
+      } else {
+        if (onLoadSong) {
+          onLoadSong(song);
+        }
+        const ok = await audioClickTrackService.startPlayback({
+          clickFile: song.clickAudioFile,
+          soundFile: song.soundAudioFile,
+          engine,
+          startOffset: progress.current,
+          bpm: song.bpm || 120,
+        });
+        if (ok) setIsPlaying(true);
+      }
+      return;
+    }
+
+    if (!song.midiFile) return;
 
     if (isPlaying) {
       midiTrackService.pausePlayback(engine);
@@ -272,12 +354,22 @@ export const SetlistMidiBacking: React.FC<SetlistMidiBackingProps> = ({
 
   const handleStop = () => {
     if (engine) {
-      midiTrackService.stopPlayback(engine);
+      if (isAudioClickSong) {
+        audioClickTrackService.stopPlayback(engine);
+      } else {
+        midiTrackService.stopPlayback(engine);
+      }
     }
     setIsPlaying(false);
-    setProgress({ current: 0, duration: parsedMidi?.duration || 0 });
+    setProgress({ current: 0, duration: isAudioClickSong ? progress.duration : (parsedMidi?.duration || 0) });
     setActiveTrackIndexes(new Set());
     setLeadInState(null);
+  };
+
+  const handleSeek = (seconds: number) => {
+    if (isAudioClickSong && engine) {
+      audioClickTrackService.seekPlayback(seconds, engine);
+    }
   };
 
   const handleGenerateGM = async () => {
@@ -371,62 +463,222 @@ export const SetlistMidiBacking: React.FC<SetlistMidiBackingProps> = ({
 
   return (
     <div className="mt-3 p-3 bg-zinc-950/80 border border-zinc-800/80 rounded-none text-xs space-y-2.5">
-      <div className="flex flex-col gap-2 border-b border-zinc-900 pb-2">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div className="flex items-center gap-2">
-            <Music className="w-3.5 h-3.5 text-amber-500" />
-            <span className="text-[10px] font-bold uppercase tracking-widest text-zinc-300">
-              MIDI Click & Backing Track
-            </span>
-          </div>
+      {/* Track Type Switcher */}
+      <div className="flex items-center gap-1 bg-black p-1 border border-zinc-800">
+        <button
+          type="button"
+          onClick={() => onUpdateSong({ ...song, trackType: 'midi' })}
+          className={`flex-1 py-1 px-2 text-[10px] font-mono font-bold uppercase tracking-wider transition-all ${
+            !isAudioClickSong ? 'bg-amber-500 text-black shadow-sm' : 'text-zinc-400 hover:text-white'
+          }`}
+        >
+          MIDI Backing Track
+        </button>
+        <button
+          type="button"
+          onClick={() => onUpdateSong({ ...song, trackType: 'audio_click', bpm: song.bpm || 120 })}
+          className={`flex-1 py-1 px-2 text-[10px] font-mono font-bold uppercase tracking-wider transition-all ${
+            isAudioClickSong ? 'bg-cyan-500 text-black shadow-sm' : 'text-zinc-400 hover:text-white'
+          }`}
+        >
+          Dual Audio Click Track
+        </button>
+        <button
+          type="button"
+          onClick={() => onUpdateSong({ ...song, midiReceive: song.midiReceive === false ? true : false })}
+          className={`py-1 px-2.5 text-[10px] font-mono font-bold uppercase tracking-wider transition-all border shrink-0 ${
+            song.midiReceive !== false
+              ? 'bg-emerald-950/80 border-emerald-500/80 text-emerald-300'
+              : 'bg-red-950/80 border-red-500/80 text-red-300'
+          }`}
+          title={song.midiReceive !== false ? "MIDI Receive is ON: Synth responds to incoming notes" : "MIDI Receive is OFF: Clicktrack only (external synth in use)"}
+        >
+          MIDI RX: {song.midiReceive !== false ? 'ON' : 'OFF'}
+        </button>
+      </div>
 
-          {/* Lead-in count-in selection */}
-          <div className="flex items-center gap-1 bg-black border border-zinc-800 px-1.5 py-1">
-            <span className="text-[8px] font-bold uppercase tracking-wider text-zinc-500">Lead-in:</span>
-            {[0, 1, 2, 4].map((bars) => (
+      {isAudioClickSong ? (
+        /* DUAL AUDIO CLICK TRACK UI */
+        <div className="space-y-2.5">
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-zinc-900 pb-2">
+            <div className="flex items-center gap-2">
+              <Radio className="w-3.5 h-3.5 text-cyan-400 animate-pulse" />
+              <span className="text-[10px] font-bold uppercase tracking-widest text-cyan-300">
+                WAV DUAL AUDIO TRACK (CLICK + SOUND)
+              </span>
+            </div>
+
+            {/* Manual BPM Setter */}
+            <div className="flex items-center gap-1.5 bg-black border border-zinc-800 px-2 py-1">
+              <span className="text-[9px] font-mono font-bold text-zinc-400 uppercase">MANUAL BPM:</span>
               <button
-                key={bars}
                 type="button"
-                onClick={() => handleLeadInChange(bars)}
-                className={`px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-wider transition-all ${
-                  currentLeadIn === bars
-                    ? 'bg-amber-500 text-black font-bold'
-                    : 'bg-zinc-900 text-zinc-400 hover:text-white'
-                }`}
+                onClick={() => handleBpmChange(Math.max(40, (song.bpm || 120) - 1))}
+                className="px-1.5 text-zinc-400 hover:text-white font-bold"
               >
-                {bars === 0 ? 'OFF' : `${bars}B`}
+                -
               </button>
-            ))}
+              <input
+                type="number"
+                min="40"
+                max="280"
+                value={song.bpm || 120}
+                onChange={(e) => {
+                  const val = parseInt(e.target.value);
+                  if (!isNaN(val)) handleBpmChange(val);
+                }}
+                className="w-12 bg-transparent text-amber-400 text-center font-mono font-bold outline-none"
+              />
+              <button
+                type="button"
+                onClick={() => handleBpmChange(Math.min(280, (song.bpm || 120) + 1))}
+                className="px-1.5 text-zinc-400 hover:text-white font-bold"
+              >
+                +
+              </button>
+            </div>
           </div>
+
+          {/* Audio Pair Selector Dropdown */}
+          <div className="w-full flex items-center gap-2">
+            <select
+              value={
+                audioClickPairs.find(
+                  p => (p.clickFile && p.clickFile === song.clickAudioFile) ||
+                       (p.soundFile && p.soundFile === song.soundAudioFile)
+                )?.songName || ''
+              }
+              onChange={(e) => handleAudioPairSelect(e.target.value)}
+              className="flex-1 bg-black border border-zinc-800 text-cyan-300 font-mono text-[11px] p-2 focus:border-cyan-500 outline-none rounded-none cursor-pointer truncate"
+            >
+              <option value="">-- SELECT AUDIO CLICK TRACK PAIR --</option>
+              {audioClickPairs.map((pair) => (
+                <option key={pair.songName} value={pair.songName}>
+                  {pair.songName.toUpperCase()} ({pair.clickFile || 'no click'} + {pair.soundFile || 'no sound'})
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Transport Controls Bar for Audio Track */}
+          <div className="flex flex-wrap items-center justify-between gap-2 bg-black/60 p-2 border border-zinc-900">
+            <div className="flex items-center gap-2">
+              <button
+                onClick={handleTogglePlay}
+                disabled={!song.clickAudioFile && !song.soundAudioFile}
+                className={`p-1.5 border transition-all shrink-0 ${
+                  isPlaying
+                    ? 'bg-amber-500 text-black border-amber-500'
+                    : 'bg-zinc-900 text-amber-400 border-zinc-800 hover:border-amber-500/50 disabled:opacity-50'
+                }`}
+                title={isPlaying ? 'Pause Audio Track' : 'Play Audio Track'}
+              >
+                {isPlaying ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
+              </button>
+
+              <button
+                onClick={handleStop}
+                disabled={!song.clickAudioFile && !song.soundAudioFile}
+                className="p-1.5 bg-zinc-900 text-zinc-400 border border-zinc-800 hover:text-white transition-all shrink-0 disabled:opacity-50"
+                title="Stop Audio Track"
+              >
+                <Square className="w-3.5 h-3.5" />
+              </button>
+
+              <div className="flex items-center gap-2 text-[10px] font-mono text-zinc-400">
+                <span className="text-amber-400 font-bold">{formatTime(progress.current)}</span>
+                <span className="text-zinc-600">/</span>
+                <span>{formatTime(progress.duration)}</span>
+                <span className="text-cyan-400 font-bold">({song.bpm || 120} BPM)</span>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => updateSettings({ enableSurround51: !settings.enableSurround51 })}
+              className={`px-2 py-1 text-[8px] font-bold uppercase tracking-wider border transition-all rounded-none ${
+                settings.enableSurround51
+                  ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/60'
+                  : 'bg-zinc-900 text-zinc-500 border-zinc-800 hover:text-zinc-300'
+              }`}
+              title="5.1 Surround Output: Sound -> Front Ch 0/1, Click -> Rear Ch 4/5"
+            >
+              5.1 Click: {settings.enableSurround51 ? 'ON' : 'OFF'}
+            </button>
+          </div>
+
+          {/* Interactive Waveform with Moving Cursor */}
+          {(song.clickAudioFile || song.soundAudioFile) && (
+            <AudioWaveform
+              song={song}
+              currentTime={progress.current}
+              duration={progress.duration}
+              isPlaying={isPlaying}
+              onSeek={handleSeek}
+              onBpmChange={handleBpmChange}
+              audioContext={engine?.ctx}
+            />
+          )}
         </div>
+      ) : (
+        /* MIDI BACKING TRACK UI */
+        <>
+          <div className="flex flex-col gap-2 border-b border-zinc-900 pb-2">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <Music className="w-3.5 h-3.5 text-amber-500" />
+              <span className="text-[10px] font-bold uppercase tracking-widest text-zinc-300">
+                MIDI Click & Backing Track
+              </span>
+            </div>
 
-        {/* Backing Track Combo Dropdown & Edit Button */}
-        <div className="w-full flex items-center gap-2">
-          <select
-            value={song.midiFile || ''}
-            onChange={(e) => handleMidiSelect(e.target.value)}
-            className="flex-1 bg-black border border-zinc-800 text-amber-400 font-mono text-[11px] p-2 focus:border-amber-500 outline-none rounded-none cursor-pointer truncate"
-          >
-            <option value="">-- NO BACKING TRACK --</option>
-            {midiFiles.map((file) => (
-              <option key={file} value={file}>
-                {file}
-              </option>
-            ))}
-          </select>
+            {/* Lead-in count-in selection */}
+            <div className="flex items-center gap-1 bg-black border border-zinc-800 px-1.5 py-1">
+              <span className="text-[8px] font-bold uppercase tracking-wider text-zinc-500">Lead-in:</span>
+              {[0, 1, 2, 4].map((bars) => (
+                <button
+                  key={bars}
+                  type="button"
+                  onClick={() => handleLeadInChange(bars)}
+                  className={`px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-wider transition-all ${
+                    currentLeadIn === bars
+                      ? 'bg-amber-500 text-black font-bold'
+                      : 'bg-zinc-900 text-zinc-400 hover:text-white'
+                  }`}
+                >
+                  {bars === 0 ? 'OFF' : `${bars}B`}
+                </button>
+              ))}
+            </div>
+          </div>
 
-          <button
-            onClick={() => setIsEditorOpen(true)}
-            className="px-3 py-2 bg-amber-500 hover:bg-amber-400 text-black font-bold font-mono text-[11px] flex items-center gap-1.5 transition-colors shrink-0 shadow-md"
-            title="Open Signal MIDI Piano Roll Editor to edit click & backing tracks"
-          >
-            <Edit3 className="w-3.5 h-3.5" />
-            <span>{song.midiFile ? 'Edit MIDI' : 'New MIDI Editor'}</span>
-          </button>
-        </div>
+          {/* Backing Track Combo Dropdown & Edit Button */}
+          <div className="w-full flex items-center gap-2">
+            <select
+              value={song.midiFile || ''}
+              onChange={(e) => handleMidiSelect(e.target.value)}
+              className="flex-1 bg-black border border-zinc-800 text-amber-400 font-mono text-[11px] p-2 focus:border-amber-500 outline-none rounded-none cursor-pointer truncate"
+            >
+              <option value="">-- NO BACKING TRACK --</option>
+              {midiFiles.map((file) => (
+                <option key={file} value={file}>
+                  {file}
+                </option>
+              ))}
+            </select>
 
-        {song.midiFile && (
-          <div className="flex flex-wrap items-center gap-2 pt-0.5">
+            <button
+              onClick={() => setIsEditorOpen(true)}
+              className="px-3 py-2 bg-amber-500 hover:bg-amber-400 text-black font-bold font-mono text-[11px] flex items-center gap-1.5 transition-colors shrink-0 shadow-md"
+              title="Open Signal MIDI Piano Roll Editor to edit click & backing tracks"
+            >
+              <Edit3 className="w-3.5 h-3.5" />
+              <span>{song.midiFile ? 'Edit MIDI' : 'New MIDI Editor'}</span>
+            </button>
+          </div>
+
+          {song.midiFile && (
+            <div className="flex flex-wrap items-center gap-2 pt-0.5">
             <button
               type="button"
               onClick={() => {
@@ -473,9 +725,13 @@ export const SetlistMidiBacking: React.FC<SetlistMidiBackingProps> = ({
         onClose={() => setIsEditorOpen(false)}
         initialFileName={song.midiFile}
         songName={song.name}
+        songBpm={song.bpm}
         engine={engine}
-        onAssignToSong={(newFileName) => {
+        onAssignToSong={(newFileName, newBpm) => {
           handleMidiSelect(newFileName);
+          if (newBpm && onUpdateSong) {
+            onUpdateSong({ ...song, midiFile: newFileName, bpm: newBpm });
+          }
           soundfontService.listDownloadedMidiFiles().then(setMidiFiles);
         }}
       />
@@ -658,6 +914,8 @@ export const SetlistMidiBacking: React.FC<SetlistMidiBackingProps> = ({
           )}
         </div>
       )}
-    </div>
-  );
+    </>
+  )}
+</div>
+);
 };

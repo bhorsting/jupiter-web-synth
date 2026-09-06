@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { VoiceParams, PerformanceSettings, Multi, Patch, createDefaultDX7Voice, getDX7Algorithm } from '../types';
+import { VoiceParams, PerformanceSettings, Multi, MultiSlot, Patch, createDefaultDX7Voice, getDX7Algorithm } from '../types';
 import { soundfontService } from '../services/SoundfontService';
 
 let noiseBuffer: AudioBuffer | null = null;
@@ -83,6 +83,7 @@ class Voice {
   public midiNote: number | null = null;
   public originalMidiNote: number | null = null;
   public currentPatchId: string | null = null;
+  public midiChannel: number = 0;
   public startTime: number = 0;
   public isReleasing: boolean = false;
   private stopTimer: number | null = null;
@@ -139,9 +140,22 @@ class Voice {
     this.updateParams(params);
   }
 
+  getEffectivePitchBendRange(): number {
+    if (this.params && typeof this.params.pitchBendRange === 'number' && this.params.pitchBendRange >= 0) {
+      return this.params.pitchBendRange;
+    }
+    return this.perfSettings?.pitchBendRange ?? 2;
+  }
+
   updateParams(params: VoiceParams, settings?: PerformanceSettings) {
+    const oldRange = this.getEffectivePitchBendRange();
     this.params = params;
     if (settings) this.perfSettings = settings;
+    const newRange = this.getEffectivePitchBendRange();
+    if (oldRange !== newRange && this.pitchBendOffset !== 0) {
+      const currentUnit = this.pitchBendOffset / (oldRange || 1);
+      this.setPitchBend(currentUnit * newRange);
+    }
     const time = this.ctx.currentTime;
     this.activeSynthEngine = params.synthEngine || 'jupiter';
 
@@ -366,7 +380,7 @@ class Voice {
     }
   }
 
-  triggerAttack(midiNote: number, lastFreq: number, time: number, isLegato: boolean = false, velocity: number = 1) {
+  triggerAttack(midiNote: number, lastFreq: number, time: number, isLegato: boolean = false, velocity: number = 1, channel: number = 0) {
     if (this.stopTimer) {
       clearTimeout(this.stopTimer);
       this.stopTimer = null;
@@ -375,6 +389,7 @@ class Voice {
     this.killTransientNodes(time);
 
     this.midiNote = midiNote;
+    this.midiChannel = channel || 0;
     this.startTime = time;
     this.isReleasing = false;
     this.velocity = velocity;
@@ -1722,6 +1737,17 @@ class SlotFXChain {
   public leslieVibGainR: GainNode;
   public leslieMerger: ChannelMergerNode;
 
+  // Flanger
+  public flangerDelayL: DelayNode;
+  public flangerDelayR: DelayNode;
+  public flangerGainL: GainNode;
+  public flangerGainR: GainNode;
+  public flangerFeedbackL: GainNode;
+  public flangerFeedbackR: GainNode;
+  public flangerLFO: OscillatorNode;
+  public flangerLfoGainL: GainNode;
+  public flangerLfoGainR: GainNode;
+
   private lastTargetLeslieRate: number = 0;
   private lastDistortionMode: string = '';
   private lastDistortionAmount: number = -1;
@@ -1940,6 +1966,49 @@ class SlotFXChain {
     this.reverb.connect(this.reverbGain);
     this.reverbGain.connect(this.eqFilters[0]);
 
+    // Flanger
+    this.flangerDelayL = ctx.createDelay(0.05);
+    this.flangerDelayR = ctx.createDelay(0.05);
+    this.flangerGainL = ctx.createGain();
+    this.flangerGainR = ctx.createGain();
+    this.flangerFeedbackL = ctx.createGain();
+    this.flangerFeedbackR = ctx.createGain();
+    this.flangerLFO = ctx.createOscillator();
+    this.flangerLfoGainL = ctx.createGain();
+    this.flangerLfoGainR = ctx.createGain();
+
+    this.flangerDelayL.delayTime.setValueAtTime(0.003, ctx.currentTime);
+    this.flangerDelayR.delayTime.setValueAtTime(0.003, ctx.currentTime);
+    this.flangerGainL.gain.setValueAtTime(0, ctx.currentTime);
+    this.flangerGainR.gain.setValueAtTime(0, ctx.currentTime);
+    this.flangerFeedbackL.gain.setValueAtTime(0.6, ctx.currentTime);
+    this.flangerFeedbackR.gain.setValueAtTime(0.6, ctx.currentTime);
+
+    this.flangerLFO.type = 'sine';
+    this.flangerLFO.frequency.setValueAtTime(0.3, ctx.currentTime);
+    this.flangerLfoGainL.gain.setValueAtTime(0.002, ctx.currentTime);
+    this.flangerLfoGainR.gain.setValueAtTime(-0.002, ctx.currentTime);
+
+    this.flangerLFO.connect(this.flangerLfoGainL);
+    this.flangerLFO.connect(this.flangerLfoGainR);
+    this.flangerLfoGainL.connect(this.flangerDelayL.delayTime);
+    this.flangerLfoGainR.connect(this.flangerDelayR.delayTime);
+
+    this.flangerDelayL.connect(this.flangerFeedbackL);
+    this.flangerFeedbackL.connect(this.flangerDelayL);
+    this.flangerDelayR.connect(this.flangerFeedbackR);
+    this.flangerFeedbackR.connect(this.flangerDelayR);
+
+    this.flangerDelayL.connect(this.flangerGainL);
+    this.flangerDelayR.connect(this.flangerGainR);
+
+    this.flangerLFO.start();
+
+    this.subGain.connect(this.flangerDelayL);
+    this.subGain.connect(this.flangerDelayR);
+    this.flangerGainL.connect(this.eqFilters[0]);
+    this.flangerGainR.connect(this.eqFilters[0]);
+
     this.subGain.connect(this.eqFilters[0]);
     this.eqFilters[4].connect(this.distortionInput);
 
@@ -1955,6 +2024,7 @@ class SlotFXChain {
     try { this.chorus3FastLFO.stop(); } catch (e) {}
     try { this.tremoloLFO.stop(); } catch (e) {}
     try { this.leslieLFO.stop(); } catch (e) {}
+    try { this.flangerLFO.stop(); } catch (e) {}
 
     this.subGain.disconnect();
     this.outputGain.disconnect();
@@ -2076,6 +2146,30 @@ class SlotFXChain {
 
     setParam(this.distortionGain.gain, params.distortionMix, 0.05);
     setParam(this.distortionDry.gain, 1.0 - params.distortionMix, 0.05);
+
+    // Flanger Update
+    const flangerMix = params.flangerMix ?? 0;
+    const flangerRate = params.flangerRate ?? 0.3;
+    const flangerDepth = params.flangerDepth ?? 0.7;
+    const flangerFeedback = params.flangerFeedback ?? 0.6;
+    const flangerDelay = Math.max(0.0005, Math.min(0.02, params.flangerDelay ?? 0.003));
+    const flangerPhase = params.flangerPhase ?? 'norm';
+
+    setParam(this.flangerDelayL.delayTime, flangerDelay, 0.05);
+    setParam(this.flangerDelayR.delayTime, flangerDelay, 0.05);
+    setParam(this.flangerLFO.frequency, flangerRate, 0.05);
+
+    const flangerModDepth = flangerDelay * 0.85 * flangerDepth;
+    setParam(this.flangerLfoGainL.gain, flangerModDepth, 0.05);
+    setParam(this.flangerLfoGainR.gain, -flangerModDepth, 0.05);
+
+    const flangerFbSign = flangerPhase === 'inv' ? -1 : 1;
+    const effectiveFlangerFb = Math.max(-0.95, Math.min(0.95, flangerFeedback * flangerFbSign));
+    setParam(this.flangerFeedbackL.gain, effectiveFlangerFb, 0.05);
+    setParam(this.flangerFeedbackR.gain, effectiveFlangerFb, 0.05);
+
+    setParam(this.flangerGainL.gain, flangerMix, 0.05);
+    setParam(this.flangerGainR.gain, flangerMix, 0.05);
   }
 }
 
@@ -2130,6 +2224,12 @@ interface ArpState {
 export class JupiterEngine {
   public ctx: AudioContext | null = null;
   public getCtx(): AudioContext | null { return this.ctx; }
+  public getClickDestinationNode(): AudioNode | null {
+    return this.metronomeGain || (this.ctx ? this.ctx.destination : null);
+  }
+  public getMainDestinationNode(): AudioNode | null {
+    return this.analyser || (this.ctx ? this.ctx.destination : null);
+  }
   private voices: Voice[] = [];
   private lastFrequency: number = 0;
   private params: VoiceParams;
@@ -2286,6 +2386,17 @@ export class JupiterEngine {
   private tremoloGain: GainNode | null = null;
   private tremoloDry: GainNode | null = null;
   private tremoloLfoGain: GainNode | null = null;
+
+  // Flanger Nodes
+  private flangerDelayL: DelayNode | null = null;
+  private flangerDelayR: DelayNode | null = null;
+  private flangerGainL: GainNode | null = null;
+  private flangerGainR: GainNode | null = null;
+  private flangerFeedbackL: GainNode | null = null;
+  private flangerFeedbackR: GainNode | null = null;
+  private flangerLFO: OscillatorNode | null = null;
+  private flangerLfoGainL: GainNode | null = null;
+  private flangerLfoGainR: GainNode | null = null;
   
   // Limiter & Compander
   private compressorInput: GainNode | null = null;
@@ -2331,10 +2442,13 @@ export class JupiterEngine {
 
   init() {
     if (this.ctx) return;
-    this.ctx = new AudioContext({
-      sampleRate: this.perfSettings.sampleRate,
+    const ctxOptions: AudioContextOptions = {
       latencyHint: this.perfSettings.latencyHint
-    });
+    };
+    if (this.perfSettings.sampleRate && this.perfSettings.sampleRate > 0) {
+      ctxOptions.sampleRate = this.perfSettings.sampleRate;
+    }
+    this.ctx = new AudioContext(ctxOptions);
 
     // Initialize Worker
     this.worker = new Worker(new URL('../workers/audioWorker.ts', import.meta.url), { type: 'module' });
@@ -2564,6 +2678,49 @@ export class JupiterEngine {
     this.reverb!.connect(this.reverbGain!);
     this.reverbGain.connect(this.masterBus!);
     
+    // Flanger
+    this.flangerDelayL = this.ctx.createDelay(0.05);
+    this.flangerDelayR = this.ctx.createDelay(0.05);
+    this.flangerGainL = this.ctx.createGain();
+    this.flangerGainR = this.ctx.createGain();
+    this.flangerFeedbackL = this.ctx.createGain();
+    this.flangerFeedbackR = this.ctx.createGain();
+    this.flangerLFO = this.ctx.createOscillator();
+    this.flangerLfoGainL = this.ctx.createGain();
+    this.flangerLfoGainR = this.ctx.createGain();
+
+    this.flangerDelayL.delayTime.setValueAtTime(0.003, this.ctx.currentTime);
+    this.flangerDelayR.delayTime.setValueAtTime(0.003, this.ctx.currentTime);
+    this.flangerGainL.gain.setValueAtTime(0, this.ctx.currentTime);
+    this.flangerGainR.gain.setValueAtTime(0, this.ctx.currentTime);
+    this.flangerFeedbackL.gain.setValueAtTime(0.6, this.ctx.currentTime);
+    this.flangerFeedbackR.gain.setValueAtTime(0.6, this.ctx.currentTime);
+
+    this.flangerLFO.type = 'sine';
+    this.flangerLFO.frequency.setValueAtTime(0.3, this.ctx.currentTime);
+    this.flangerLfoGainL.gain.setValueAtTime(0.002, this.ctx.currentTime);
+    this.flangerLfoGainR.gain.setValueAtTime(-0.002, this.ctx.currentTime);
+
+    this.flangerLFO.connect(this.flangerLfoGainL);
+    this.flangerLFO.connect(this.flangerLfoGainR);
+    this.flangerLfoGainL.connect(this.flangerDelayL.delayTime);
+    this.flangerLfoGainR.connect(this.flangerDelayR.delayTime);
+
+    this.flangerDelayL.connect(this.flangerFeedbackL);
+    this.flangerFeedbackL.connect(this.flangerDelayL);
+    this.flangerDelayR.connect(this.flangerFeedbackR);
+    this.flangerFeedbackR.connect(this.flangerDelayR);
+
+    this.flangerDelayL.connect(this.flangerGainL);
+    this.flangerDelayR.connect(this.flangerGainR);
+
+    this.mainGain.connect(this.flangerDelayL);
+    this.mainGain.connect(this.flangerDelayR);
+    this.flangerGainL.connect(this.masterBus!);
+    this.flangerGainR.connect(this.masterBus!);
+
+    this.flangerLFO.start();
+
     // Master Chain starts here: masterBus -> Equalizer -> Distortion (with optional feedback) -> Tremolo -> Leslie -> Compressor
 
     // Initialize EQ Filters
@@ -2841,6 +2998,32 @@ export class JupiterEngine {
     
     if (this.reverbGain) setParam(this.reverbGain.gain, this.params.reverbMix, 0.05);
     
+    // Flanger Update
+    if (this.flangerLFO && this.flangerDelayL && this.flangerDelayR && this.flangerGainL && this.flangerGainR) {
+      const flangerMix = this.params.flangerMix ?? 0;
+      const flangerRate = this.params.flangerRate ?? 0.3;
+      const flangerDepth = this.params.flangerDepth ?? 0.7;
+      const flangerFeedback = this.params.flangerFeedback ?? 0.6;
+      const flangerDelay = Math.max(0.0005, Math.min(0.02, this.params.flangerDelay ?? 0.003));
+      const flangerPhase = this.params.flangerPhase ?? 'norm';
+
+      setParam(this.flangerDelayL.delayTime, flangerDelay, 0.05);
+      setParam(this.flangerDelayR.delayTime, flangerDelay, 0.05);
+      setParam(this.flangerLFO.frequency, flangerRate, 0.05);
+
+      const flangerModDepth = flangerDelay * 0.85 * flangerDepth;
+      if (this.flangerLfoGainL) setParam(this.flangerLfoGainL.gain, flangerModDepth, 0.05);
+      if (this.flangerLfoGainR) setParam(this.flangerLfoGainR.gain, -flangerModDepth, 0.05);
+
+      const flangerFbSign = flangerPhase === 'inv' ? -1 : 1;
+      const effectiveFlangerFb = Math.max(-0.95, Math.min(0.95, flangerFeedback * flangerFbSign));
+      if (this.flangerFeedbackL) setParam(this.flangerFeedbackL.gain, effectiveFlangerFb, 0.05);
+      if (this.flangerFeedbackR) setParam(this.flangerFeedbackR.gain, effectiveFlangerFb, 0.05);
+
+      setParam(this.flangerGainL.gain, flangerMix, 0.05);
+      setParam(this.flangerGainR.gain, flangerMix, 0.05);
+    }
+
     // Tremolo
     if (this.tremoloLFO) setParam(this.tremoloLFO.frequency, this.params.tremoloRate, 0.05);
     if (this.tremoloLfoGain && this.tremoloGain && this.tremoloDry) {
@@ -2999,6 +3182,15 @@ export class JupiterEngine {
       }
     });
 
+    if (oldParams.pitchBendRange !== params.pitchBendRange && this.currentPitchBend !== 0) {
+      this.voices.forEach(voice => {
+        if (!targetPatchId || voice.currentPatchId === targetPatchId) {
+          const bendSemitones = (this.currentPitchBend / 8192) * voice.getEffectivePitchBendRange();
+          voice.setPitchBend(bendSemitones);
+        }
+      });
+    }
+
     if (this.activeMulti && targetPatchId) {
       this.activeMulti.slots.forEach((slot, index) => {
         if (slot.patchId === targetPatchId && this.slotFXChains[index]) {
@@ -3151,6 +3343,33 @@ export class JupiterEngine {
     });
   }
 
+  public getLatencyMetrics(): {
+    baseLatencyMs: number;
+    outputLatencyMs: number;
+    totalLatencyMs: number;
+    sampleRate: number;
+    bufferSamples: number;
+    state: AudioContextState | 'closed';
+    isNativeRate: boolean;
+  } | null {
+    if (!this.ctx) return null;
+    const baseSec = this.ctx.baseLatency || 0;
+    const outputSec = (this.ctx as any).outputLatency || 0;
+    const baseMs = baseSec * 1000;
+    const outputMs = outputSec * 1000;
+    const sampleRate = this.ctx.sampleRate;
+    const bufferSamples = baseSec > 0 ? Math.round(baseSec * sampleRate) : Math.round(512);
+    return {
+      baseLatencyMs: Number(baseMs.toFixed(2)),
+      outputLatencyMs: Number(outputMs.toFixed(2)),
+      totalLatencyMs: Number((baseMs + outputMs).toFixed(2)),
+      sampleRate,
+      bufferSamples,
+      state: this.ctx.state,
+      isNativeRate: !this.perfSettings.sampleRate || this.perfSettings.sampleRate === 0 || this.perfSettings.sampleRate === sampleRate,
+    };
+  }
+
   private getBeatsPerBar(): number {
     const parts = this.params.timeSignature.split('/');
     if (parts.length > 0) {
@@ -3257,6 +3476,12 @@ export class JupiterEngine {
       // Route metronome/click output to Rear Left (Ch 4) & Rear Right (Ch 5)
       this.metronomeGain.connect(this.surroundMerger, 0, 4); // Rear Left
       this.metronomeGain.connect(this.surroundMerger, 0, 5); // Rear Right
+
+      // If Click to Main (Band Practice Click) is enabled, also mix into Front Left & Front Right
+      if (this.isClickToMain) {
+        this.metronomeGain.connect(this.surroundMerger, 0, 0); // Front Left
+        this.metronomeGain.connect(this.surroundMerger, 0, 1); // Front Right
+      }
     } else {
       try {
         this.ctx.destination.channelCountMode = 'max';
@@ -3264,8 +3489,44 @@ export class JupiterEngine {
       } catch (e) {}
 
       this.analyser.connect(this.ctx.destination);
-      this.metronomeGain.connect(this.ctx.destination);
+      if (this.isClickToMain || this.params.metronomeEnabled) {
+        this.metronomeGain.connect(this.ctx.destination);
+      }
     }
+  }
+
+  public isClickToMain: boolean = false;
+
+  public setClickToMain(enabled: boolean) {
+    this.isClickToMain = enabled;
+    this.updateAudioRouting();
+    if (this.isBackingTrackActive) {
+      if (this.isClickToMain || this.params.metronomeEnabled || this.perfSettings?.enableSurround51) {
+        if (!this.metronomeTimer) {
+          this.startMetronome();
+        }
+      } else {
+        this.stopMetronome();
+      }
+    }
+  }
+
+  public getEffectivePatchMidiChannel(params?: VoiceParams): number {
+    const p = params || this.params;
+    if (!p || p.midiChannel === undefined || p.midiChannel === 'default') {
+      return this.perfSettings?.midiChannel ?? 0;
+    }
+    return Number(p.midiChannel);
+  }
+
+  public getEffectiveSlotMidiChannel(slot: MultiSlot, patchParams?: VoiceParams): number {
+    if (slot.midiChannel === undefined || slot.midiChannel === 'patch') {
+      return this.getEffectivePatchMidiChannel(patchParams);
+    }
+    if (slot.midiChannel === 'default') {
+      return this.perfSettings?.midiChannel ?? 0;
+    }
+    return Number(slot.midiChannel);
   }
 
   public setBackingTrackActive(active: boolean, bpm?: number) {
@@ -3274,7 +3535,7 @@ export class JupiterEngine {
       if (bpm && bpm > 0) {
         this.params.bpm = bpm;
       }
-      if (this.params.metronomeEnabled || this.perfSettings?.enableSurround51) {
+      if (this.params.metronomeEnabled || this.perfSettings?.enableSurround51 || this.isClickToMain) {
         this.startMetronome();
       }
     } else {
@@ -3371,7 +3632,8 @@ export class JupiterEngine {
     midiNote: number, 
     velocity: number = 0.8, 
     patchId?: string | null, 
-    patchParams?: VoiceParams
+    patchParams?: VoiceParams,
+    channel?: number
   ) {
     if (!this.ctx) this.init();
     if (!this.ctx) return;
@@ -3385,15 +3647,23 @@ export class JupiterEngine {
       const incomingVel127 = Math.round(velocity * 127);
       
       this.activeMulti.slots.forEach((slot, index) => {
+        const patch = slot.patchId ? this.patchMap.get(slot.patchId) : undefined;
+        if (!patch) return;
+
+        // Check MIDI channel routing for this slot
+        if (channel && channel > 0) {
+          const slotChannel = this.getEffectiveSlotMidiChannel(slot, patch.params);
+          if (slotChannel > 0 && slotChannel !== channel) {
+            return; // Slot does not respond to this incoming channel
+          }
+        }
+
         if (
           midiNote >= slot.lowNote &&
           midiNote <= slot.highNote &&
           incomingVel127 >= slot.lowVelocity &&
           incomingVel127 <= slot.highVelocity
         ) {
-          const patch = slot.patchId ? this.patchMap.get(slot.patchId) : undefined;
-          if (!patch) return;
-
           if (patch.params.arpEnabled) {
             const key = `slot_${index}`;
             let arp = this.activeArps.get(key);
@@ -3432,8 +3702,8 @@ export class JupiterEngine {
               mappedVelocity = slot.lowMapVelocity / 127;
             }
 
-            // Trigger note internally with specific patch and transpose info
-            this.internalNoteOn(playedNote, mappedVelocity, slot.patchId, patch.params, midiNote);
+            // Trigger note internally with specific patch, transpose info, and channel
+            this.internalNoteOn(playedNote, mappedVelocity, slot.patchId, patch.params, midiNote, channel || 0);
           }
         }
       });
@@ -3447,6 +3717,14 @@ export class JupiterEngine {
     }
 
     const effectiveParams = targetParams || this.params;
+
+    // Check MIDI channel routing for single patch
+    if (channel && channel > 0) {
+      const patchChannel = this.getEffectivePatchMidiChannel(effectiveParams);
+      if (patchChannel > 0 && patchChannel !== channel) {
+        return; // Patch does not listen on this MIDI channel
+      }
+    }
 
     if (effectiveParams.arpEnabled) {
       const key = patchId ? `patch_${patchId}` : "single";
@@ -3474,7 +3752,7 @@ export class JupiterEngine {
       return;
     }
 
-    this.internalNoteOn(midiNote, velocity, patchId, effectiveParams);
+    this.internalNoteOn(midiNote, velocity, patchId, effectiveParams, undefined, channel || 0);
   }
 
   private internalNoteOn(
@@ -3482,7 +3760,8 @@ export class JupiterEngine {
     velocity: number = 0.8, 
     patchId?: string | null, 
     patchParams?: VoiceParams,
-    originalMidiNote?: number
+    originalMidiNote?: number,
+    channel: number = 0
   ) {
     if (!this.ctx) return;
     
@@ -3564,17 +3843,22 @@ export class JupiterEngine {
     const freq = 440 * Math.pow(2, (midiNote - 69) / 12);
     const effectiveLastFreq = this.lastFrequency === 0 ? freq : this.lastFrequency;
     
-    const bendSemitones = (this.currentPitchBend / 8192) * this.perfSettings.pitchBendRange;
+    const bendSemitones = (this.currentPitchBend / 8192) * voice.getEffectivePitchBendRange();
     voice.setPitchBend(bendSemitones);
     
-    voice.triggerAttack(midiNote, effectiveLastFreq, this.ctx.currentTime, isLegatoContext, velocity);
+    voice.triggerAttack(midiNote, effectiveLastFreq, this.ctx.currentTime, isLegatoContext, velocity, channel);
     this.lastFrequency = freq;
     return voice;
   }
 
-  noteOff(midiNote: number, patchId?: string | null) {
+  noteOff(midiNote: number, patchId?: string | null, channel?: number) {
     if (this.activeMulti && !patchId) {
       this.activeMulti.slots.forEach((slot, index) => {
+        const patch = slot.patchId ? this.patchMap.get(slot.patchId) : undefined;
+        if (channel && channel > 0) {
+          const slotCh = this.getEffectiveSlotMidiChannel(slot, patch?.params);
+          if (slotCh > 0 && slotCh !== channel) return;
+        }
         const key = `slot_${index}`;
         const arp = this.activeArps.get(key);
         if (arp) {
@@ -3592,6 +3876,7 @@ export class JupiterEngine {
       const matchingVoices = this.voices.filter(v => {
         if (v.originalMidiNote !== midiNote) return false;
         if (patchId && v.currentPatchId !== patchId) return false;
+        if (channel && channel > 0 && v.midiChannel > 0 && v.midiChannel !== channel) return false;
         if (v.currentPatchId && this.activeMulti) {
           const slotIndex = this.slotIndexByPatchIdMap.has(v.currentPatchId) ? this.slotIndexByPatchIdMap.get(v.currentPatchId)! : -1;
           if (slotIndex !== -1) {
@@ -3618,6 +3903,12 @@ export class JupiterEngine {
     const arpKey = patchId ? `patch_${patchId}` : "single";
     const singleArp = this.activeArps.get(arpKey);
     if (singleArp) {
+      if (channel && channel > 0) {
+        const patchCh = this.getEffectivePatchMidiChannel(singleArp.patchParams);
+        if (patchCh > 0 && patchCh !== channel) {
+          return;
+        }
+      }
       singleArp.heldNotes = singleArp.heldNotes.filter(n => n !== midiNote);
       singleArp.playedNotes = singleArp.playedNotes.filter(n => n !== midiNote);
       if (singleArp.heldNotes.length === 0) {
@@ -3628,7 +3919,9 @@ export class JupiterEngine {
 
     // Match even releasing voices to keep noteOff idempotent and prevent state desync
     const matchingVoices = this.voices.filter(v => 
-      v.midiNote === midiNote && (!patchId || v.currentPatchId === patchId)
+      v.midiNote === midiNote && 
+      (!patchId || v.currentPatchId === patchId) &&
+      (!channel || channel === 0 || !v.midiChannel || v.midiChannel === 0 || v.midiChannel === channel)
     );
     if (matchingVoices.length > 0 && this.ctx) {
       matchingVoices.forEach(voice => {
@@ -3640,25 +3933,31 @@ export class JupiterEngine {
     }
   }
 
-  setPitchBend(value: number) {
+  setPitchBend(value: number, channel?: number) {
     // value is 0 to 16383, center is 8192
     this.currentPitchBend = value - 8192;
-    const bendSemitones = (this.currentPitchBend / 8192) * this.perfSettings.pitchBendRange;
-    this.voices.forEach(v => v.setPitchBend(bendSemitones));
+    this.voices.forEach(v => {
+      if (!channel || channel === 0 || !v.midiChannel || v.midiChannel === 0 || v.midiChannel === channel) {
+        const bendSemitones = (this.currentPitchBend / 8192) * v.getEffectivePitchBendRange();
+        v.setPitchBend(bendSemitones);
+      }
+    });
   }
 
-  setModWheel(value: number) {
+  setModWheel(value: number, channel?: number) {
     // value is 0 to 127
     this.currentModWheel = value / 127;
     // Map to VCF LFO modulation by adding to the base amount
     this.voices.forEach(v => {
-      if (v.midiNote !== null && this.ctx) {
-        const time = this.ctx.currentTime;
-        // The mod wheel adds to the filterLfoAmount
-        const totalLfoAmount = this.params.filterLfoAmount + (this.currentModWheel * 0.5); 
-        const safeCutoff = Math.max(20, v.params.filterCutoff);
-        const scale = Math.max(0, Math.min(1, Math.log(safeCutoff / 20) / Math.log(20000 / 20)));
-        v.filterLfoMod.gain.setTargetAtTime(totalLfoAmount * 5000 * scale, time, 0.05);
+      if (!channel || channel === 0 || !v.midiChannel || v.midiChannel === 0 || v.midiChannel === channel) {
+        if (v.midiNote !== null && this.ctx) {
+          const time = this.ctx.currentTime;
+          // The mod wheel adds to the filterLfoAmount
+          const totalLfoAmount = this.params.filterLfoAmount + (this.currentModWheel * 0.5); 
+          const safeCutoff = Math.max(20, v.params.filterCutoff);
+          const scale = Math.max(0, Math.min(1, Math.log(safeCutoff / 20) / Math.log(20000 / 20)));
+          v.filterLfoMod.gain.setTargetAtTime(totalLfoAmount * 5000 * scale, time, 0.05);
+        }
       }
     });
   }
@@ -3785,7 +4084,11 @@ export class JupiterEngine {
 
       if (playedNote < 0 || playedNote > 127) return;
 
-      const voice = this.internalNoteOn(playedNote, mappedVelocity, arp.patchId, arp.patchParams, midiNote);
+      const arpChannel = arp.slotIndex >= 0 && this.activeMulti
+        ? this.getEffectiveSlotMidiChannel(this.activeMulti.slots[arp.slotIndex], arp.patchParams)
+        : this.getEffectivePatchMidiChannel(arp.patchParams);
+
+      const voice = this.internalNoteOn(playedNote, mappedVelocity, arp.patchId, arp.patchParams, midiNote, arpChannel);
       if (voice) {
         const gateTime = interval * 0.8;
         setTimeout(() => {
