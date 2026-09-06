@@ -882,12 +882,17 @@ export const MultiSetupModal: React.FC<MultiSetupModalProps> = ({
             </span>
           </div>
 
-          <button
-            onClick={onClose}
-            className="px-5 py-2 bg-zinc-800 hover:bg-zinc-700 text-white font-bold uppercase tracking-wider text-xs border border-zinc-700 transition-all cursor-pointer"
-          >
-            Done
-          </button>
+          <div className="flex items-center gap-3">
+            <span className="text-[10px] font-mono text-emerald-400 flex items-center gap-1">
+              <Check size={12} /> Auto-saved
+            </span>
+            <button
+              onClick={onClose}
+              className="px-6 py-2 bg-orange-500 hover:bg-orange-400 text-black font-black uppercase tracking-wider text-xs shadow-lg shadow-orange-500/25 transition-all cursor-pointer flex items-center gap-1.5"
+            >
+              <Check size={14} /> Done
+            </button>
+          </div>
         </div>
       </div>
     </div>

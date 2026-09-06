@@ -79,6 +79,7 @@ function App() {
   const [currentScreen, setCurrentScreen] = useState<Screen>('SYNTH');
   const [activePatchId, setActivePatchId] = useState<string | null>(null);
   const lastSinglePatchIdRef = useRef<string | null>(null);
+  const lastMultiIdRef = useRef<string | null>(null);
   const [midiLogs, setMidiLogs] = useState<{ id: number, text: string }[]>([]);
   const [showKeyboard, setShowKeyboard] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -357,7 +358,10 @@ function App() {
           setActivePatchId(appState.activePatchId);
           lastSinglePatchIdRef.current = appState.activePatchId;
         }
-        if (appState.activeMultiId) setActiveMultiId(appState.activeMultiId);
+        if (appState.activeMultiId) {
+          setActiveMultiId(appState.activeMultiId);
+          lastMultiIdRef.current = appState.activeMultiId;
+        }
         if (appState.params) setParams(cleanVoiceParams(appState.params));
         if (appState.midiMappings) setMidiMappings(appState.midiMappings);
         if (appState.currentScreen) setCurrentScreen(appState.currentScreen);
@@ -1420,6 +1424,7 @@ function App() {
     engineRef.current?.setModWheel(0);
     engineRef.current?.setPitchBend(8192);
     setActiveMultiId(multi.id);
+    lastMultiIdRef.current = multi.id;
     setActivePatchId(null); // Deactivate single patch mode
     setSelectedSlotIndex(0);
     // Load the first slot's patch into parameters so visual controls are aligned
@@ -1825,8 +1830,10 @@ function App() {
     const updatedMultis = [...multis, newMulti];
     setMultis(updatedMultis);
     setActiveMultiId(newMulti.id);
+    lastMultiIdRef.current = newMulti.id;
     setActivePatchId(null);
     setSelectedSlotIndex(0);
+    await indexedDBService.saveMultis(updatedMultis);
 
     if (settings.googleSheetUrl && import.meta.env.VITE_GOOGLE_CLIENT_ID) {
       try {
@@ -1851,9 +1858,15 @@ function App() {
   };
 
   const handleUpdateSlot = async (slotIndex: number, fields: Partial<MultiSlot>) => {
-    if (!activeMultiId) return;
+    const targetMultiId = activeMultiId || lastMultiIdRef.current || (multis.length > 0 ? multis[0].id : null);
+    if (!targetMultiId) return;
+    if (!activeMultiId) {
+      setActiveMultiId(targetMultiId);
+      lastMultiIdRef.current = targetMultiId;
+      setActivePatchId(null);
+    }
     const updatedMultis = multis.map(m => {
-      if (m.id !== activeMultiId) return m;
+      if (m.id !== targetMultiId) return m;
       const updatedSlots = m.slots.map((slot, idx) => {
         if (idx !== slotIndex) return slot;
         return { ...slot, ...fields };
@@ -1861,6 +1874,7 @@ function App() {
       return { ...m, slots: updatedSlots };
     });
     setMultis(updatedMultis);
+    await indexedDBService.saveMultis(updatedMultis);
 
     // If patch ID changed, we also want to load that patch's parameters so the knobs are in sync!
     if (fields.patchId) {
@@ -1881,10 +1895,16 @@ function App() {
   };
 
   const handleAddSlot = async () => {
-    if (!activeMultiId) return;
+    const targetMultiId = activeMultiId || lastMultiIdRef.current || (multis.length > 0 ? multis[0].id : null);
+    if (!targetMultiId) return;
+    if (!activeMultiId) {
+      setActiveMultiId(targetMultiId);
+      lastMultiIdRef.current = targetMultiId;
+      setActivePatchId(null);
+    }
     const firstPatchId = patches[0]?.id || '1';
     const updatedMultis = multis.map(m => {
-      if (m.id !== activeMultiId) return m;
+      if (m.id !== targetMultiId) return m;
       const newSlot: MultiSlot = {
         patchId: firstPatchId,
         lowNote: 0,
@@ -1899,9 +1919,10 @@ function App() {
       return { ...m, slots: [...m.slots, newSlot] };
     });
     setMultis(updatedMultis);
-    const activeMulti = multis.find(m => m.id === activeMultiId);
+    await indexedDBService.saveMultis(updatedMultis);
+    const activeMulti = updatedMultis.find(m => m.id === targetMultiId);
     if (activeMulti) {
-      setSelectedSlotIndex(activeMulti.slots.length);
+      setSelectedSlotIndex(activeMulti.slots.length - 1);
     }
 
     if (settings.googleSheetUrl && import.meta.env.VITE_GOOGLE_CLIENT_ID) {
@@ -1914,13 +1935,15 @@ function App() {
   };
 
   const handleDeleteSlot = async (slotIndex: number) => {
-    if (!activeMultiId) return;
+    const targetMultiId = activeMultiId || lastMultiIdRef.current || (multis.length > 0 ? multis[0].id : null);
+    if (!targetMultiId) return;
     const updatedMultis = multis.map(m => {
-      if (m.id !== activeMultiId) return m;
+      if (m.id !== targetMultiId) return m;
       const nextSlots = m.slots.filter((_, idx) => idx !== slotIndex);
       return { ...m, slots: nextSlots };
     });
     setMultis(updatedMultis);
+    await indexedDBService.saveMultis(updatedMultis);
     setSelectedSlotIndex(0);
 
     if (settings.googleSheetUrl && import.meta.env.VITE_GOOGLE_CLIENT_ID) {
@@ -1933,18 +1956,20 @@ function App() {
   };
 
   const handleDuplicateSlot = async (slotIndex: number) => {
-    if (!activeMultiId) return;
-    const activeMulti = multis.find(m => m.id === activeMultiId);
+    const targetMultiId = activeMultiId || lastMultiIdRef.current || (multis.length > 0 ? multis[0].id : null);
+    if (!targetMultiId) return;
+    const activeMulti = multis.find(m => m.id === targetMultiId);
     if (!activeMulti || !activeMulti.slots[slotIndex]) return;
     const targetSlot = activeMulti.slots[slotIndex];
     const clonedSlot: MultiSlot = { ...targetSlot };
     const updatedMultis = multis.map(m => {
-      if (m.id !== activeMultiId) return m;
+      if (m.id !== targetMultiId) return m;
       const newSlots = [...m.slots];
       newSlots.splice(slotIndex + 1, 0, clonedSlot);
       return { ...m, slots: newSlots };
     });
     setMultis(updatedMultis);
+    await indexedDBService.saveMultis(updatedMultis);
     setSelectedSlotIndex(slotIndex + 1);
 
     if (settings.googleSheetUrl && import.meta.env.VITE_GOOGLE_CLIENT_ID) {
@@ -1957,8 +1982,9 @@ function App() {
   };
 
   const handleMoveSlot = async (slotIndex: number, direction: 'up' | 'down') => {
-    if (!activeMultiId) return;
-    const activeMulti = multis.find(m => m.id === activeMultiId);
+    const targetMultiId = activeMultiId || lastMultiIdRef.current || (multis.length > 0 ? multis[0].id : null);
+    if (!targetMultiId) return;
+    const activeMulti = multis.find(m => m.id === targetMultiId);
     if (!activeMulti) return;
     const targetIndex = direction === 'up' ? slotIndex - 1 : slotIndex + 1;
     if (targetIndex < 0 || targetIndex >= activeMulti.slots.length) return;
@@ -1968,10 +1994,11 @@ function App() {
     newSlots.splice(targetIndex, 0, moved);
 
     const updatedMultis = multis.map(m => {
-      if (m.id !== activeMultiId) return m;
+      if (m.id !== targetMultiId) return m;
       return { ...m, slots: newSlots };
     });
     setMultis(updatedMultis);
+    await indexedDBService.saveMultis(updatedMultis);
     setSelectedSlotIndex(targetIndex);
 
     if (settings.googleSheetUrl && import.meta.env.VITE_GOOGLE_CLIENT_ID) {
@@ -1979,6 +2006,19 @@ function App() {
         await googleSheetsService.saveToSheet(patches, updatedMultis, settings.googleSheetUrl);
       } catch (e) {
         console.error('Failed to sync slot move to sheet:', e);
+      }
+    }
+  };
+
+  const handleCloseMultiSetup = async () => {
+    setIsMultiSetupOpen(false);
+    await indexedDBService.saveMultis(multis);
+    await persistAppState();
+    const targetMultiId = activeMultiId || lastMultiIdRef.current;
+    if (targetMultiId && engineRef.current) {
+      const curMulti = multis.find(m => m.id === targetMultiId);
+      if (curMulti) {
+        engineRef.current.setActiveMulti(curMulti, patches);
       }
     }
   };
@@ -2938,6 +2978,9 @@ function App() {
                       <div className="flex gap-1.5">
                         <button
                           onClick={() => {
+                            if (activeMultiId) {
+                              lastMultiIdRef.current = activeMultiId;
+                            }
                             setActiveMultiId(null);
                             engineRef.current?.setActiveMulti(null, patches);
                             const targetId = lastSinglePatchIdRef.current || activePatchId;
@@ -2956,8 +2999,10 @@ function App() {
                         </button>
                         <button
                           onClick={() => {
-                            if (multis.length > 0) {
-                              loadMulti(multis[0]);
+                            const targetMultiId = lastMultiIdRef.current || activeMultiId || (multis.length > 0 ? multis[0].id : null);
+                            const targetMulti = (targetMultiId && multis.find(m => m.id === targetMultiId)) || (multis.length > 0 ? multis[0] : null);
+                            if (targetMulti) {
+                              loadMulti(targetMulti);
                             } else {
                               handleCreateMulti();
                             }
@@ -3025,7 +3070,9 @@ function App() {
                         {multis.length > 0 && (
                           <button
                             onClick={() => {
-                              loadMulti(multis[0]);
+                              const targetMultiId = lastMultiIdRef.current || activeMultiId || multis[0].id;
+                              const targetMulti = multis.find(m => m.id === targetMultiId) || multis[0];
+                              loadMulti(targetMulti);
                               setIsMultiSetupOpen(true);
                             }}
                             className="text-[10px] font-mono text-zinc-400 hover:text-orange-400 flex items-center gap-1 border border-zinc-800 hover:border-zinc-700 px-2 py-0.5"
@@ -4010,8 +4057,8 @@ function App() {
 
         <MultiSetupModal
           isOpen={isMultiSetupOpen}
-          onClose={() => setIsMultiSetupOpen(false)}
-          activeMulti={multis.find(m => m.id === activeMultiId) || multis[0] || null}
+          onClose={handleCloseMultiSetup}
+          activeMulti={multis.find(m => m.id === activeMultiId) || (lastMultiIdRef.current && multis.find(m => m.id === lastMultiIdRef.current)) || multis[0] || null}
           multis={multis}
           patches={patches}
           activeNotes={activeNotes}

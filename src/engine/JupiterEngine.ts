@@ -8,6 +8,19 @@ import { soundfontService } from '../services/SoundfontService';
 
 let noiseBuffer: AudioBuffer | null = null;
 
+export function toSafeOscillatorType(val: any, fallback: OscillatorType = 'sawtooth'): OscillatorType {
+  if (typeof val === 'string') {
+    const clean = val.trim().toLowerCase();
+    if (clean === 'sine' || clean === 'square' || clean === 'sawtooth' || clean === 'triangle') {
+      return clean as OscillatorType;
+    }
+    if (clean === 'pulse') {
+      return 'square';
+    }
+  }
+  return fallback;
+}
+
 function getOrCreateNoiseBuffer(ctx: AudioContext, shared: AudioBuffer | null): AudioBuffer {
   if (shared) return shared;
   if (!noiseBuffer || noiseBuffer.sampleRate !== ctx.sampleRate) {
@@ -288,11 +301,11 @@ class Voice {
       this.dx7Gains.forEach(g => { try { g.gain.setTargetAtTime(0, time, 0.005); } catch(e) {} });
     }
 
-    const isVco1Noise = params.vco1Waveform === 'noise';
-    const isVco2Noise = params.vco2Waveform === 'noise';
+    const isVco1Noise = String(params.vco1Waveform || '').trim().toLowerCase() === 'noise';
+    const isVco2Noise = String(params.vco2Waveform || '').trim().toLowerCase() === 'noise';
 
     if (this.vco1 && !isVco1Noise) {
-      this.vco1.type = params.vco1Waveform === 'pulse' ? 'square' : params.vco1Waveform as OscillatorType;
+      this.vco1.type = toSafeOscillatorType(params.vco1Waveform, 'sawtooth');
       
       // Update VCO1 Frequency in real-time with vintage drift
       if (this.midiNote !== null) {
@@ -317,7 +330,7 @@ class Voice {
     }
     
     if (this.vco2 && !isVco2Noise) {
-      this.vco2.type = params.vco2Waveform === 'pulse' ? 'square' : params.vco2Waveform as OscillatorType;
+      this.vco2.type = toSafeOscillatorType(params.vco2Waveform, 'sawtooth');
 
       // Update VCO2 Frequency in real-time with vintage drift
       if (this.midiNote !== null) {
@@ -342,7 +355,7 @@ class Voice {
     }
 
     if (this.subOsc) {
-      this.subOsc.type = params.subOscWaveform;
+      this.subOsc.type = toSafeOscillatorType(params.subOscWaveform, 'square');
       if (this.midiNote !== null) {
         const freq = 440 * Math.pow(2, (this.midiNote - 69) / 12);
         const subFreq = freq * Math.pow(2, params.subOscOctave);
@@ -689,6 +702,9 @@ class Voice {
 
     if (this.params.synthEngine === 'hammond') {
       this.activeSynthEngine = 'hammond';
+      this.filter.type = 'lowpass';
+      this.filter.frequency.setValueAtTime(20000, time);
+      this.filter.Q.setValueAtTime(0, time);
       this.vco1Gain.gain.cancelScheduledValues(time);
       this.vco2Gain.gain.cancelScheduledValues(time);
       this.subOscGain.gain.cancelScheduledValues(time);
@@ -1044,11 +1060,11 @@ class Voice {
           lfoGain.gain.setValueAtTime(0, time);
         }
         offset.offset.setValueAtTime((this.params.vco1PulseWidth - 0.5) * 1.8, time);
-      } else if (vco1Waveform === 'noise') {
+      } else if (String(vco1Waveform || '').trim().toLowerCase() === 'noise') {
         this.vco1.type = 'sawtooth';
         this.vco1.connect(this.vco1Gain);
       } else {
-        this.vco1.type = vco1Waveform as OscillatorType;
+        this.vco1.type = toSafeOscillatorType(vco1Waveform, 'sawtooth');
         this.vco1.connect(this.vco1Gain);
       }
     }
@@ -1089,11 +1105,11 @@ class Voice {
           lfoGain.gain.setValueAtTime(0, time);
         }
         offset.offset.setValueAtTime((this.params.vco2PulseWidth - 0.5) * 1.8, time);
-      } else if (vco2Waveform === 'noise') {
+      } else if (String(vco2Waveform || '').trim().toLowerCase() === 'noise') {
         this.vco2.type = 'sawtooth';
         this.vco2.connect(this.vco2Gain);
       } else {
-        this.vco2.type = vco2Waveform as OscillatorType;
+        this.vco2.type = toSafeOscillatorType(vco2Waveform, 'sawtooth');
         this.vco2.connect(this.vco2Gain);
       }
     }
@@ -1136,7 +1152,9 @@ class Voice {
       this.vco1SoundfontNodes.forEach(node => crossModScale.connect(node.src.playbackRate));
     }
 
-    this.subOsc.type = this.params.subOscWaveform;
+    if (this.subOsc) {
+      this.subOsc.type = toSafeOscillatorType(this.params.subOscWaveform, 'square');
+    }
 
     const range1 = 8 / vco1Range;
     const range2 = 8 / vco2Range;
@@ -1353,8 +1371,8 @@ class Voice {
 
     const vco1Level = (1.0 - this.params.vcoMix) * this.params.mixerVco1 * vco1VelocityScale;
     const vco2Level = this.params.vcoMix * this.params.mixerVco2 * vco2VelocityScale;
-    const isVco1Noise = vco1Waveform === 'noise';
-    const isVco2Noise = vco2Waveform === 'noise';
+    const isVco1Noise = String(vco1Waveform || '').trim().toLowerCase() === 'noise';
+    const isVco2Noise = String(vco2Waveform || '').trim().toLowerCase() === 'noise';
 
     this.vco1Gain.gain.cancelScheduledValues(time);
     this.vco2Gain.gain.cancelScheduledValues(time);
@@ -1996,6 +2014,12 @@ class SlotFXChain {
     this.tremoloDry = ctx.createGain();
     this.tremoloLFO = ctx.createOscillator();
     this.tremoloLfoGain = ctx.createGain();
+
+    this.tremoloGain.gain.setValueAtTime(0, ctx.currentTime);
+    this.tremoloDry.gain.setValueAtTime(1.0, ctx.currentTime);
+    this.tremoloLfoGain.gain.setValueAtTime(0, ctx.currentTime);
+    this.tremoloLFO.frequency.setValueAtTime(4.0, ctx.currentTime);
+
     this.tremoloLFO.connect(this.tremoloLfoGain);
     this.tremoloLfoGain.connect(this.tremoloGain.gain);
     this.tremoloLFO.start();
@@ -2009,20 +2033,30 @@ class SlotFXChain {
 
     // Leslie
     this.leslieLFO = ctx.createOscillator();
+    this.leslieLFO.frequency.setValueAtTime(1.2, ctx.currentTime);
     this.leslieLfoInverter = ctx.createGain();
     this.leslieLfoInverter.gain.setValueAtTime(-1, ctx.currentTime);
     this.leslieLFO.connect(this.leslieLfoInverter);
 
     this.leslieDelayL = ctx.createDelay(0.1);
     this.leslieDelayR = ctx.createDelay(0.1);
+    this.leslieDelayL.delayTime.setValueAtTime(0.015, ctx.currentTime);
+    this.leslieDelayR.delayTime.setValueAtTime(0.015, ctx.currentTime);
     this.leslieGainL = ctx.createGain();
     this.leslieGainR = ctx.createGain();
+    this.leslieGainL.gain.setValueAtTime(0, ctx.currentTime);
+    this.leslieGainR.gain.setValueAtTime(0, ctx.currentTime);
     this.leslieDry = ctx.createGain();
+    this.leslieDry.gain.setValueAtTime(1.0, ctx.currentTime);
 
     this.leslieLfoGainL = ctx.createGain();
     this.leslieLfoGainR = ctx.createGain();
+    this.leslieLfoGainL.gain.setValueAtTime(0, ctx.currentTime);
+    this.leslieLfoGainR.gain.setValueAtTime(0, ctx.currentTime);
     this.leslieVibGainL = ctx.createGain();
     this.leslieVibGainR = ctx.createGain();
+    this.leslieVibGainL.gain.setValueAtTime(0, ctx.currentTime);
+    this.leslieVibGainR.gain.setValueAtTime(0, ctx.currentTime);
 
     this.leslieMerger = ctx.createChannelMerger(2);
 
@@ -2199,34 +2233,35 @@ class SlotFXChain {
     setParam(this.tremoloGain.gain, params.tremoloMix, 0.05);
     setParam(this.tremoloDry.gain, 1.0 - params.tremoloMix, 0.05);
 
-    let targetRate = 1.2;
-    let targetDepth = params.leslieDepth;
-    if (params.leslieSpeed === 'off') {
-      targetRate = 0.05;
-      targetDepth = 0.0;
-    } else if (params.leslieSpeed === 'lo') {
+    const isLeslieOff = params.leslieSpeed === 'off';
+    let targetRate = params.leslieRate || 1.2;
+    let targetDepth = isLeslieOff ? 0.0 : (params.leslieDepth ?? 0);
+    if (params.leslieSpeed === 'lo') {
       targetRate = 1.2;
-      targetDepth = params.leslieDepth;
     } else if (params.leslieSpeed === 'high') {
       targetRate = 6.2;
-      targetDepth = params.leslieDepth;
+    } else if (isLeslieOff) {
+      targetRate = 0.1;
     }
     let rateTimeConstant = targetRate > this.lastTargetLeslieRate ? 1.2 : 2.4;
     this.lastTargetLeslieRate = targetRate;
     setParam(this.leslieLFO.frequency, targetRate, rateTimeConstant);
 
-    const currentMix = params.leslieMix;
-    const lfoGain = targetDepth * 0.4 * currentMix;
-    const vibGain = targetDepth * 0.006 * currentMix;
+    const currentMix = isLeslieOff ? 0.0 : (params.leslieMix ?? 0);
+    const lfoGain = targetDepth * 0.25 * currentMix;
+    const vibGain = targetDepth * 0.0006 * currentMix;
     const depthTimeConstant = targetRate < 1.0 ? 1.8 : 0.8;
 
     setParam(this.leslieLfoGainL.gain, lfoGain, depthTimeConstant);
     setParam(this.leslieLfoGainR.gain, lfoGain, depthTimeConstant);
     setParam(this.leslieVibGainL.gain, vibGain, depthTimeConstant);
     setParam(this.leslieVibGainR.gain, vibGain, depthTimeConstant);
-    setParam(this.leslieGainL.gain, 0.5, 0.05);
-    setParam(this.leslieGainR.gain, 0.5, 0.05);
-    setParam(this.leslieDry.gain, 1.0 - currentMix, 0.05);
+
+    const wetGain = 0.5 * currentMix;
+    const dryGain = 1.0 - currentMix;
+    setParam(this.leslieGainL.gain, wetGain, 0.05);
+    setParam(this.leslieGainR.gain, wetGain, 0.05);
+    setParam(this.leslieDry.gain, dryGain, 0.05);
     setParam(this.leslieDelayL.delayTime, 0.015, 0.05);
     setParam(this.leslieDelayR.delayTime, 0.015, 0.05);
 
@@ -2394,8 +2429,8 @@ export class JupiterEngine {
 
     if (!this.ctx) return;
 
-    // Check if slots structurally changed (count or patchIds)
-    const countChanged = !prevMulti || !multi || prevMulti.slots.length !== multi.slots.length;
+    // Check if slots structurally changed (count, presence, or patchIds)
+    const countChanged = !prevMulti || !multi || prevMulti.slots.length !== multi.slots.length || this.slotFXChains.length !== (multi ? multi.slots.length : 0);
     let structureChanged = countChanged;
     if (!structureChanged && prevMulti && multi) {
       for (let i = 0; i < multi.slots.length; i++) {
@@ -3025,7 +3060,7 @@ export class JupiterEngine {
 
     if (this.mainLFO) {
       if (this.params.lfoWaveform !== 'random') {
-        this.mainLFO.type = this.params.lfoWaveform as OscillatorType;
+        this.mainLFO.type = toSafeOscillatorType(this.params.lfoWaveform, 'sine');
       } else {
         this.mainLFO.type = 'sine'; // Fallback for now
       }
@@ -3199,10 +3234,14 @@ export class JupiterEngine {
     if (this.leslieVibGainR) setParam(this.leslieVibGainR.gain, vibGain, depthTimeConstant);
 
     // Apply Leslie gains and dry mix
-    if (this.leslieGainL) setParam(this.leslieGainL.gain, 0.5, 0.05);
-    if (this.leslieGainR) setParam(this.leslieGainR.gain, 0.5, 0.05);
+    const isGlobalLeslieOff = this.params.leslieSpeed === 'off';
+    const globalMix = isGlobalLeslieOff ? 0.0 : (this.params.leslieMix ?? 0);
+    const globalWetGain = 0.5 * globalMix;
+    const globalDryGain = 1.0 - globalMix;
+    if (this.leslieGainL) setParam(this.leslieGainL.gain, globalWetGain, 0.05);
+    if (this.leslieGainR) setParam(this.leslieGainR.gain, globalWetGain, 0.05);
     if (this.leslieDry) {
-      setParam(this.leslieDry.gain, 1.0 - currentMix, 0.05);
+      setParam(this.leslieDry.gain, globalDryGain, 0.05);
     }
 
     // Baseline delay times
@@ -4238,7 +4277,7 @@ export class JupiterEngine {
         ? this.getEffectiveSlotMidiChannel(this.activeMulti.slots[arp.slotIndex], arp.patchParams)
         : this.getEffectivePatchMidiChannel(arp.patchParams);
 
-      const voice = this.internalNoteOn(playedNote, mappedVelocity, arp.patchId, arp.patchParams, midiNote, arpChannel);
+      const voice = this.internalNoteOn(playedNote, mappedVelocity, arp.patchId, arp.patchParams, midiNote, arpChannel, arp.slotIndex);
       if (voice) {
         const gateTime = interval * 0.8;
         setTimeout(() => {

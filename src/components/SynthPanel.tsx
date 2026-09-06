@@ -515,7 +515,7 @@ export const VCO1Section: React.FC<VCO1SectionProps> = React.memo(({
   React.useEffect(() => {
     if (vco1SoundfontEnabled) {
       const lower = (vco1SoundfontName || '').toLowerCase();
-      const isInvalid = !vco1SoundfontName || lower.endsWith('.wav') || lower.endsWith('.mid') || lower.endsWith('.midi') || lower.endsWith('.mp3');
+      const isInvalid = !vco1SoundfontName || !(lower.endsWith('.sf2') || lower.endsWith('.sf3') || lower.endsWith('.sft') || vco1SoundfontName === 'GeneralUser-GS.sf2');
       if (isInvalid) {
         const validSfs = soundfontOptions.map(o => o.value);
         const defaultSf = validSfs.includes('GeneralUser-GS.sf2') ? 'GeneralUser-GS.sf2' : (validSfs[0] || 'GeneralUser-GS.sf2');
@@ -712,7 +712,7 @@ export const VCO2Section: React.FC<VCO2SectionProps> = React.memo(({
   React.useEffect(() => {
     if (vco2SoundfontEnabled) {
       const lower = (vco2SoundfontName || '').toLowerCase();
-      const isInvalid = !vco2SoundfontName || lower.endsWith('.wav') || lower.endsWith('.mid') || lower.endsWith('.midi') || lower.endsWith('.mp3');
+      const isInvalid = !vco2SoundfontName || !(lower.endsWith('.sf2') || lower.endsWith('.sf3') || lower.endsWith('.sft') || vco2SoundfontName === 'GeneralUser-GS.sf2');
       if (isInvalid) {
         const validSfs = soundfontOptions.map(o => o.value);
         const defaultSf = validSfs.includes('GeneralUser-GS.sf2') ? 'GeneralUser-GS.sf2' : (validSfs[0] || 'GeneralUser-GS.sf2');
