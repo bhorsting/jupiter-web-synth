@@ -473,6 +473,10 @@ export interface MultiSlot {
   transposeOctave: number;// -3 to +3
   transposeNote: number;  // -12 to +12 semitones
   midiChannel?: 'patch' | 'default' | number; // 'patch' = follow patch setting, 'default' = follow config, 0 = Omni, 1-16 = specific channel
+  volume?: number;       // 0.0 to 1.0 (default 1.0)
+  pan?: number;          // -1.0 to 1.0 (default 0.0)
+  mute?: boolean;        // true if part is muted
+  solo?: boolean;        // true if part is soloed
 }
 
 export interface Multi {

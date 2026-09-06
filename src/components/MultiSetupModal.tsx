@@ -47,6 +47,13 @@ export const getNoteName = (midiNote: number): string => {
   return `${noteName}${octave}`;
 };
 
+const volumeToDbString = (vol: number): string => {
+  if (vol <= 0.001) return '-∞ dB';
+  const db = 20 * Math.log10(vol);
+  if (db >= 0) return `+${db.toFixed(1)} dB`;
+  return `${db.toFixed(1)} dB`;
+};
+
 export const MultiSetupModal: React.FC<MultiSetupModalProps> = ({
   isOpen,
   onClose,
@@ -577,8 +584,8 @@ export const MultiSetupModal: React.FC<MultiSetupModalProps> = ({
 
                   {/* PART CONFIGURATION GRID */}
                   <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 pt-3" onClick={(e) => e.stopPropagation()}>
-                    {/* KEY RANGE SPLIT CONTROLS (Cols 1-7) */}
-                    <div className="lg:col-span-7 flex flex-col gap-2 bg-black/40 border border-zinc-800/80 p-2.5">
+                    {/* KEY RANGE SPLIT CONTROLS (Cols 1-5) */}
+                    <div className="lg:col-span-5 flex flex-col gap-2 bg-black/40 border border-zinc-800/80 p-2.5">
                       <div className="flex items-center justify-between">
                         <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-orange-400 flex items-center gap-1.5">
                           <span>Key Range Split</span>
@@ -720,8 +727,8 @@ export const MultiSetupModal: React.FC<MultiSetupModalProps> = ({
                       </div>
                     </div>
 
-                    {/* VELOCITY RANGE & TUNING (Cols 8-12) */}
-                    <div className="lg:col-span-5 flex flex-col gap-2 bg-black/40 border border-zinc-800/80 p-2.5">
+                    {/* VELOCITY RANGE & TUNING (Cols 6-9) */}
+                    <div className="lg:col-span-4 flex flex-col gap-2 bg-black/40 border border-zinc-800/80 p-2.5">
                       <div className="flex items-center justify-between">
                         <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-amber-400">
                           Velocity Range
@@ -858,6 +865,71 @@ export const MultiSetupModal: React.FC<MultiSetupModalProps> = ({
                             ))}
                           </select>
                         </div>
+                      </div>
+                    </div>
+
+                    {/* PART VOLUME & MIXER (Cols 10-12) */}
+                    <div className="lg:col-span-3 flex flex-col justify-between gap-2 bg-black/40 border border-zinc-800/80 p-2.5">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-orange-400 flex items-center gap-1">
+                          <Volume2 size={12} />
+                          <span>Part Volume</span>
+                        </span>
+                        <span className="text-[10px] font-mono font-bold text-zinc-300">
+                          {Math.round((slot.volume !== undefined ? slot.volume : 1.0) * 100)}%
+                        </span>
+                      </div>
+
+                      {/* Volume Slider & dB readout */}
+                      <div className="flex flex-col gap-1">
+                        <div className="flex items-center justify-between text-[8px] font-mono text-zinc-500">
+                          <span>-∞</span>
+                          <span className="text-orange-400 font-bold">
+                            {volumeToDbString(slot.volume !== undefined ? slot.volume : 1.0)}
+                          </span>
+                          <span>+2 dB</span>
+                        </div>
+                        <input
+                          type="range"
+                          min="0"
+                          max="1.2"
+                          step="0.01"
+                          value={slot.volume !== undefined ? slot.volume : 1.0}
+                          onChange={(e) => onUpdateSlot(index, { volume: parseFloat(e.target.value) })}
+                          className="w-full accent-orange-500 cursor-pointer h-1.5 bg-zinc-800 rounded-none"
+                          title="Drag to adjust part volume"
+                        />
+                      </div>
+
+                      {/* Mute, Solo & 0 dB Controls */}
+                      <div className="flex items-center gap-1.5 pt-1 border-t border-zinc-800/60">
+                        <button
+                          onClick={() => onUpdateSlot(index, { mute: !slot.mute })}
+                          className={`flex-1 py-1 text-[9px] font-mono font-bold uppercase border transition-all cursor-pointer ${
+                            slot.mute
+                              ? 'bg-red-600 text-white border-red-500 font-extrabold'
+                              : 'bg-zinc-900 hover:bg-zinc-800 text-zinc-400 border-zinc-700'
+                          }`}
+                        >
+                          Mute
+                        </button>
+                        <button
+                          onClick={() => onUpdateSlot(index, { solo: !slot.solo })}
+                          className={`flex-1 py-1 text-[9px] font-mono font-bold uppercase border transition-all cursor-pointer ${
+                            slot.solo
+                              ? 'bg-amber-500 text-black border-amber-400 font-extrabold'
+                              : 'bg-zinc-900 hover:bg-zinc-800 text-zinc-400 border-zinc-700'
+                          }`}
+                        >
+                          Solo
+                        </button>
+                        <button
+                          onClick={() => onUpdateSlot(index, { volume: 1.0 })}
+                          className="px-2 py-1 text-[9px] font-mono text-zinc-400 hover:text-white bg-zinc-900 hover:bg-zinc-800 border border-zinc-700 transition-colors cursor-pointer"
+                          title="Reset to Unity Gain (100% / 0 dB)"
+                        >
+                          0 dB
+                        </button>
                       </div>
                     </div>
                   </div>

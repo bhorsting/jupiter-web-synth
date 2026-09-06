@@ -39,6 +39,7 @@ import { GroupedPresetsView } from './components/GroupedPresetsView';
 import { MidiDebugger, MidiDebugEvent } from './components/MidiDebugger';
 import { MidiEditorModal } from './components/MidiEditorModal';
 import { MultiSetupModal } from './components/MultiSetupModal';
+import { MultiVolumeMixer } from './components/MultiVolumeMixer';
 import { SettingsProvider, useSettings } from './contexts/SettingsContext';
 import { googleSheetsService } from './services/GoogleSheetsService';
 import { indexedDBService } from './services/IndexedDBService';
@@ -82,6 +83,7 @@ function App() {
   const lastMultiIdRef = useRef<string | null>(null);
   const [midiLogs, setMidiLogs] = useState<{ id: number, text: string }[]>([]);
   const [showKeyboard, setShowKeyboard] = useState(false);
+  const [showMultiMixer, setShowMultiMixer] = useState(true);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   
   // Patch and Multi naming state
@@ -1876,6 +1878,11 @@ function App() {
     setMultis(updatedMultis);
     await indexedDBService.saveMultis(updatedMultis);
 
+    const currentMulti = updatedMultis.find(m => m.id === targetMultiId);
+    if (currentMulti && engineRef.current) {
+      engineRef.current.updateSlotVolumes(currentMulti);
+    }
+
     // If patch ID changed, we also want to load that patch's parameters so the knobs are in sync!
     if (fields.patchId) {
       const patch = patches.find(p => p.id === fields.patchId);
@@ -3034,6 +3041,20 @@ function App() {
                           <span>Multi Setup / Splits</span>
                         </button>
 
+                        {/* MULTI VOLUME MIXER TOGGLE BUTTON */}
+                        <button
+                          onClick={() => setShowMultiMixer(!showMultiMixer)}
+                          className={`px-2.5 py-1 text-[10px] font-mono font-bold uppercase tracking-wider flex items-center gap-1.5 transition-all border cursor-pointer ${
+                            showMultiMixer
+                              ? 'bg-zinc-800 text-orange-400 border-orange-500/80 shadow-[0_0_8px_rgba(249,115,22,0.25)]'
+                              : 'bg-zinc-900 text-zinc-400 border-zinc-700 hover:text-white'
+                          }`}
+                          title="Toggle Part Volume Mixer Console"
+                        >
+                          <Sliders size={12} />
+                          <span>Mixer {showMultiMixer ? '▲' : '▼'}</span>
+                        </button>
+
                         <div className="flex flex-wrap items-center gap-1.5">
                           {(multis.find(m => m.id === activeMultiId)?.slots || []).map((slot, index) => {
                             const slPatch = patches.find(p => p.id === slot.patchId);
@@ -3087,6 +3108,21 @@ function App() {
                 )}
               </div>
             )}
+
+        {/* MULTI VOLUME MIXER (Visible in Multi Mode when expanded) */}
+        {activeMultiId && showMultiMixer && (
+          <div className="shrink-0 border-b border-synth-border bg-zinc-950 z-10">
+            <MultiVolumeMixer
+              activeMulti={multis.find(m => m.id === activeMultiId) || null}
+              patches={patches}
+              selectedSlotIndex={selectedSlotIndex}
+              onSelectSlot={setSelectedSlotIndex}
+              onUpdateSlot={handleUpdateSlot}
+              engine={engineRef.current}
+              onOpenMultiSetup={() => setIsMultiSetupOpen(true)}
+            />
+          </div>
+        )}
 
         <div className={`flex-1 relative overflow-y-auto lg:overflow-hidden transition-all duration-300`}>
           {currentScreen === 'SYNTH' && (
@@ -3902,6 +3938,46 @@ function App() {
                                     <option key={ch} value={String(ch)}>CH {ch}</option>
                                   ))}
                                 </select>
+                              </div>
+
+                              <div className="flex flex-col gap-1">
+                                <div className="flex items-center justify-between">
+                                  <label className="text-[8px] font-bold uppercase tracking-widest text-zinc-500">Volume</label>
+                                  <span className="text-[9px] font-mono font-bold text-orange-400">
+                                    {Math.round((slot.volume !== undefined ? slot.volume : 1.0) * 100)}%
+                                  </span>
+                                </div>
+                                <div className="flex items-center gap-1">
+                                  <input
+                                    type="range"
+                                    min="0"
+                                    max="1.2"
+                                    step="0.01"
+                                    value={slot.volume !== undefined ? slot.volume : 1.0}
+                                    onChange={(e) => handleUpdateSlot(index, { volume: parseFloat(e.target.value) })}
+                                    className="w-16 accent-orange-500 cursor-pointer h-1.5 bg-zinc-800"
+                                    onClick={(e) => e.stopPropagation()}
+                                    title="Part Volume"
+                                  />
+                                  <button
+                                    onClick={(e) => { e.stopPropagation(); handleUpdateSlot(index, { mute: !slot.mute }); }}
+                                    className={`px-1.5 py-0.5 text-[8px] font-mono font-bold border transition-colors cursor-pointer ${
+                                      slot.mute ? 'bg-red-600 text-white border-red-500 font-extrabold' : 'bg-black text-zinc-400 border-zinc-800 hover:text-white'
+                                    }`}
+                                    title="Mute Part"
+                                  >
+                                    M
+                                  </button>
+                                  <button
+                                    onClick={(e) => { e.stopPropagation(); handleUpdateSlot(index, { solo: !slot.solo }); }}
+                                    className={`px-1.5 py-0.5 text-[8px] font-mono font-bold border transition-colors cursor-pointer ${
+                                      slot.solo ? 'bg-amber-500 text-black border-amber-400 font-extrabold' : 'bg-black text-zinc-400 border-zinc-800 hover:text-white'
+                                    }`}
+                                    title="Solo Part"
+                                  >
+                                    S
+                                  </button>
+                                </div>
                               </div>
 
                               <button

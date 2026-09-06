@@ -1798,6 +1798,7 @@ class SlotFXChain {
   public ctx: AudioContext;
   public subGain: GainNode;
   public outputGain: GainNode;
+  public analyser: AnalyserNode;
 
   // Chorus
   public chorus: DelayNode;
@@ -1882,6 +1883,11 @@ class SlotFXChain {
 
     this.outputGain = ctx.createGain();
     this.outputGain.gain.value = 1.0;
+
+    this.analyser = ctx.createAnalyser();
+    this.analyser.fftSize = 64;
+    this.analyser.smoothingTimeConstant = 0.5;
+    this.outputGain.connect(this.analyser);
 
     // Chorus
     this.chorus = ctx.createDelay(0.1);
@@ -2167,6 +2173,20 @@ class SlotFXChain {
 
     this.subGain.disconnect();
     this.outputGain.disconnect();
+    try { this.analyser.disconnect(); } catch (e) {}
+  }
+
+  public getLevel(): number {
+    if (!this.analyser) return 0;
+    const data = new Uint8Array(this.analyser.frequencyBinCount);
+    this.analyser.getByteTimeDomainData(data);
+    let sum = 0;
+    for (let i = 0; i < data.length; i++) {
+      const v = (data[i] - 128) / 128;
+      sum += v * v;
+    }
+    const rms = Math.sqrt(sum / data.length);
+    return Math.min(1, rms * 3.5);
   }
 
   public updateParams(params: VoiceParams, oldParams?: VoiceParams) {
@@ -2453,6 +2473,7 @@ export class JupiterEngine {
           chain.updateParams(patchParams);
           this.slotFXChains.push(chain);
         });
+        this.updateSlotVolumes(multi);
       }
     } else if (multi) {
       // Just update parameters for existing chains
@@ -2463,7 +2484,47 @@ export class JupiterEngine {
           this.slotFXChains[index].updateParams(patchParams);
         }
       });
+      this.updateSlotVolumes(multi);
     }
+  }
+
+  public getSlotLevel(slotIndex: number): number {
+    if (this.slotFXChains && this.slotFXChains[slotIndex]) {
+      return this.slotFXChains[slotIndex].getLevel();
+    }
+    return 0;
+  }
+
+  public setSlotVolume(slotIndex: number, volume: number) {
+    if (this.slotFXChains && this.slotFXChains[slotIndex] && this.ctx) {
+      const multi = this.activeMulti;
+      const slot = multi?.slots[slotIndex];
+      const hasSolo = multi?.slots.some(s => s.solo);
+      const isMuted = slot?.mute || (hasSolo && !slot?.solo);
+      const targetGain = isMuted ? 0 : Math.max(0, Math.min(1.5, volume));
+      try {
+        this.slotFXChains[slotIndex].outputGain.gain.setTargetAtTime(targetGain, this.ctx.currentTime, 0.015);
+      } catch (e) {
+        this.slotFXChains[slotIndex].outputGain.gain.value = targetGain;
+      }
+    }
+  }
+
+  public updateSlotVolumes(multi: Multi | null) {
+    if (!multi || !this.ctx) return;
+    const hasSolo = multi.slots.some(s => s.solo);
+    multi.slots.forEach((slot, index) => {
+      const chain = this.slotFXChains[index];
+      if (!chain) return;
+      const vol = slot.volume !== undefined ? slot.volume : 1.0;
+      const isMuted = slot.mute || (hasSolo && !slot.solo);
+      const targetGain = isMuted ? 0 : Math.max(0, Math.min(1.5, vol));
+      try {
+        chain.outputGain.gain.setTargetAtTime(targetGain, this.ctx!.currentTime, 0.02);
+      } catch (e) {
+        chain.outputGain.gain.value = targetGain;
+      }
+    });
   }
   
   // Arpeggiator State
