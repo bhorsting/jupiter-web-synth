@@ -38,6 +38,7 @@ import { SetlistMidiBacking } from './components/SetlistMidiBacking';
 import { GroupedPresetsView } from './components/GroupedPresetsView';
 import { MidiDebugger, MidiDebugEvent } from './components/MidiDebugger';
 import { MidiEditorModal } from './components/MidiEditorModal';
+import { MultiSetupModal } from './components/MultiSetupModal';
 import { SettingsProvider, useSettings } from './contexts/SettingsContext';
 import { googleSheetsService } from './services/GoogleSheetsService';
 import { indexedDBService } from './services/IndexedDBService';
@@ -107,6 +108,8 @@ function App() {
   const [midiDebugEvents, setMidiDebugEvents] = useState<MidiDebugEvent[]>([]);
   const [isMidiDebuggerOpen, setIsMidiDebuggerOpen] = useState(false);
   const [isMidiEditorOpen, setIsMidiEditorOpen] = useState(false);
+  const [isMultiSetupOpen, setIsMultiSetupOpen] = useState(false);
+  const [lastPlayedNote, setLastPlayedNote] = useState<{ note: number; name: string; velocity: number } | null>(null);
 
   const [patches, setPatches] = useState<Patch[]>([]);
   const [multis, setMultis] = useState<Multi[]>([]);
@@ -823,6 +826,11 @@ function App() {
     // 2. Schedule visual state in animation frame to prevent blocking audio thread
     requestAnimationFrame(() => {
       setActiveNotes(prev => (prev.includes(note) ? prev : [...prev, note]));
+      setLastPlayedNote({
+        note,
+        name: getNoteName(note),
+        velocity: Math.round(velocity * 127)
+      });
     });
     
     // 3. Debug logging only if debugger modal is open
@@ -1924,6 +1932,57 @@ function App() {
     }
   };
 
+  const handleDuplicateSlot = async (slotIndex: number) => {
+    if (!activeMultiId) return;
+    const activeMulti = multis.find(m => m.id === activeMultiId);
+    if (!activeMulti || !activeMulti.slots[slotIndex]) return;
+    const targetSlot = activeMulti.slots[slotIndex];
+    const clonedSlot: MultiSlot = { ...targetSlot };
+    const updatedMultis = multis.map(m => {
+      if (m.id !== activeMultiId) return m;
+      const newSlots = [...m.slots];
+      newSlots.splice(slotIndex + 1, 0, clonedSlot);
+      return { ...m, slots: newSlots };
+    });
+    setMultis(updatedMultis);
+    setSelectedSlotIndex(slotIndex + 1);
+
+    if (settings.googleSheetUrl && import.meta.env.VITE_GOOGLE_CLIENT_ID) {
+      try {
+        await googleSheetsService.saveToSheet(patches, updatedMultis, settings.googleSheetUrl);
+      } catch (e) {
+        console.error('Failed to sync slot duplication to sheet:', e);
+      }
+    }
+  };
+
+  const handleMoveSlot = async (slotIndex: number, direction: 'up' | 'down') => {
+    if (!activeMultiId) return;
+    const activeMulti = multis.find(m => m.id === activeMultiId);
+    if (!activeMulti) return;
+    const targetIndex = direction === 'up' ? slotIndex - 1 : slotIndex + 1;
+    if (targetIndex < 0 || targetIndex >= activeMulti.slots.length) return;
+
+    const newSlots = [...activeMulti.slots];
+    const [moved] = newSlots.splice(slotIndex, 1);
+    newSlots.splice(targetIndex, 0, moved);
+
+    const updatedMultis = multis.map(m => {
+      if (m.id !== activeMultiId) return m;
+      return { ...m, slots: newSlots };
+    });
+    setMultis(updatedMultis);
+    setSelectedSlotIndex(targetIndex);
+
+    if (settings.googleSheetUrl && import.meta.env.VITE_GOOGLE_CLIENT_ID) {
+      try {
+        await googleSheetsService.saveToSheet(patches, updatedMultis, settings.googleSheetUrl);
+      } catch (e) {
+        console.error('Failed to sync slot move to sheet:', e);
+      }
+    }
+  };
+
   const handleDeleteMulti = async (id: string) => {
     showCustomConfirm('DELETE MULTI PRESET', 'Delete this multi preset?', async () => {
       const updatedMultis = multis.filter(m => m.id !== id);
@@ -2919,7 +2978,18 @@ function App() {
                         <span className="text-[10px] font-mono text-zinc-400 uppercase tracking-widest">
                           Active Multi: <span className="text-white font-bold font-sans">{multis.find(m => m.id === activeMultiId)?.name}</span>
                         </span>
-                        <div className="flex flex-wrap gap-1.5">
+
+                        {/* Dedicated MULTI SETUP Button directly available in Multi Mode */}
+                        <button
+                          onClick={() => setIsMultiSetupOpen(true)}
+                          className="px-2.5 py-1 bg-orange-500 hover:bg-orange-400 text-black text-[10px] font-mono font-black uppercase tracking-wider flex items-center gap-1.5 shadow-[0_0_12px_rgba(249,115,22,0.35)] transition-all cursor-pointer"
+                          title="Open Multi Setup, Key Splits & Velocity Ranges Panel"
+                        >
+                          <Layers size={12} />
+                          <span>Multi Setup / Splits</span>
+                        </button>
+
+                        <div className="flex flex-wrap items-center gap-1.5">
                           {(multis.find(m => m.id === activeMultiId)?.slots || []).map((slot, index) => {
                             const slPatch = patches.find(p => p.id === slot.patchId);
                             return (
@@ -2931,16 +3001,39 @@ function App() {
                                     ? 'bg-orange-500 text-black border-orange-500 font-bold'
                                     : 'bg-zinc-900 text-zinc-400 border-zinc-800 hover:border-zinc-700'
                                 }`}
+                                title={`Edit Sound Controls for Part ${index + 1}`}
                               >
                                 Part {index + 1}: {slPatch?.name || 'None'}
                               </button>
                             );
                           })}
+
+                          <button
+                            onClick={() => handleAddSlot()}
+                            className="px-2 py-0.5 text-[9px] font-mono border border-dashed border-zinc-700 text-zinc-400 hover:text-white hover:border-zinc-500 transition-all rounded-none flex items-center gap-1"
+                            title="Add Part to Multi"
+                          >
+                            <Plus size={10} /> Part
+                          </button>
                         </div>
                       </div>
                     ) : (
-                      <div className="text-[10px] font-mono text-zinc-400 uppercase tracking-widest">
-                        Active Patch: <span className="text-white font-bold font-sans">{patches.find(p => p.id === activePatchId)?.name || 'UNSAVED'}</span>
+                      <div className="flex items-center gap-3">
+                        <div className="text-[10px] font-mono text-zinc-400 uppercase tracking-widest">
+                          Active Patch: <span className="text-white font-bold font-sans">{patches.find(p => p.id === activePatchId)?.name || 'UNSAVED'}</span>
+                        </div>
+                        {multis.length > 0 && (
+                          <button
+                            onClick={() => {
+                              loadMulti(multis[0]);
+                              setIsMultiSetupOpen(true);
+                            }}
+                            className="text-[10px] font-mono text-zinc-400 hover:text-orange-400 flex items-center gap-1 border border-zinc-800 hover:border-zinc-700 px-2 py-0.5"
+                            title="Switch to Multi Mode and Open Setup"
+                          >
+                            <Layers size={10} /> Multi Setup
+                          </button>
+                        )}
                       </div>
                     )}
                   </>
@@ -3195,6 +3288,7 @@ function App() {
                     onUpdatePatchGroup={handleUpdatePatchGroup}
                     onUpdateMultiGroup={handleUpdateMultiGroup}
                     onAutoCategorizeAll={handleAutoCategorizeAll}
+                    onOpenMultiSetup={() => setIsMultiSetupOpen(true)}
                     showCustomPrompt={showCustomPrompt}
                   />
                 )}
@@ -3561,6 +3655,12 @@ function App() {
                       
                       <div className="flex gap-2">
                         <button
+                          onClick={() => setIsMultiSetupOpen(true)}
+                          className="px-4 py-2 bg-orange-500 hover:bg-orange-400 text-black font-bold uppercase tracking-widest text-[9px] flex items-center gap-1.5 shadow-lg shadow-orange-500/20 cursor-pointer"
+                        >
+                          <Layers size={12} /> Open Full Setup & Splits Panel
+                        </button>
+                        <button
                           onClick={handleAddSlot}
                           className="px-4 py-2 bg-zinc-900 border border-zinc-800 hover:border-zinc-600 text-white font-bold uppercase tracking-widest text-[9px] flex items-center gap-1.5"
                         >
@@ -3906,6 +4006,29 @@ function App() {
           onSimulateNoteOn={handleNoteOn}
           onSimulateNoteOff={handleNoteOff}
           onSimulateCC={handleMidiCC}
+        />
+
+        <MultiSetupModal
+          isOpen={isMultiSetupOpen}
+          onClose={() => setIsMultiSetupOpen(false)}
+          activeMulti={multis.find(m => m.id === activeMultiId) || multis[0] || null}
+          multis={multis}
+          patches={patches}
+          activeNotes={activeNotes}
+          lastPlayedNote={lastPlayedNote}
+          selectedSlotIndex={selectedSlotIndex}
+          onSelectSlot={setSelectedSlotIndex}
+          onUpdateSlot={handleUpdateSlot}
+          onAddSlot={handleAddSlot}
+          onDeleteSlot={handleDeleteSlot}
+          onDuplicateSlot={handleDuplicateSlot}
+          onMoveSlot={handleMoveSlot}
+          onSelectMulti={loadMulti}
+          onCreateMulti={handleCreateMulti}
+          onRenameMulti={handleRenameMulti}
+          onNoteOn={handleNoteOn}
+          onNoteOff={handleNoteOff}
+          globalMidiChannel={settings.midiChannel}
         />
 
         {/* Custom Dialog Overlay to bypass sandbox restrictions */}

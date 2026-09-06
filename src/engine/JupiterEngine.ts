@@ -96,6 +96,7 @@ class Voice {
   public midiNote: number | null = null;
   public originalMidiNote: number | null = null;
   public currentPatchId: string | null = null;
+  public currentSlotIndex: number = -1;
   public midiChannel: number = 0;
   public startTime: number = 0;
   public isReleasing: boolean = false;
@@ -3788,11 +3789,18 @@ export class JupiterEngine {
           }
         }
 
+        const lowNote = slot.lowNote ?? 0;
+        const highNote = slot.highNote ?? 127;
+        const lowVelocity = slot.lowVelocity ?? 0;
+        const highVelocity = slot.highVelocity ?? 127;
+        const lowMapVelocity = slot.lowMapVelocity ?? 0;
+        const highMapVelocity = slot.highMapVelocity ?? 127;
+
         if (
-          midiNote >= slot.lowNote &&
-          midiNote <= slot.highNote &&
-          incomingVel127 >= slot.lowVelocity &&
-          incomingVel127 <= slot.highVelocity
+          midiNote >= lowNote &&
+          midiNote <= highNote &&
+          incomingVel127 >= lowVelocity &&
+          incomingVel127 <= highVelocity
         ) {
           if (patch.params.arpEnabled) {
             const key = `slot_${index}`;
@@ -3824,16 +3832,16 @@ export class JupiterEngine {
 
             // Map velocity
             let mappedVelocity = velocity;
-            if (slot.highVelocity !== slot.lowVelocity) {
-              const t = (incomingVel127 - slot.lowVelocity) / (slot.highVelocity - slot.lowVelocity);
-              const mappedVel127 = slot.lowMapVelocity + t * (slot.highMapVelocity - slot.lowMapVelocity);
+            if (highVelocity !== lowVelocity) {
+              const t = (incomingVel127 - lowVelocity) / (highVelocity - lowVelocity);
+              const mappedVel127 = lowMapVelocity + t * (highMapVelocity - lowMapVelocity);
               mappedVelocity = Math.max(0, Math.min(127, mappedVel127)) / 127;
             } else {
-              mappedVelocity = slot.lowMapVelocity / 127;
+              mappedVelocity = lowMapVelocity / 127;
             }
 
-            // Trigger note internally with specific patch, transpose info, and channel
-            this.internalNoteOn(playedNote, mappedVelocity, slot.patchId, patch.params, midiNote, effectiveChannel || 0);
+            // Trigger note internally with specific patch, transpose info, channel, and slotIndex
+            this.internalNoteOn(playedNote, mappedVelocity, slot.patchId, patch.params, midiNote, effectiveChannel || 0, index);
           }
         }
       });
@@ -3890,7 +3898,8 @@ export class JupiterEngine {
     patchId?: string | null, 
     patchParams?: VoiceParams,
     originalMidiNote?: number,
-    channel: number = 0
+    channel: number = 0,
+    slotIndex?: number
   ) {
     if (!this.ctx) return;
     
@@ -3948,13 +3957,16 @@ export class JupiterEngine {
 
     // Set voice tracking fields
     voice.currentPatchId = patchId || null;
+    voice.currentSlotIndex = slotIndex !== undefined ? slotIndex : -1;
     voice.originalMidiNote = originalMidiNote !== undefined ? originalMidiNote : midiNote;
 
-    // Apply voice-specific output routing via O(1) slot Map lookup
-    if (this.activeMulti && patchId) {
-      const slotIndex = this.slotIndexByPatchIdMap.has(patchId) ? this.slotIndexByPatchIdMap.get(patchId)! : -1;
-      if (slotIndex !== -1 && this.slotFXChains[slotIndex]) {
-        voice.reconnectOutput(this.slotFXChains[slotIndex].subGain);
+    // Apply voice-specific output routing via explicit slotIndex or O(1) slot Map lookup
+    if (this.activeMulti && slotIndex !== undefined && slotIndex >= 0 && this.slotFXChains[slotIndex]) {
+      voice.reconnectOutput(this.slotFXChains[slotIndex].subGain);
+    } else if (this.activeMulti && patchId) {
+      const idx = this.slotIndexByPatchIdMap.has(patchId) ? this.slotIndexByPatchIdMap.get(patchId)! : -1;
+      if (idx !== -1 && this.slotFXChains[idx]) {
+        voice.reconnectOutput(this.slotFXChains[idx].subGain);
       } else {
         voice.reconnectOutput(this.mainGain!);
       }

@@ -18,6 +18,7 @@ interface GroupedPresetsViewProps {
   onUpdatePatchGroup: (patchId: string, groupName: string | undefined) => void;
   onUpdateMultiGroup: (multiId: string, groupName: string | undefined) => void;
   onAutoCategorizeAll?: () => void;
+  onOpenMultiSetup?: () => void;
   showCustomPrompt: (title: string, message: string, defaultValue: string, onConfirm: (val: string) => void) => void;
 }
 
@@ -37,6 +38,7 @@ export const GroupedPresetsView: React.FC<GroupedPresetsViewProps> = ({
   onUpdatePatchGroup,
   onUpdateMultiGroup,
   onAutoCategorizeAll,
+  onOpenMultiSetup,
   showCustomPrompt,
 }) => {
   const [selectedGroupFilter, setSelectedGroupFilter] = useState<string>('ALL');
@@ -212,6 +214,16 @@ export const GroupedPresetsView: React.FC<GroupedPresetsViewProps> = ({
             <FolderPlus size={11} /> + New Group
           </button>
 
+          {type === 'MULTIS' && onOpenMultiSetup && (
+            <button
+              onClick={onOpenMultiSetup}
+              className="px-2.5 py-1 text-[9px] font-bold uppercase tracking-wider transition-all border bg-orange-500 hover:bg-orange-400 text-black border-orange-500 flex items-center gap-1 shadow-sm ml-1"
+              title="Open Multi Setup & Key Splits Panel"
+            >
+              <Layers size={11} /> Multi Setup / Splits
+            </button>
+          )}
+
           {onAutoCategorizeAll && (
             <button
               onClick={onAutoCategorizeAll}
@@ -298,6 +310,7 @@ export const GroupedPresetsView: React.FC<GroupedPresetsViewProps> = ({
                         onRename={() => (type === 'PATCHES' ? onRenamePatch(item.id, item.name) : onRenameMulti(item.id, item.name))}
                         onDelete={() => (type === 'PATCHES' ? onDeletePatch(item.id) : onDeleteMulti(item.id))}
                         onUpdateGroup={(g) => (type === 'PATCHES' ? onUpdatePatchGroup(item.id, g) : onUpdateMultiGroup(item.id, g))}
+                        onOpenMultiSetup={onOpenMultiSetup}
                         showCustomPrompt={showCustomPrompt}
                       />
                     ))}
@@ -320,6 +333,7 @@ export const GroupedPresetsView: React.FC<GroupedPresetsViewProps> = ({
               onRename={() => (type === 'PATCHES' ? onRenamePatch(item.id, item.name) : onRenameMulti(item.id, item.name))}
               onDelete={() => (type === 'PATCHES' ? onDeletePatch(item.id) : onDeleteMulti(item.id))}
               onUpdateGroup={(g) => (type === 'PATCHES' ? onUpdatePatchGroup(item.id, g) : onUpdateMultiGroup(item.id, g))}
+              onOpenMultiSetup={onOpenMultiSetup}
               showCustomPrompt={showCustomPrompt}
             />
           ))}
@@ -338,6 +352,7 @@ interface PresetCardProps {
   onRename: () => void;
   onDelete: () => void;
   onUpdateGroup: (groupName: string | undefined) => void;
+  onOpenMultiSetup?: () => void;
   showCustomPrompt: (title: string, message: string, defaultValue: string, onConfirm: (val: string) => void) => void;
 }
 
@@ -352,6 +367,7 @@ const PresetCard: React.FC<PresetCardProps> = ({
   onRename,
   onDelete,
   onUpdateGroup,
+  onOpenMultiSetup,
   showCustomPrompt,
 }) => {
   const [isHolding, setIsHolding] = useState(false);
@@ -509,6 +525,20 @@ const PresetCard: React.FC<PresetCardProps> = ({
             )}
             <Edit2 size={11} className={isHolding ? 'text-orange-400' : ''} />
           </button>
+
+          {type === 'MULTIS' && onOpenMultiSetup && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onSelect();
+                onOpenMultiSetup();
+              }}
+              className="opacity-70 hover:opacity-100 sm:opacity-0 sm:group-hover:opacity-100 p-1.5 hover:bg-orange-500/20 text-orange-400 rounded-none transition-all touch-manipulation"
+              title="Configure Parts, Splits & Velocity Ranges"
+            >
+              <Layers size={11} />
+            </button>
+          )}
 
           <button
             id={`preset-delete-${item.id}`}
